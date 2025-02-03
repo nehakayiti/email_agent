@@ -9,3 +9,4 @@ google-api-python-client==2.121.0
 supabase==2.4.0
 pytest==8.0.2
 httpx>=0.24.0,<=0.26.0
+python-jose[cryptography]==3.3.0

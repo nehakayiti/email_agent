@@ -19,6 +19,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "app": settings.PROJECT_NAME,
+        "version": settings.VERSION,
+        "docs_url": "/docs"
+    }
+
 # Include routers
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(emails.router, prefix="/emails", tags=["emails"])
