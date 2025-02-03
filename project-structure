@@ -1,0 +1,29 @@
+agentmailbox/
+├── backend/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── dependencies.py
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   └── user.py
+│   │   ├── routers/
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py
+│   │   │   └── emails.py
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── gmail.py
+│   │   │   └── email_processor.py
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       └── security.py
+│   ├── tests/
+│   │   ├── __init__.py
+│   │   ├── conftest.py
+│   │   ├── test_auth.py
+│   │   └── test_emails.py
+│   ├── requirements.txt
+│   └── .env.example
+└── README.md 
