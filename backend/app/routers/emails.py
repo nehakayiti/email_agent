@@ -1,8 +1,10 @@
 from fastapi import APIRouter
+from ..services.gmail import fetch_emails_from_gmail
 
 router = APIRouter()
 
 @router.get("/")
 async def get_emails():
-    """Placeholder for email fetching endpoint"""
-    return {"message": "Email fetching not implemented yet"} 
+    """Return emails for morning review"""
+    emails = fetch_emails_from_gmail()
+    return {"emails": emails} 

@@ -1,0 +1,23 @@
+# Instructions to run this project & test
+Backend:
+   1. Clone the repository:
+      git clone <repository-url>
+
+   2. Navigate to the project directory:
+      cd <project-directory>/backend
+
+   3. Create a new virtual environment:
+      python -m venv venv  # Create a new virtual environment
+
+   4. Activate the virtual environment:
+      source venv/bin/activate  # For Linux/Mac
+      venv\Scripts\activate  # For Windows
+
+   5. Install dependencies:
+      pip install -r requirements.txt  # Reinstall dependencies
+
+   6. Run the application:
+      uvicorn app.main:app --reload  # Start the FastAPI application
+
+   7. Run tests:
+      pytest  # Execute the test suite
