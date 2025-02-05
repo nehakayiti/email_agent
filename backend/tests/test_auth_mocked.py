@@ -167,3 +167,67 @@ def test_google_callback_missing_code(client: TestClient):
     response = client.get("/auth/callback")
     assert response.status_code == 422
     assert "detail" in response.json()
+
+def test_google_callback_upsert_error(
+    client: TestClient,
+    mock_flow,
+    mock_credentials,
+    mock_supabase,
+    mock_userinfo_session,
+    mock_threadpool
+):
+    """Test callback when Supabase upsert returns an error"""
+    # Set up the mock flow to return our mock credentials
+    mock_flow.fetch_token = MagicMock()  # Mock the fetch_token method
+    mock_flow.credentials = mock_credentials
+
+    # Set up the Supabase mock to simulate an error response from upsert.
+    mock_table = MagicMock(name="mock_table")
+    error_response = MagicMock(name="mock_execute_response")
+    error_response.error = "Test error"
+    mock_table.upsert.return_value.execute.return_value = error_response
+    mock_supabase.table = MagicMock(return_value=mock_table)
+
+    response = client.get(
+        "/auth/callback",
+        params={
+            "code": "mock_auth_code",
+            "state": "mock_state",
+            "scope": "mock_scope"
+        }
+    )
+
+    # Expect a 500 response with an error message in the JSON body.
+    assert response.status_code == 500
+    response_data = response.json()
+    assert "error" in response_data
+    assert response_data["error"] == "Test error"
+
+def test_google_callback_fetch_token_exception(
+    client: TestClient,
+    mock_flow,
+    mock_credentials,
+    mock_supabase,
+    mock_userinfo_session,
+    mock_threadpool
+):
+    """Test callback when flow.fetch_token raises an exception"""
+    # Simulate an exception when fetch_token is called.
+    mock_flow.fetch_token = MagicMock(side_effect=Exception("Token fetch error"))
+    
+    # Note: Since fetch_token fails, credentials are not used.
+    response = client.get(
+        "/auth/callback",
+        params={
+            "code": "mock_auth_code",
+            "state": "mock_state",
+            "scope": "mock_scope"
+        }
+    )
+    
+    # When an exception is raised, the endpoint catches it and raises an HTTPException(400)
+    # TestClient returns a JSON body containing the "detail" key.
+    assert response.status_code == 400
+    response_data = response.json()
+    assert "detail" in response_data
+    assert response_data["detail"] == "Token fetch error"
