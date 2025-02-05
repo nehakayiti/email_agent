@@ -13,13 +13,16 @@ class Settings(BaseSettings):
     # Supabase Settings
     SUPABASE_URL: str
     SUPABASE_KEY: str
-    
+    SUPABASE_SERVICE_ROLE_KEY: str
     # Security
     SECRET_KEY: str
     
     class Config:
         env_file = ".env"
+        case_sensitive = True
 
 @lru_cache()
 def get_settings():
-    return Settings() 
+    return Settings()
+
+settings = get_settings() 

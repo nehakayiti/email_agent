@@ -29,4 +29,11 @@ def get_supabase_client() -> Client:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database connection error"
-        ) 
+        )
+
+def get_supabase_admin_client():
+    client = create_client(
+        settings.SUPABASE_URL,
+        settings.SUPABASE_SERVICE_ROLE_KEY  # Use service key instead of anon key
+    )
+    return client 
