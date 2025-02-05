@@ -48,7 +48,7 @@ async def login():
         include_granted_scopes='true',
         prompt='consent'
     )
-    return RedirectResponse(authorization_url)
+    return RedirectResponse(url=authorization_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 @router.get("/callback")
 async def callback(
