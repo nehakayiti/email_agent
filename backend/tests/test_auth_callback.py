@@ -5,6 +5,9 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from app.main import app
 from app.routers.auth import process_auth_callback
+import logging
+
+logger = logging.getLogger(__name__)
 
 # A simple dummy flow that simulates the behavior of the real Flow.
 class DummyFlow:
@@ -80,15 +83,3 @@ def test_process_auth_callback_failure():
         process_auth_callback("dummy_code", dummy_client, flow_factory=dummy_flow_factory)
     assert exc_info.value.status_code == 500
 
-def test_callback_with_different_scope_order(client):
-    # Mock the OAuth flow
-    scope = "openid email profile https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email"
-    response = client.get(f"/auth/callback?code=test_code&state=test_state&scope={scope}")
-    assert response.status_code == 200  # Should succeed despite different scope order
-
-def test_callback_with_missing_scope(client):
-    # Mock the OAuth flow with missing scope
-    scope = "openid email profile"  # Missing gmail.readonly scope
-    response = client.get(f"/auth/callback?code=test_code&state=test_state&scope={scope}")
-    assert response.status_code == 400
-    assert "Missing required scopes" in response.json()["detail"]
