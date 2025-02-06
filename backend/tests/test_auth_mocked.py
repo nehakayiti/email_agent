@@ -138,7 +138,10 @@ def test_google_callback_success(
     
     # Set up the Supabase mock to track calls
     mock_table = MagicMock(name="mock_table")
-    mock_table.upsert.return_value.execute.return_value = MagicMock(error=None)
+    # Mock the select query for checking existing user
+    mock_table.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+    # Mock the insert for new user
+    mock_table.insert.return_value.execute.return_value = MagicMock(error=None)
     mock_supabase.table = MagicMock(return_value=mock_table)
     
     response = client.get(
@@ -155,11 +158,13 @@ def test_google_callback_success(
     assert "access_token" in response_data
     assert "token_type" in response_data
     assert response_data["token_type"] == "bearer"
+    assert response_data["status"] == "new_user_created"
+    assert response_data["user"]["email"] == "test@example.com"
     
     # Verify our mocks were called correctly
     mock_flow.fetch_token.assert_called_once_with(code="mock_auth_code")
-    if not mock_table.upsert.called:
-        raise AssertionError("Expected upsert() to be called on the table mock.")
+    mock_table.select.assert_called_once()
+    mock_table.insert.assert_called_once()
 
 def test_google_callback_missing_code(client: TestClient):
     """Test callback fails when code is missing"""
@@ -176,16 +181,19 @@ def test_google_callback_upsert_error(
     mock_userinfo_session,
     mock_threadpool
 ):
-    """Test callback when Supabase upsert returns an error"""
+    """Test callback when Supabase insert returns an error"""
     # Set up the mock flow to return our mock credentials
-    mock_flow.fetch_token = MagicMock()  # Mock the fetch_token method
+    mock_flow.fetch_token = MagicMock()
     mock_flow.credentials = mock_credentials
 
-    # Set up the Supabase mock to simulate an error response from upsert.
+    # Set up the Supabase mock to simulate an error response
     mock_table = MagicMock(name="mock_table")
+    # Mock the select query
+    mock_table.select.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+    # Mock the insert with error
     error_response = MagicMock(name="mock_execute_response")
     error_response.error = "Test error"
-    mock_table.upsert.return_value.execute.return_value = error_response
+    mock_table.insert.return_value.execute.return_value = error_response
     mock_supabase.table = MagicMock(return_value=mock_table)
 
     response = client.get(
@@ -197,7 +205,6 @@ def test_google_callback_upsert_error(
         }
     )
 
-    # Expect a 500 response with an error message in the JSON body.
     assert response.status_code == 500
     response_data = response.json()
     assert "error" in response_data
@@ -225,9 +232,10 @@ def test_google_callback_fetch_token_exception(
         }
     )
     
-    # When an exception is raised, the endpoint catches it and raises an HTTPException(400)
-    # TestClient returns a JSON body containing the "detail" key.
+    # The endpoint now returns a JSONResponse with error and message
     assert response.status_code == 400
     response_data = response.json()
-    assert "detail" in response_data
-    assert response_data["detail"] == "Token fetch error"
+    assert "error" in response_data
+    assert "message" in response_data
+    assert response_data["error"] == "Token fetch error"
+    assert response_data["message"] == "Authentication failed"

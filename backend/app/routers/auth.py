@@ -66,11 +66,6 @@ async def callback(
         credentials = flow.credentials
         
         # Get user info from credentials
-        import google.oauth2.credentials
-        import google.auth.transport.requests
-        import requests
-
-        # Create authorized session
         session = requests.Session()
         session.headers = {
             'Authorization': f'Bearer {credentials.token}',
@@ -80,9 +75,15 @@ async def callback(
         userinfo_response = session.get('https://www.googleapis.com/oauth2/v3/userinfo')
         userinfo = userinfo_response.json()
         
-        # Build user data dict from userinfo response
+        email = userinfo["email"]
+        
+        # Check if user already exists
+        existing_user = await run_in_threadpool(
+            lambda: supabase.table("users").select("*").eq("email", email).execute()
+        )
+        
         user_data = {
-            "email": userinfo["email"],
+            "email": email,
             "name": userinfo.get("name", ""),
             "credentials": {
                 "token": credentials.token,
@@ -92,23 +93,52 @@ async def callback(
                 "client_secret": credentials.client_secret,
             }
         }
-        
-        # Run the blocking upsert call in a threadpool with admin client
-        response = await run_in_threadpool(
-            lambda: supabase.table("users").upsert(user_data).execute()
-        )
+
+        if existing_user.data and len(existing_user.data) > 0:
+            # Update existing user's credentials
+            response = await run_in_threadpool(
+                lambda: supabase.table("users")
+                .update({"credentials": user_data["credentials"]})
+                .eq("email", email)
+                .execute()
+            )
+            status_message = "existing_user_updated"
+        else:
+            # Create new user
+            response = await run_in_threadpool(
+                lambda: supabase.table("users").insert(user_data).execute()
+            )
+            status_message = "new_user_created"
+            
         if hasattr(response, 'error') and response.error is not None:
             return JSONResponse(
-                content={"error": str(response.error)},
+                content={
+                    "error": str(response.error),
+                    "message": "Failed to update user information"
+                },
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        access_token = create_access_token(data={"sub": user_data["email"]})
-        return {"access_token": access_token, "token_type": "bearer"}
+        access_token = create_access_token(data={"sub": email})
+        return {
+            "access_token": access_token, 
+            "token_type": "bearer",
+            "status": status_message,
+            "user": {
+                "email": email,
+                "name": user_data["name"]
+            }
+        }
         
     except Exception as e:
         logger.error(f"Callback error: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        return JSONResponse(
+            content={
+                "error": str(e),
+                "message": "Authentication failed"
+            },
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
 
 # Helper that contains most of the callback logic.
 def process_auth_callback(code: str, supabase_client, flow_factory=create_flow):
