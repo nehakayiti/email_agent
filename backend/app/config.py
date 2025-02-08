@@ -10,10 +10,9 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/callback"
     
-    # Supabase Settings
-    SUPABASE_URL: str
-    SUPABASE_KEY: str
-    SUPABASE_SERVICE_ROLE_KEY: str
+    # Database Settings
+    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/email_agent_db"
+    
     # Security
     SECRET_KEY: str
     

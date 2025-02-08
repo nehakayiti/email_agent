@@ -1,18 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import RedirectResponse, JSONResponse
+from sqlalchemy.orm import Session
 from google_auth_oauthlib.flow import Flow
 from ..config import get_settings
-from ..dependencies import get_supabase_client, get_supabase_admin_client
+from ..db import get_db
+from ..models.user import User
 from ..utils.security import create_access_token
-from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 import logging
-import google.oauth2.credentials
-import google.auth.transport.requests
 import requests
+from sqlalchemy.exc import SQLAlchemyError
 
 logger = logging.getLogger(__name__)
 
+# Add debug print
+print("\nCreating auth router")
 router = APIRouter()
 settings = get_settings()
 
@@ -24,6 +26,7 @@ GOOGLE_SCOPES = [
 ]
 
 def create_flow():
+    """Create and configure Google OAuth flow"""
     flow = Flow.from_client_config(
         {
             "web": {
@@ -48,7 +51,10 @@ async def login():
         include_granted_scopes='true',
         prompt='consent'
     )
-    return RedirectResponse(url=authorization_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+    return RedirectResponse(
+        url=authorization_url, 
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT
+    )
 
 @router.get("/callback")
 async def callback(
@@ -56,113 +62,83 @@ async def callback(
     code: str = Query(...),
     state: str = Query(...),
     scope: str = Query(...),
-    supabase = Depends(get_supabase_admin_client)
+    db: Session = Depends(get_db)
 ):
-    """Handle OAuth callback and create user session"""
+    """Handle OAuth callback and create/update user"""
     try:
+        # Get Google credentials
         flow = create_flow()
         flow.fetch_token(code=code)
-        
         credentials = flow.credentials
         
-        # Get user info from credentials
-        session = requests.Session()
-        session.headers = {
-            'Authorization': f'Bearer {credentials.token}',
-        }
-
         # Get user info from Google
-        userinfo_response = session.get('https://www.googleapis.com/oauth2/v3/userinfo')
+        userinfo_response = requests.get(
+            'https://www.googleapis.com/oauth2/v3/userinfo',
+            headers={'Authorization': f'Bearer {credentials.token}'}
+        )
+        if userinfo_response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Failed to get user info from Google"
+            )
+            
         userinfo = userinfo_response.json()
-        
         email = userinfo["email"]
         
-        # Check if user already exists
-        existing_user = await run_in_threadpool(
-            lambda: supabase.table("users").select("*").eq("email", email).execute()
-        )
-        
-        user_data = {
-            "email": email,
-            "name": userinfo.get("name", ""),
-            "credentials": {
-                "token": credentials.token,
-                "refresh_token": credentials.refresh_token,
-                "token_uri": credentials.token_uri,
-                "client_id": credentials.client_id,
-                "client_secret": credentials.client_secret,
-            }
-        }
-
-        if existing_user.data and len(existing_user.data) > 0:
-            # Update existing user's credentials
-            response = await run_in_threadpool(
-                lambda: supabase.table("users")
-                .update({"credentials": user_data["credentials"]})
-                .eq("email", email)
-                .execute()
-            )
-            status_message = "existing_user_updated"
-        else:
-            # Create new user
-            response = await run_in_threadpool(
-                lambda: supabase.table("users").insert(user_data).execute()
-            )
-            status_message = "new_user_created"
+        try:
+            # Try to get existing user
+            user = db.query(User).filter(User.email == email).first()
             
-        if hasattr(response, 'error') and response.error is not None:
-            return JSONResponse(
-                content={
-                    "error": str(response.error),
-                    "message": "Failed to update user information"
-                },
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-        access_token = create_access_token(data={"sub": email})
-        return {
-            "access_token": access_token, 
-            "token_type": "bearer",
-            "status": status_message,
-            "user": {
+            user_data = {
                 "email": email,
-                "name": user_data["name"]
+                "name": userinfo.get("name", ""),
+                "credentials": {
+                    "token": credentials.token,
+                    "refresh_token": credentials.refresh_token,
+                    "token_uri": credentials.token_uri,
+                    "client_id": credentials.client_id,
+                    "client_secret": credentials.client_secret,
+                }
             }
-        }
-        
+            
+            if user:
+                # Update existing user
+                for key, value in user_data.items():
+                    setattr(user, key, value)
+                status_message = "existing_user_updated"
+            else:
+                # Create new user
+                user = User(**user_data)
+                db.add(user)
+                status_message = "new_user_created"
+                
+            db.commit()
+            db.refresh(user)
+            
+            # Create JWT access token
+            access_token = create_access_token(data={"sub": email})
+            
+            return {
+                "access_token": access_token,
+                "token_type": "bearer",
+                "status": status_message,
+                "user": {
+                    "email": email,
+                    "name": user_data["name"]
+                }
+            }
+            
+        except SQLAlchemyError as e:
+            db.rollback()
+            logger.error(f"Database error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update user information"
+            )
+            
     except Exception as e:
-        logger.error(f"Callback error: {str(e)}")
-        return JSONResponse(
-            content={
-                "error": str(e),
-                "message": "Authentication failed"
-            },
-            status_code=status.HTTP_400_BAD_REQUEST
-        )
-
-# Helper that contains most of the callback logic.
-def process_auth_callback(code: str, supabase_client, flow_factory=create_flow):
-    flow = flow_factory()
-    flow.redirect_uri = settings.GOOGLE_REDIRECT_URI
-    flow.fetch_token(code=code)
-    credentials = flow.credentials
-
-    user_data = {
-        "email": credentials.id_token["email"],
-        "name": credentials.id_token.get("name", ""),
-        "credentials": {
-            "token": credentials.token,
-            "refresh_token": credentials.refresh_token,
-            "token_uri": credentials.token_uri,
-            "client_id": credentials.client_id,
-            "client_secret": credentials.client_secret,
-        },
-    }
-    response = supabase_client.table("users").upsert(user_data).execute()
-    if hasattr(response, "error") and response.error is not None:
+        logger.error(f"Authentication error: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(response.error),
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
         )
-    access_token = create_access_token(data={"sub": user_data["email"]})
-    return {"access_token": access_token, "token_type": "bearer"}

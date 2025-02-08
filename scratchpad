@@ -1,4 +1,4 @@
-Create a new project that follows the PRD below. I want to primarily use python, fastAPI for the backend. Lets use supabase for the DB. I want to use Next.js for the front end. 
+Create a new project that follows the PRD below. I want to primarily use python, fastAPI for the backend. Lets use postgres for the DB. I want to use Next.js for the front end. 
 
 PRD:
 I want to create an agent
