@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, DateTime, JSON, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 import uuid
 from ..db import Base
 
@@ -11,4 +12,7 @@ class User(Base):
     name = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_sign_in = Column(DateTime(timezone=True))
-    credentials = Column(JSON) 
+    credentials = Column(JSON)
+    
+    # Add the relationship to emails
+    emails = relationship("Email", back_populates="user", cascade="all, delete-orphan") 

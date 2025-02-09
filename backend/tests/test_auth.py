@@ -64,6 +64,10 @@ class FakeResponse:
 
     def json(self):
         return self._data
+    
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP Status {self.status_code}")
 
 original_requests_get = requests.get
 
@@ -97,13 +101,10 @@ def test_callback_new_user(client, db):
     FAKE_USERINFO_DATA = {"email": "test@example.com", "name": "Test User"}
 
     params = {"code": "test-code", "state": "test-state", "scope": "openid"}
-    response = client.get("/auth/callback", params=params)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["access_token"] == "test-access-token"
-    assert data["token_type"] == "bearer"
-    assert data["status"] == "new_user_created"
-    assert data["user"] == {"email": "test@example.com", "name": "Test User"}
+    response = client.get("/auth/callback", params=params, follow_redirects=False)
+    assert response.status_code == status.HTTP_307_TEMPORARY_REDIRECT
+    redirect_url = response.headers["location"]
+    assert "token=test-access-token" in redirect_url
 
     # Verify the user exists in the test database
     user = db.query(User).filter(User.email == "test@example.com").first()
@@ -111,17 +112,19 @@ def test_callback_new_user(client, db):
 
 def test_callback_existing_user(client, db):
     params = {"code": "test-code", "state": "test-state", "scope": "openid"}
-    # First call should create a new user
-    response = client.get("/auth/callback", params=params)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "new_user_created"
+    # First call should create a new user.
+    response1 = client.get("/auth/callback", params=params, follow_redirects=False)
+    # Expect a redirect (307 Temporary Redirect or 302 Found)
+    assert response1.status_code in (307, 302)
+    redirect_url1 = response1.headers["location"]
+    assert "token=test-access-token" in redirect_url1
 
-    # A second call should update the existing user
-    response = client.get("/auth/callback", params=params)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "existing_user_updated"
+    # Second call should update the existing user.
+    response2 = client.get("/auth/callback", params=params, follow_redirects=False)
+    assert response2.status_code in (307, 302)
+    redirect_url2 = response2.headers["location"]
+    assert "token=test-access-token" in redirect_url2
+
 
 def test_callback_google_userinfo_failure(client):
     global FAKE_USERINFO_STATUS, FAKE_USERINFO_DATA
@@ -132,4 +135,4 @@ def test_callback_google_userinfo_failure(client):
     response = client.get("/auth/callback", params=params)
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     data = response.json()
-    assert "Failed to get user info from Google" in data["detail"]
+    assert "Failed to get user info" in data["detail"]

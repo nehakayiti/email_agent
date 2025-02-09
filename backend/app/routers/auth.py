@@ -2,16 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from google_auth_oauthlib.flow import Flow
+
 from ..config import get_settings
 from ..db import get_db
 from ..models.user import User
 from ..utils.security import create_access_token
+from ..utils.google import get_userinfo
 from starlette.requests import Request
 import logging
 import requests
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)
+logger.debug("Initializing auth router")
 
 # Add debug print
 print("\nCreating auth router")
@@ -44,7 +48,8 @@ def create_flow():
 
 @router.get("/login")
 async def login():
-    """Initiate Google OAuth login flow"""
+    """Initiate Google OAuth flow"""
+    logger.debug("Login endpoint called")
     flow = create_flow()
     authorization_url, state = flow.authorization_url(
         access_type='offline',
@@ -61,84 +66,103 @@ async def callback(
     request: Request,
     code: str = Query(...),
     state: str = Query(...),
-    scope: str = Query(...),
+    error: str | None = Query(None),
     db: Session = Depends(get_db)
 ):
-    """Handle OAuth callback and create/update user"""
+    """Handle OAuth callback"""
+    logger.debug(f"Callback received - code: {'present' if code else 'missing'}, state: {state}, error: {error}")
+    
+    if error:
+        logger.error(f"OAuth error: {error}")
+        raise HTTPException(status_code=400, detail=f"OAuth error: {error}")
+    
+    if not code:
+        logger.error("No code provided in callback")
+        raise HTTPException(status_code=400, detail="No code provided")
+
     try:
-        # Get Google credentials
-        flow = create_flow()
-        flow.fetch_token(code=code)
-        credentials = flow.credentials
+        logger.info("Starting OAuth callback processing")
+        logger.debug(f"Received code: {code[:10]}... and state: {state}")
         
-        # Get user info from Google
-        userinfo_response = requests.get(
-            'https://www.googleapis.com/oauth2/v3/userinfo',
-            headers={'Authorization': f'Bearer {credentials.token}'}
-        )
-        if userinfo_response.status_code != 200:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Failed to get user info from Google"
-            )
-            
-        userinfo = userinfo_response.json()
-        email = userinfo["email"]
+        # Create flow and fetch credentials
+        flow = create_flow()
+        logger.debug("Created OAuth flow")
         
         try:
-            # Try to get existing user
-            user = db.query(User).filter(User.email == email).first()
+            flow.fetch_token(code=code)
+            logger.debug("Successfully fetched OAuth token")
+        except Exception as e:
+            logger.error(f"Error fetching token: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=400, detail="Failed to fetch token")
+        
+        credentials = flow.credentials
+        logger.debug("Got credentials object")
+        
+        # Get user info
+        try:
+            userinfo = get_userinfo(credentials)
+            logger.debug(f"Got user info: {userinfo}")
+        except Exception as e:
+            logger.error(f"Error getting user info: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=400, detail="Failed to get user info")
+        
+        # Store or update user
+        try:
+            user = db.query(User).filter(User.email == userinfo["email"]).first()
+            logger.debug(f"Found existing user: {user is not None}")
             
-            user_data = {
-                "email": email,
-                "name": userinfo.get("name", ""),
-                "credentials": {
+            if user:
+                logger.debug("Updating existing user")
+                user.name = userinfo["name"]
+                user.last_sign_in = func.now()
+                user.credentials = {
                     "token": credentials.token,
                     "refresh_token": credentials.refresh_token,
                     "token_uri": credentials.token_uri,
                     "client_id": credentials.client_id,
                     "client_secret": credentials.client_secret,
                 }
-            }
-            
-            if user:
-                # Update existing user
-                for key, value in user_data.items():
-                    setattr(user, key, value)
-                status_message = "existing_user_updated"
             else:
-                # Create new user
-                user = User(**user_data)
+                logger.debug("Creating new user")
+                user = User(
+                    email=userinfo["email"],
+                    name=userinfo["name"],
+                    credentials={
+                        "token": credentials.token,
+                        "refresh_token": credentials.refresh_token,
+                        "token_uri": credentials.token_uri,
+                        "client_id": credentials.client_id,
+                        "client_secret": credentials.client_secret,
+                    }
+                )
                 db.add(user)
-                status_message = "new_user_created"
-                
+            
+            logger.debug("Committing to database")
             db.commit()
-            db.refresh(user)
+            logger.info(f"Successfully stored/updated user {user.email}")
             
-            # Create JWT access token
-            access_token = create_access_token(data={"sub": email})
-            
-            return {
-                "access_token": access_token,
-                "token_type": "bearer",
-                "status": status_message,
-                "user": {
-                    "email": email,
-                    "name": user_data["name"]
-                }
-            }
-            
-        except SQLAlchemyError as e:
+        except Exception as e:
+            logger.error(f"Database error: {str(e)}", exc_info=True)
             db.rollback()
-            logger.error(f"Database error: {str(e)}")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=500,
                 detail="Failed to update user information"
             )
-            
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": user.email})
+        logger.debug("Created access token")
+        
+        # Redirect to frontend with token
+        redirect_url = f"http://localhost:8000/auth/callback?token={access_token}"
+        logger.info(f"Redirecting to: {redirect_url}")
+        return RedirectResponse(url=redirect_url)
+        
     except Exception as e:
-        logger.error(f"Authentication error: {str(e)}")
+        logger.error(f"Authentication error: {str(e)}", exc_info=True)
+        if isinstance(e, HTTPException):
+            raise e
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            status_code=500,
+            detail=f"500: {str(e)}"
         )
