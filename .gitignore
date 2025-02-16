@@ -104,6 +104,7 @@ celerybeat-schedule.*
 # dotenv
 .env
 .venv
+test.env
 env/
 venv/
 ENV/
@@ -144,3 +145,8 @@ cython_debug/
 Thumbs.db
 taskeroo.db
 emails.csv
+
+# Environment variables
+.env
+.env.*
+!.env.example

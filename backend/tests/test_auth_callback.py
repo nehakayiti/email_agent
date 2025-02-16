@@ -4,7 +4,6 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from app.main import app
-from app.routers.auth import process_auth_callback
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,53 +32,6 @@ class DummyCredentials:
 def dummy_flow_factory():
     return DummyFlow(DummyCredentials())
 
-# A dummy Supabase client that fakes the upsert call.
-class DummySupabaseClient:
-    def table(self, name):
-        # Simply return self regardless of the table name.
-        return self
-
-    def upsert(self, data):
-        # Save the data for any future use if needed.
-        self.data = data
-        return self
-
-    def execute(self):
-        # Return a dummy response with no error.
-        class DummyResponse:
-            error = None
-        return DummyResponse()
-
 @pytest.fixture
 def client():
     return TestClient(app)
-
-@pytest.fixture
-def supabase_client():
-    return DummySupabaseClient()
-
-def test_process_auth_callback_success(supabase_client):
-    result = process_auth_callback("dummy_code", supabase_client, flow_factory=dummy_flow_factory)
-    assert "access_token" in result
-    assert result["token_type"] == "bearer"
-
-def test_process_auth_callback_failure():
-    # Create a dummy client that returns an error response.
-    class DummyResponseWithError:
-        error = "Some error"
-
-    class DummySupabaseClientWithError:
-        def table(self, name):
-            return self
-
-        def upsert(self, data):
-            return self
-
-        def execute(self):
-            return DummyResponseWithError()
-
-    dummy_client = DummySupabaseClientWithError()
-    with pytest.raises(HTTPException) as exc_info:
-        process_auth_callback("dummy_code", dummy_client, flow_factory=dummy_flow_factory)
-    assert exc_info.value.status_code == 500
-

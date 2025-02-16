@@ -21,3 +21,12 @@ Backend:
 
    7. Run tests:
       pytest  # Execute the test suite
+
+Setting up the database:
+   1. Run the docker compose file:
+      docker compose up -d  # Start the docker container
+
+   2. docker exec -it postgres_db psql -U postgres -d email_agent_db
+   
+   3. 
+   
