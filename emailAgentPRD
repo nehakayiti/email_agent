@@ -2,6 +2,7 @@
 
 ### Project: AgentMailbox
 
+
 ### Overview
 AgentMailbox is an advanced email management system designed to fully manage a user's Gmail account through a specialized agent interface. This system prioritizes user convenience by surfacing high-priority emails, summarizing content, and learning user preferences over time for promotional and social emails.
 
@@ -10,6 +11,239 @@ AgentMailbox is an advanced email management system designed to fully manage a u
 - **Email Summarization**: Provide at-a-glance summaries of important news and blog feeds.
 - **Adaptive Learning**: Improve email categorization by learning from user interactions.
 - **User-Centric Design**: Focus on functionality first, with iterative enhancements to the user experience based on feedback.
+
+Prompt 1.1 – Assess Current OAuth Flow
+
+Title: Assess Current OAuth Flow
+Objective: Learn how the current authentication endpoints work and document any gaps.
+Instructions:
+• List all OAuth endpoints (e.g., “/auth/login”, “/auth/callback”) in your code.
+• Use curl or Postman to send requests to these endpoints.
+• Document the response status codes, tokens received, and error messages.
+• Identify any missing functionality such as token refresh or logout.
+Test/Validation:
+• Verify that the “/auth/login” endpoint returns a redirect (e.g., HTTP 307).
+• Confirm that “/auth/callback” processes tokens correctly or returns proper errors.
+Notes:
+• Record any security issues you notice.
+• Keep the documentation in a shared file for later reference. ────────────────────────────────────────────── Prompt 1.2 – Enhance Token Management
+
+Title: Enhance Token Management
+Objective: Update token generation and storage to follow secure best practices using JWTs and proper expiry.
+Instructions:
+• Review your token generation code and update it to sign tokens securely (e.g., using JWT).
+• Set token expiration and include a refresh mechanism.
+• Add error handling for token refresh failures.
+Test/Validation:
+• Write unit tests that create tokens, decode them with a JWT tool, and verify the expiry and structure.
+• Simulate token expiration and ensure the refresh flow works as expected.
+Notes:
+• Document any changes to token handling for future audits. ────────────────────────────────────────────── Prompt 1.3 – Write Integration Tests for OAuth Endpoints
+
+Title: Integration Tests for OAuth Endpoints
+Objective: Build tests that verify the behavior of your authentication endpoints in real‑world scenarios.
+Instructions:
+• Create tests for “/auth/login” that confirm a proper redirect and valid location header.
+• Write tests for “/auth/callback” that simulate both success (valid code) and error (invalid code, missing parameters) scenarios.
+• Include tests that validate the JSON responses (e.g., token content, user data, error messages).
+Test/Validation:
+• Run the test suite and ensure all authentication flows (success and failure) pass.
+• Verify edge cases are covered and error messages are clear.
+Notes:
+• Use clear, self‑documenting test names so that future refactoring is safe. ────────────────────────────────────────────── Prompt 2.1 – Implement Missing Endpoints (Refresh & Logout)
+
+Title: Implement Refresh and Logout Endpoints
+Objective: Complete your authentication API by adding endpoints for token refresh and logout.
+Instructions:
+• Add a “/auth/refresh” endpoint that validates and issues new tokens.
+• Add a “/auth/logout” endpoint that properly invalidates tokens or clears sessions.
+• Ensure both endpoints handle errors gracefully and return proper HTTP status codes.
+Test/Validation:
+• Write tests that simulate the refresh flow (valid token, expired token) and logout scenarios.
+• Validate that responses meet security requirements and expected status codes.
+Notes:
+• Document the API changes in your API documentation. ────────────────────────────────────────────── Prompt 2.2 – Add Request Validation & Security Headers
+
+Title: Secure API Requests with Validation and Headers
+Objective: Protect your API endpoints by enforcing input validation and adding security headers.
+Instructions:
+• Implement input validation on all endpoints (consider using a validation library or FastAPI models).
+• Add security headers (e.g., CORS, CSP, X-Content-Type-Options) to all responses.
+• Update your API documentation with these security measures.
+Test/Validation:
+• Write tests that send invalid data and ensure that the API rejects them with appropriate error messages.
+• Use browser tools or Postman to confirm that responses include the required security headers.
+Notes:
+• Regularly review and update security policies. ────────────────────────────────────────────── Prompt 2.3 – End-to-End Authentication Flow Testing (Backend)
+
+Title: End-to-End Authentication Flow Testing (Backend)
+Objective: Create a complete test that simulates a user’s authentication journey from login to token refresh and logout.
+Instructions:
+• Develop a test case that simulates the complete flow: user logs in, token is issued, token is refreshed, and user logs out.
+• Include both success and failure paths (e.g., expired tokens, invalid refresh attempts).
+• Document expected responses for every step in the flow.
+Test/Validation:
+• Run the end-to-end tests (using pytest or a similar tool) and confirm all steps return the correct status codes and data.
+• Ensure that security aspects (such as token invalidation) work as intended.
+Notes:
+• Keep these tests updated as the authentication logic evolves. ────────────────────────────────────────────── Prompt 3.1 – Initialize Next.js Project with TypeScript & Tailwind
+
+Title: Initialize Next.js Project
+Objective: Set up the frontend project using Next.js with TypeScript and Tailwind CSS for a modern UI.
+Instructions:
+• Create a new Next.js project configured with TypeScript.
+• Install and set up Tailwind CSS according to official guidelines.
+• Configure environment variables for API endpoints and secrets.
+Test/Validation:
+• Run the project locally and ensure the homepage loads without errors.
+• Verify that environment variables are correctly applied.
+Notes:
+• Use a modular file structure to allow easy updates. ────────────────────────────────────────────── Prompt 3.2 – Build Basic Layout & Navigation
+
+Title: Build Layout & Navigation
+Objective: Create a simple, responsive layout with header, footer, and navigation components.
+Instructions:
+• Develop components for the header, footer, and sidebar navigation.
+• Include links for authentication and email features in your navigation.
+• Ensure the layout is responsive across different screen sizes.
+Test/Validation:
+• Manually test navigation links and component rendering in the browser.
+• Use responsive design tools to check for layout issues.
+Notes:
+• Keep the design simple and user-friendly. ────────────────────────────────────────────── Prompt 3.3 – Write Frontend Integration Tests
+
+Title: Frontend Integration Tests for Layout & Navigation
+Objective: Ensure your basic layout and navigation components work correctly through automated tests.
+Instructions:
+• Use Jest and React Testing Library to create tests for your header, footer, and navigation components.
+• Write test cases for component rendering and navigation link functionality.
+• Document the expected UI outcomes for each component.
+Test/Validation:
+• Run the tests and verify that all components render without errors and navigation behaves as expected.
+Notes:
+• These tests will catch early UI issues and help maintain design consistency. ────────────────────────────────────────────── Prompt 4.1 – Build the Login Flow on the Frontend
+
+Title: Frontend Login Flow
+Objective: Integrate OAuth login into the frontend and learn secure token handling.
+Instructions:
+• Create a login page that directs users to the OAuth provider (using your backend’s login endpoint).
+• Build a component that handles the OAuth callback and shows a loading state during processing.
+• Implement secure storage (e.g., HTTP‑only cookies or secure local storage) for the received token.
+Test/Validation:
+• Simulate a user login and verify that the token is stored securely.
+• Test that the loading state and error messages appear correctly for failed logins.
+Notes:
+• Focus on user experience and security during token handling. ────────────────────────────────────────────── Prompt 4.2 – Secure Protected Routes on the Frontend
+
+Title: Implement Protected Routes
+Objective: Ensure that only authenticated users can access specific pages.
+Instructions:
+• Develop a higher‑order component (HOC) or custom hook to check for authentication status.
+• Configure routes to redirect unauthenticated users to the login page.
+• Document your approach for protecting routes.
+Test/Validation:
+• Write tests that attempt to access protected routes without a valid token and confirm redirection to the login page.
+• Manually verify that authenticated routes are accessible only after login.
+Notes:
+• This prompt is crucial for maintaining production‑level security. ────────────────────────────────────────────── Prompt 4.3 – End-to-End Authentication Flow Test (Frontend + Backend)
+
+Title: Full Authentication Flow End-to-End (Frontend + Backend)
+Objective: Validate the complete login-to‑protected page experience across the stack.
+Instructions:
+• Create an end‑to‑end test using Cypress (or a similar tool) that simulates a user logging in, receiving a token, and accessing a protected page.
+• Include tests for both successful authentication and error conditions.
+• Document the expected outcomes and status codes for every step.
+Test/Validation:
+• Run the E2E tests and verify that the complete authentication flow works seamlessly.
+• Check that error scenarios (e.g., invalid token) are handled gracefully.
+Notes:
+• Update the tests regularly as you refine the authentication logic. ────────────────────────────────────────────── Prompt 5.1 – Build Email List Component
+
+Title: Create Email List Component
+Objective: Develop a component to fetch and display emails from your backend API.
+Instructions:
+• Build a component that calls the API to retrieve emails (sender, subject, summary).
+• Implement UI states for loading, errors, and empty lists.
+• Ensure the component can refresh the email list periodically.
+Test/Validation:
+• Write integration tests that simulate API responses with multiple emails and verify proper rendering.
+• Validate that error and loading states appear as expected.
+Notes:
+• Optimize for performance when handling larger email datasets. ────────────────────────────────────────────── Prompt 5.2 – Add Email Filtering and Search
+
+Title: Implement Email Filtering and Search
+Objective: Enable users to filter and search through emails effectively.
+Instructions:
+• Add input fields for search and filtering on your email list component.
+• Implement client‑side filtering logic based on sender, subject, or keywords.
+• Document the filtering criteria and logic used.
+Test/Validation:
+• Write tests that input various search terms and verify that the displayed emails match the criteria.
+• Manually test to ensure the filter responds quickly and correctly.
+Notes:
+• Keep the filtering logic simple for maintainability. ────────────────────────────────────────────── Prompt 5.3 – End-to-End Email Feature Testing
+
+Title: Full Email Feature End-to-End Testing
+Objective: Verify that email fetching, filtering, and error handling work together seamlessly.
+Instructions:
+• Develop tests that simulate a complete email flow (fetching, filtering, and error conditions).
+• Include edge cases such as no emails returned and API errors.
+• Document the expected UI behavior and backend responses for each scenario.
+Test/Validation:
+• Run the test suite (using Cypress or Jest) to ensure all email features perform as expected.
+• Validate that errors are handled gracefully and users receive proper feedback.
+Notes:
+• Update tests as new email features are integrated. ────────────────────────────────────────────── Prompt 6.1 – Review & Enhance Security Measures
+
+Title: Audit and Enhance Security Measures
+Objective: Strengthen your application’s security to meet production standards.
+Instructions:
+• Audit all API endpoints and frontend interactions for potential vulnerabilities (e.g., injection, XSS, CSRF).
+• Implement logging, monitoring, and error handling to catch suspicious activity.
+• Ensure all dependencies are updated and secure.
+Test/Validation:
+• Run static analysis and vulnerability scans (e.g., using Snyk or similar tools) on your codebase.
+• Verify that error messages do not expose sensitive information.
+Notes:
+• Document any security improvements for future reference. ────────────────────────────────────────────── Prompt 6.2 – Polish Error Handling and User Feedback
+
+Title: Refine Error Handling and User Feedback
+Objective: Improve the clarity and security of error messages and user notifications.
+Instructions:
+• Update error messages to be user‑friendly while avoiding exposure of internal details.
+• Implement UI notifications (e.g., toast messages) to inform users of errors or successful operations.
+• Document the feedback flow and error logging process.
+Test/Validation:
+• Simulate error conditions and verify that users receive clear, concise notifications.
+• Confirm that logs capture enough information for debugging without compromising security.
+Notes:
+• Regularly review error handling as new features are added. ────────────────────────────────────────────── Prompt 7.1 – Write Comprehensive End-to-End Tests
+
+Title: Comprehensive End-to-End System Testing
+Objective: Validate that every component of your Gmail Agent works seamlessly together.
+Instructions:
+• Write E2E tests covering authentication, email fetching, filtering, and error handling across the system.
+• Include both success and failure cases, as well as edge cases.
+• Document what each test case verifies and the expected outcomes.
+Test/Validation:
+• Run your full test suite (preferably in a CI/CD pipeline) and confirm that all tests pass under various conditions.
+• Check system performance under simulated load if possible.
+Notes:
+• Keep tests updated with every significant code change. ────────────────────────────────────────────── Prompt 7.2 – Create Detailed Documentation
+
+Title: Write Detailed System Documentation
+Objective: Provide clear, thorough documentation for both developers and users.
+Instructions:
+• Create a user guide that covers installation, configuration, and usage of the Gmail Agent.
+• Document every API endpoint (inputs, outputs, error codes) and the authentication flow.
+• Write a security overview detailing measures like OAuth, token management, and encryption.
+Test/Validation:
+• Have a team member or new developer follow the documentation to set up the system.
+• Revise the documentation based on their feedback.
+Notes:
+• Keep documentation versioned alongside your code for future updates.
+
+
 
 ### User Experience
 

@@ -17,8 +17,6 @@ from sqlalchemy.sql import func
 logger = logging.getLogger(__name__)
 logger.debug("Initializing auth router")
 
-# Add debug print
-print("\nCreating auth router")
 router = APIRouter()
 settings = get_settings()
 
