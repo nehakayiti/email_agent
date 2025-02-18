@@ -1,26 +1,64 @@
-# Instructions to run this project & test
-Backend:
-   1. Clone the repository:
-      git clone <repository-url>
+# Email Agent Project Setup Guide
 
-   2. Navigate to the project directory:
-      cd <project-directory>/backend
+## Initial Setup
 
-   3. Create a new virtual environment:
-      python -m venv venv  # Create a new virtual environment
+### Backend Setup
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd <project-directory>/backend
+   ```
 
-   4. Activate the virtual environment:
-      source venv/bin/activate  # For Linux/Mac
-      venv\Scripts\activate  # For Windows
+2. Set up Python environment:
+   ```bash
+   # Create virtual environment
+   python -m venv venv
 
-   5. Install dependencies:
-      pip install -r requirements.txt  # Reinstall dependencies
+   # Activate virtual environment
+   # For Linux/Mac:
+   source venv/bin/activate
+   # For Windows:
+   venv\Scripts\activate
 
-   6. Run the application:
-      uvicorn app.main:app --reload  # Start the FastAPI application
+   # Install dependencies
+   pip install -r requirements.txt
+   ```
 
-   7. Run tests:
-      pytest  # Execute the test suite
+3. Start the application:
+   ```bash
+   # Start FastAPI server with hot reload
+   uvicorn app.main:app --reload
+   ```
+
+### Database Setup
+1. Start PostgreSQL container:
+   ```bash
+   # Launch database container
+   docker compose up -d
+   ```
+
+2. Access PostgreSQL:
+   ```bash
+   # Connect to database
+   docker exec -it postgres_db psql -U postgres -d email_agent_db
+   ```
+
+## Testing
+
+curl -X POST "http://localhost:8000/emails/sync" \
+  -H "Authorization: Bearer <your_token>"
+
+curl -X GET "http://localhost:8000/emails/?limit=50" \
+  -H "Authorization: Bearer <your_token>"
+
+curl -X GET "http://localhost:8000/emails/?category=work&limit=50" \
+  -H "Authorization: Bearer <your_token>"
+
+curl -X GET "http://localhost:8000/emails/?limit=50" \
+  -H "Authorization: Bearer <your_access_token>"
+
+docker exec -it postgres_db psql -U postgres
+
 
 Setting up the database:
    1. Run the docker compose file:
@@ -30,3 +68,92 @@ Setting up the database:
    
    3. 
    
+DB commands:
+docker exec -it postgres_db psql -U postgres
+\dt
+SELECT * FROM emails;
+SELECT * FROM emails LIMIT 10;
+\q
+
+RUN ALL TESTS:
+pytest
+
+RUN SPECIFIC TEST:
+pytest tests/test_email_service.py
+
+## API Usage Examples
+
+### Email Operations
+1. Sync emails:
+   ```bash
+   curl -X POST "http://localhost:8000/emails/sync" \
+     -H "Authorization: Bearer <your_token>"
+   ```
+
+2. List all emails (paginated):
+   ```bash
+   curl -X GET "http://localhost:8000/emails/?limit=50" \
+     -H "Authorization: Bearer <your_token>"
+   ```
+
+3. Filter emails by category:
+   ```bash
+   curl -X GET "http://localhost:8000/emails/?category=work&limit=50" \
+     -H "Authorization: Bearer <your_token>"
+   ```
+
+## Database Operations
+
+### Common PostgreSQL Commands
+Connect to PostgreSQL shell
+docker exec -it postgres_db psql -U postgres
+List all tables
+\dt
+View email records
+SELECT FROM emails;
+View limited email records
+SELECT FROM emails LIMIT 10;
+Exit PostgreSQL shell
+\q
+
+## Troubleshooting
+
+### Database Connection Issues
+1. Verify container status:
+   ```bash
+   docker ps
+   ```
+
+2. Check container logs:
+   ```bash
+   docker logs postgres_db
+   ```
+
+---
+## Template for Adding New Features
+
+### Feature Name
+1. Purpose:
+   - Brief description of what this feature does
+
+2. Setup Requirements:
+   ```bash
+   # Any additional setup steps
+   ```
+
+3. Usage Examples:
+   ```bash
+   # Example commands
+   ```
+
+4. Related Database Operations:
+   ```sql
+   -- Relevant SQL queries
+   ```
+
+5. Testing:
+   ```bash
+   # Specific test commands
+   ```
+
+

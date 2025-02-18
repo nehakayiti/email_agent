@@ -26,7 +26,8 @@ Test/Validation:
 • Confirm that “/auth/callback” processes tokens correctly or returns proper errors.
 Notes:
 • Record any security issues you notice.
-• Keep the documentation in a shared file for later reference. ────────────────────────────────────────────── Prompt 1.2 – Enhance Token Management
+
+Prompt 1.2 – Enhance Token Management
 
 Title: Enhance Token Management
 Objective: Update token generation and storage to follow secure best practices using JWTs and proper expiry.
@@ -38,7 +39,8 @@ Test/Validation:
 • Write unit tests that create tokens, decode them with a JWT tool, and verify the expiry and structure.
 • Simulate token expiration and ensure the refresh flow works as expected.
 Notes:
-• Document any changes to token handling for future audits. ────────────────────────────────────────────── Prompt 1.3 – Write Integration Tests for OAuth Endpoints
+• Document any changes to token handling for future audits. ────────────────────────────────────────────── 
+Prompt 1.3 – Write Integration Tests for OAuth Endpoints
 
 Title: Integration Tests for OAuth Endpoints
 Objective: Build tests that verify the behavior of your authentication endpoints in real‑world scenarios.
@@ -50,7 +52,8 @@ Test/Validation:
 • Run the test suite and ensure all authentication flows (success and failure) pass.
 • Verify edge cases are covered and error messages are clear.
 Notes:
-• Use clear, self‑documenting test names so that future refactoring is safe. ────────────────────────────────────────────── Prompt 2.1 – Implement Missing Endpoints (Refresh & Logout)
+• Use clear, self‑documenting test names so that future refactoring is safe. ────────────────────────────────────────────── 
+Prompt 2.1 – Implement Missing Endpoints (Refresh & Logout)
 
 Title: Implement Refresh and Logout Endpoints
 Objective: Complete your authentication API by adding endpoints for token refresh and logout.
@@ -98,7 +101,9 @@ Test/Validation:
 • Run the project locally and ensure the homepage loads without errors.
 • Verify that environment variables are correctly applied.
 Notes:
-• Use a modular file structure to allow easy updates. ────────────────────────────────────────────── Prompt 3.2 – Build Basic Layout & Navigation
+• Use a modular file structure to allow easy updates. 
+
+────────────────────────────────────────────── Prompt 3.2 – Build Basic Layout & Navigation
 
 Title: Build Layout & Navigation
 Objective: Create a simple, responsive layout with header, footer, and navigation components.
