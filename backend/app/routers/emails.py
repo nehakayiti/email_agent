@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 
 from ..models.email import Email
 from ..db import get_db
@@ -62,4 +63,26 @@ async def get_emails(
     
     emails = query.order_by(Email.received_at.desc()).limit(limit).all()
     
-    return {"emails": emails} 
+    return {"emails": emails}
+
+@router.get("/{email_id}")
+async def get_email(
+    email_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get a single email by ID
+    """
+    email = db.query(Email).filter(
+        Email.id == email_id,
+        Email.user_id == current_user.id
+    ).first()
+    
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email not found"
+        )
+    
+    return email 

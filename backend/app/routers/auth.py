@@ -152,7 +152,7 @@ async def callback(
         logger.debug("Created access token")
         
         # Redirect to frontend with token
-        redirect_url = f"http://localhost:8000/auth/callback?token={access_token}"
+        redirect_url = f"{settings.FRONTEND_URL}/auth/callback?token={access_token}"
         logger.info(f"Redirecting to: {redirect_url}")
         return RedirectResponse(url=redirect_url)
         
