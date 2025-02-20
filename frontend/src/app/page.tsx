@@ -1,7 +1,18 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import LoginButton from '@/components/login-button';
-import Image from 'next/image';
+import { isAuthenticated } from '@/lib/auth';
 
 export default function Home() {
+  const router = useRouter();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    setIsLoggedIn(isAuthenticated());
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
       <div className="relative isolate overflow-hidden">
@@ -44,7 +55,21 @@ export default function Home() {
               Focus on what matters most.
             </p>
             <div className="mt-10 flex items-center justify-center gap-x-6">
-              <LoginButton />
+              {isLoggedIn ? (
+                <button
+                  onClick={() => router.push('/emails')}
+                  className="group relative inline-flex items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 p-0.5 text-sm font-medium text-gray-900 hover:text-white focus:outline-none focus:ring-4 focus:ring-blue-300"
+                >
+                  <span className="relative flex items-center gap-2 rounded-md bg-white px-5 py-2.5 transition-all duration-300 ease-in-out group-hover:bg-opacity-0 group-hover:text-white">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Go to Your Emails
+                  </span>
+                </button>
+              ) : (
+                <LoginButton />
+              )}
               <a href="#features" className="text-sm font-semibold leading-6 text-gray-900">
                 Learn more <span aria-hidden="true">→</span>
               </a>
