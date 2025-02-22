@@ -9,6 +9,24 @@ interface Email {
     is_read: boolean;
     importance_score: number;
     category: string;
+    raw_data: {
+        payload: {
+            headers: Array<{ name: string; value: string }>;
+            parts?: Array<{
+                mimeType: string;
+                body: {
+                    data?: string;
+                    size?: number;
+                };
+            }>;
+            body?: {
+                data?: string;
+                size?: number;
+            };
+        };
+    };
+    gmail_id: string;
+    thread_id: string;
 }
 
 interface EmailsResponse {

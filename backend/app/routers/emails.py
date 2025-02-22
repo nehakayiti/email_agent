@@ -62,7 +62,11 @@ async def get_emails(
         query = query.filter(Email.importance_score >= importance_threshold)
     
     emails = query.order_by(Email.received_at.desc()).limit(limit).all()
-    
+    logger.info(f"Found {len(emails)} emails")
+    if emails:
+        logger.info(f"First email model: {emails[0].__dict__}")
+    else:
+        logger.info("No emails found.")
     return {"emails": emails}
 
 @router.get("/{email_id}")

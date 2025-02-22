@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getEmailById, type Email } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
+import { EmailContent } from './email-content';
 
 interface EmailDetailProps {
     emailId: string;
@@ -79,18 +80,7 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
     return (
         <div className="p-6 bg-white rounded-2xl shadow-lg border border-gray-300">
             <button className="text-blue-600 text-sm mb-4" onClick={() => router.back()}>← Back to Emails</button>
-            <p className="text-sm text-gray-600">From: <span className="font-medium">{email.from_email}</span></p>
-            <p className="text-xs text-gray-500">{new Date(email.received_at).toLocaleString()}</p>
-            <h2 className="text-xl font-semibold text-gray-800 mt-2">{email.subject || '(No subject)'}</h2>
-            <p className="text-sm text-gray-700 mt-2">{email.snippet}</p>
-            <div className="flex space-x-2 mt-4">
-                {email.category && (
-                    <span className="px-3 py-1 text-sm bg-green-100 text-green-600 rounded-full">{email.category}</span>
-                )}
-                <span className="px-3 py-1 text-sm bg-green-100 text-green-600 rounded-full">
-                    {email.is_read ? 'Read' : 'Unread'}
-                </span>
-            </div>
+            <EmailContent email={email} />
         </div>
     );
 } 
