@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getEmails, type Email } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
-import AppLayout from '@/components/app-layout';
+import { SearchInput } from '@/components/ui/search-input';
+import { CategorySelect } from '@/components/ui/category-select';
+import { EmailCard } from '@/components/ui/email-card';
 
 export default function EmailsPage() {
     const router = useRouter();
@@ -43,32 +45,28 @@ export default function EmailsPage() {
 
     if (loading) {
         return (
-            <AppLayout>
-                <div className="flex items-center justify-center h-full">
-                    <div className="flex flex-col items-center gap-4">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-                        <p className="text-gray-600">Loading your emails...</p>
-                    </div>
-                </div>
-            </AppLayout>
+            <div className="flex items-center justify-center h-screen">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            </div>
         );
     }
 
     if (error) {
         return (
-            <AppLayout>
-                <div className="flex items-center justify-center h-full">
-                    <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
-                        <div className="text-center">
-                            <svg className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                            </svg>
-                            <h2 className="mt-4 text-xl font-bold text-gray-900">Error Loading Emails</h2>
-                            <p className="mt-2 text-gray-600">{error}</p>
-                        </div>
+            <div className="flex items-center justify-center h-screen">
+                <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full mx-4">
+                    <div className="text-center">
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">Error Loading Emails</h2>
+                        <p className="text-gray-600">{error}</p>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500"
+                        >
+                            Try Again
+                        </button>
                     </div>
                 </div>
-            </AppLayout>
+            </div>
         );
     }
 
@@ -85,83 +83,51 @@ export default function EmailsPage() {
     });
 
     return (
-        <AppLayout>
-            <div className="p-6">
+        <div className="flex flex-col items-center p-6 bg-gray-100 min-h-screen">
+            <div className="w-full max-w-2xl">
+                <h1 className="text-2xl font-semibold text-gray-800 mb-4">Your Emails</h1>
+                <p className="mt-1 text-sm text-gray-600">
+                    {filteredEmails.length} {filteredEmails.length === 1 ? 'email' : 'emails'} found
+                </p>
+
                 {/* Search and filters */}
-                <div className="mb-6 flex flex-col sm:flex-row gap-4">
+                <div className="mb-8 flex flex-col sm:flex-row gap-4 mt-4">
                     <div className="flex-1">
-                        <input
-                            type="text"
-                            placeholder="Search emails..."
+                        <SearchInput
                             value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            onChange={setSearchTerm}
+                            placeholder="Search in emails..."
                         />
                     </div>
                     <div className="sm:w-48">
-                        <select
-                            value={selectedCategory || ''}
-                            onChange={(e) => setSelectedCategory(e.target.value || null)}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                        >
-                            <option value="">All Categories</option>
-                            {categories.map(category => (
-                                <option key={category} value={category}>{category}</option>
-                            ))}
-                        </select>
+                        <CategorySelect
+                            value={selectedCategory}
+                            onChange={setSelectedCategory}
+                            categories={categories}
+                        />
                     </div>
                 </div>
 
                 {/* Email list */}
-                <div className="bg-white rounded-lg shadow">
+                <div className="space-y-4">
                     {filteredEmails.length === 0 ? (
-                        <div className="p-8 text-center text-gray-500">
-                            No emails found
+                        <div className="bg-white rounded-2xl shadow-md p-8 text-center">
+                            <h3 className="text-lg font-medium text-gray-900">No emails found</h3>
+                            <p className="mt-2 text-sm text-gray-500">
+                                Try adjusting your search or filter to find what you're looking for.
+                            </p>
                         </div>
                     ) : (
-                        <ul className="divide-y divide-gray-200">
-                            {filteredEmails.map((email) => (
-                                <li
-                                    key={email.id}
-                                    className="hover:bg-gray-50 cursor-pointer transition-colors duration-150"
-                                    onClick={() => router.push(`/emails/${email.id}`)}
-                                >
-                                    <div className="px-6 py-4">
-                                        <div className="flex items-center justify-between">
-                                            <h3 className="text-sm font-medium text-gray-900">
-                                                {email.from_email}
-                                            </h3>
-                                            <span className="text-xs text-gray-500">
-                                                {new Date(email.received_at).toLocaleDateString()}
-                                            </span>
-                                        </div>
-                                        <p className="mt-1 text-sm font-medium text-gray-900 truncate">
-                                            {email.subject}
-                                        </p>
-                                        <p className="mt-1 text-sm text-gray-500 truncate">
-                                            {email.snippet}
-                                        </p>
-                                        <div className="mt-2 flex items-center gap-2">
-                                            {email.category && (
-                                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
-                                                    {email.category}
-                                                </span>
-                                            )}
-                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                                email.is_read 
-                                                    ? 'bg-green-100 text-green-800'
-                                                    : 'bg-yellow-100 text-yellow-800'
-                                            }`}>
-                                                {email.is_read ? 'Read' : 'Unread'}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
+                        filteredEmails.map((email) => (
+                            <EmailCard
+                                key={email.id}
+                                email={email}
+                                onClick={() => router.push(`/emails/${email.id}`)}
+                            />
+                        ))
                     )}
                 </div>
             </div>
-        </AppLayout>
+        </div>
     );
 } 

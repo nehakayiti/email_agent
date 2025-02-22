@@ -1,4 +1,4 @@
-import { getToken } from './auth';
+import { getToken, handleAuthError } from './auth';
 
 interface Email {
     id: string;
@@ -44,6 +44,7 @@ function isEmailsResponse(data: unknown): data is EmailsResponse {
 async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
     const token = getToken();
     if (!token) {
+        handleAuthError();
         throw new Error('No authentication token found');
     }
 
@@ -60,6 +61,7 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
 
         if (!response.ok) {
             if (response.status === 401) {
+                handleAuthError();
                 throw new Error('Authentication failed: Invalid or expired token');
             }
 

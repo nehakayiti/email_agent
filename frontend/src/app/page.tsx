@@ -3,15 +3,43 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import LoginButton from '@/components/login-button';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, removeToken } from '@/lib/auth';
 
 export default function Home() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setIsLoggedIn(isAuthenticated());
+    const checkAuth = () => {
+      const authenticated = isAuthenticated();
+      setIsLoggedIn(authenticated);
+      setIsLoading(false);
+    };
+
+    checkAuth();
+
+    // Check authentication status when the window gains focus
+    window.addEventListener('focus', checkAuth);
+    return () => window.removeEventListener('focus', checkAuth);
   }, []);
+
+  const handleEmailsClick = () => {
+    if (isAuthenticated()) {
+      router.push('/emails');
+    } else {
+      removeToken();
+      setIsLoggedIn(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
@@ -57,7 +85,7 @@ export default function Home() {
             <div className="mt-10 flex items-center justify-center gap-x-6">
               {isLoggedIn ? (
                 <button
-                  onClick={() => router.push('/emails')}
+                  onClick={handleEmailsClick}
                   className="group relative inline-flex items-center justify-center overflow-hidden rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 p-0.5 text-sm font-medium text-gray-900 hover:text-white focus:outline-none focus:ring-4 focus:ring-blue-300"
                 >
                   <span className="relative flex items-center gap-2 rounded-md bg-white px-5 py-2.5 transition-all duration-300 ease-in-out group-hover:bg-opacity-0 group-hover:text-white">

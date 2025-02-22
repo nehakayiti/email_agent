@@ -17,6 +17,14 @@ export const removeToken = () => {
     localStorage.removeItem('auth_token');
 };
 
+export const handleAuthError = () => {
+    removeToken();
+    if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth')) {
+        window.location.href = '/';
+    }
+};
+
 export const isAuthenticated = (): boolean => {
-    return !!getToken();
+    const token = getToken();
+    return !!token;
 }; 
