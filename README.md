@@ -171,6 +171,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🌟 Core Team
 
-- [Your Name](https://github.com/yourusername) - Project Lead
-- [Contributor 1](https://github.com/contributor1) - Backend Developer
-- [Contributor 2](https://github.com/contributor2) - Frontend Developer
+- neha - Project Lead
+- neha :-) - Backend Developer
+- neha ;-) - Frontend Developer
