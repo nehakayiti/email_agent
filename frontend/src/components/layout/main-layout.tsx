@@ -1,24 +1,54 @@
 'use client';
 
-import { useState } from 'react';
-import { HomeIcon, WalletIcon, ArrowRightOnRectangleIcon, Cog6ToothIcon, BellIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect } from 'react';
+import { HomeIcon, InboxIcon, TagIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { getEmails, type Email } from '@/lib/api';
 
-const navigation = [
+const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'Accounts', href: '/accounts', icon: WalletIcon },
-  { name: 'Transactions', href: '/transactions', icon: ArrowRightOnRectangleIcon },
+  { name: 'All Emails', href: '/emails', icon: InboxIcon },
 ];
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [categories, setCategories] = useState<string[]>([]);
   const [greeting] = useState(() => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
     if (hour < 18) return 'Good afternoon';
     return 'Good evening';
   });
+
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const emails = await getEmails();
+        const uniqueCategories = [...new Set(emails.map(email => email.category).filter(Boolean))];
+        setCategories(uniqueCategories.sort()); // Sort categories alphabetically
+      } catch (error) {
+        console.error('Error fetching categories:', error);
+      }
+    };
+
+    fetchCategories();
+  }, []);
+
+  // Create navigation items with base items and categories
+  const navigation = [
+    ...baseNavigation,
+    // Add a divider for categories if there are any
+    ...(categories.length > 0 ? [{ type: 'divider', name: 'Categories' }] : []),
+    // Add the categories
+    ...categories.map(category => ({
+      name: category.charAt(0).toUpperCase() + category.slice(1),
+      href: `/emails?category=${category.toLowerCase()}`,
+      icon: TagIcon,
+      type: 'category'
+    }))
+  ];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -32,7 +62,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </div>
         <nav className="mt-6 px-3">
           {navigation.map((item) => {
-            const isActive = pathname === item.href;
+            if ('type' in item && item.type === 'divider') {
+              return (
+                <div key={item.name} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                  {item.name}
+                </div>
+              );
+            }
+
+            if (!('href' in item)) return null;
+
+            const isActive = pathname === item.href || 
+              (pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
+               new URLSearchParams(item.href.split('?')[1]).get('category') === 
+               new URLSearchParams(pathname.split('?')[1]).get('category'));
+            
             return (
               <Link
                 key={item.name}
@@ -64,14 +108,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <h2 className="text-lg font-medium text-gray-900">
               {greeting}, Sunny!
             </h2>
-            <div className="flex items-center space-x-4">
-              <button className="text-gray-400 hover:text-gray-500">
-                <BellIcon className="h-6 w-6" />
-              </button>
-              <button className="text-gray-400 hover:text-gray-500">
-                <Cog6ToothIcon className="h-6 w-6" />
-              </button>
-            </div>
           </div>
         </header>
 

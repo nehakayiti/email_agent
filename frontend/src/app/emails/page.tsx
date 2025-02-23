@@ -1,20 +1,22 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getEmails, type Email } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
-import { CategorySelect } from '@/components/ui/category-select';
 import { EmailCard } from '@/components/ui/email-card';
 
 export default function EmailsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [emails, setEmails] = useState<Email[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Get category from URL parameters
+    const categoryParam = searchParams.get('category');
 
     useEffect(() => {
         const fetchData = async () => {
@@ -71,10 +73,9 @@ export default function EmailsPage() {
     }
 
     const emailList = Array.isArray(emails) ? emails : [];
-    const categories = [...new Set(emailList.map(email => email.category).filter(Boolean))];
     
     const filteredEmails = emailList.filter(email => {
-        const matchesCategory = !selectedCategory || email.category === selectedCategory;
+        const matchesCategory = !categoryParam || email.category?.toLowerCase() === categoryParam.toLowerCase();
         const matchesSearch = !searchTerm || 
             email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             email.from_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -82,30 +83,25 @@ export default function EmailsPage() {
         return matchesCategory && matchesSearch;
     });
 
+    const categoryTitle = categoryParam 
+        ? categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1) + ' Emails'
+        : 'All Emails';
+
     return (
         <div className="flex flex-col items-center p-6 bg-gray-100 min-h-screen">
             <div className="w-full max-w-2xl">
-                <h1 className="text-2xl font-semibold text-gray-800 mb-4">Your Emails</h1>
+                <h1 className="text-2xl font-semibold text-gray-800 mb-4">{categoryTitle}</h1>
                 <p className="mt-1 text-sm text-gray-600">
                     {filteredEmails.length} {filteredEmails.length === 1 ? 'email' : 'emails'} found
                 </p>
 
-                {/* Search and filters */}
-                <div className="mb-8 flex flex-col sm:flex-row gap-4 mt-4">
-                    <div className="flex-1">
-                        <SearchInput
-                            value={searchTerm}
-                            onChange={setSearchTerm}
-                            placeholder="Search in emails..."
-                        />
-                    </div>
-                    <div className="sm:w-48">
-                        <CategorySelect
-                            value={selectedCategory}
-                            onChange={setSelectedCategory}
-                            categories={categories}
-                        />
-                    </div>
+                {/* Search */}
+                <div className="mb-8 mt-4">
+                    <SearchInput
+                        value={searchTerm}
+                        onChange={setSearchTerm}
+                        placeholder="Search in emails..."
+                    />
                 </div>
 
                 {/* Email list */}
