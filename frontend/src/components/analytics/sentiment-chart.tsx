@@ -42,6 +42,7 @@ export default function SentimentChart() {
   const [data, setData] = useState<ChartData<'line'>>(defaultData);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [rawDates, setRawDates] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -51,8 +52,14 @@ export default function SentimentChart() {
           throw new Error('Invalid or empty data received');
         }
 
+        setRawDates(response.dates);
         setData({
-          labels: response.dates,
+          labels: response.dates.map(date => 
+            new Date(date).toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric'
+            })
+          ),
           datasets: [{
             label: 'Sentiment Score',
             data: response.scores,
@@ -99,15 +106,38 @@ export default function SentimentChart() {
       tooltip: {
         mode: 'index' as const,
         intersect: false,
+        callbacks: {
+          title: (context: any) => {
+            const index = context[0].dataIndex;
+            const originalDate = new Date(rawDates[index]);
+            return originalDate.toLocaleDateString('en-US', {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric'
+            });
+          }
+        }
       },
     },
     scales: {
+      x: {
+        ticks: {
+          maxRotation: 45,
+          minRotation: 45,
+        },
+        grid: {
+          display: false,
+        },
+      },
       y: {
         beginAtZero: true,
         max: 1,
         title: {
           display: true,
           text: 'Sentiment Score',
+        },
+        grid: {
+          color: 'rgba(0, 0, 0, 0.1)',
         },
       },
     },

@@ -1,42 +1,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Bar } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  ChartData,
-} from 'chart.js';
 import { getTopContacts, type TopContactsAnalytics } from '@/lib/api';
 
-// Register ChartJS components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend
-);
-
-const defaultData: ChartData<'bar'> = {
-  labels: [],
-  datasets: [{
-    label: 'Email Count',
-    data: [],
-    backgroundColor: 'rgba(239, 68, 68, 0.8)',
-    borderColor: 'rgb(239, 68, 68)',
-    borderWidth: 1,
-  }],
-};
+interface Contact {
+  email: string;
+  count: number;
+}
 
 export default function TopContactsChart() {
-  const [data, setData] = useState<ChartData<'bar'>>(defaultData);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,16 +21,12 @@ export default function TopContactsChart() {
           throw new Error('Invalid or empty data received');
         }
 
-        setData({
-          labels: response.contacts,
-          datasets: [{
-            label: 'Email Count',
-            data: response.counts,
-            backgroundColor: 'rgba(239, 68, 68, 0.8)',
-            borderColor: 'rgb(239, 68, 68)',
-            borderWidth: 1,
-          }],
-        });
+        const contactData = response.contacts.map((email, index) => ({
+          email,
+          count: response.counts[index]
+        }));
+
+        setContacts(contactData);
       } catch (err) {
         setError('Failed to load top contacts data');
         console.error(err);
@@ -85,29 +54,32 @@ export default function TopContactsChart() {
     );
   }
 
-  const options = {
-    indexAxis: 'y' as const,
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: {
-        position: 'top' as const,
-      },
-      tooltip: {
-        mode: 'index' as const,
-        intersect: false,
-      },
-    },
-    scales: {
-      x: {
-        beginAtZero: true,
-        title: {
-          display: true,
-          text: 'Number of Emails',
-        },
-      },
-    },
-  };
-
-  return <Bar data={data} options={options} />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Contact
+            </th>
+            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Email Count
+            </th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {contacts.map((contact, index) => (
+            <tr key={contact.email} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                {contact.email}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                {contact.count}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 } 
