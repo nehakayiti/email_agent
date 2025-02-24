@@ -2,7 +2,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
-from .routers import auth, emails
+from .routers.auth import router as auth_router
+from .routers.emails import router as emails_router
+from .routers.analytics import router as analytics_router
 from .db import engine, Base
 
 # Configure logging before anything else
@@ -51,17 +53,24 @@ async def root():
         "docs_url": "/docs"
     }
 
-# Include routers
+# Include routers with explicit prefixes and tags
 app.include_router(
-    auth.router,
+    auth_router,
     prefix="/auth",
     tags=["auth"]
 )
 
 app.include_router(
-    emails.router,
+    emails_router,
     prefix="/emails",
     tags=["emails"]
+)
+
+# Add analytics router with explicit prefix and tags
+app.include_router(
+    analytics_router,
+    prefix="/analytics",
+    tags=["analytics"]
 )
 
 @app.get("/health")

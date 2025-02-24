@@ -160,3 +160,10 @@ Exit PostgreSQL shell
 Frontend:
    npm run dev
    localhost:3000
+
+
+Testing Analytics:
+curl -X GET "http://localhost:8000/analytics/sentiment?days=30"
+curl -X GET "http://localhost:8000/analytics/response-time?periods=7,30,90"
+curl -X GET "http://localhost:8000/analytics/volume?days=30"
+curl "http://localhost:8000/analytics/top-contacts?limit=10&days=30"
