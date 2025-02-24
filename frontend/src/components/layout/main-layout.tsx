@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { HomeIcon, InboxIcon, TagIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getEmails, type Email } from '@/lib/api';
@@ -9,6 +9,7 @@ import { getEmails, type Email } from '@/lib/api';
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
   { name: 'All Emails', href: '/emails', icon: InboxIcon },
+  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
 ];
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {

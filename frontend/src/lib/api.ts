@@ -59,7 +59,7 @@ function isEmailsResponse(data: unknown): data is EmailsResponse {
     );
 }
 
-async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
+async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = getToken();
     if (!token) {
         handleAuthError();
@@ -92,7 +92,7 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
 
         const data = await response.json();
         console.log(`API response from ${endpoint}:`, data);
-        return data;
+        return data as T;
     } catch (error) {
         console.error('API request failed:', error);
         throw error;
@@ -100,7 +100,7 @@ async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
 }
 
 export async function getEmails(): Promise<Email[]> {
-    const data = await fetchWithAuth('/emails');
+    const data = await fetchWithAuth<EmailsResponse>('/emails');
     if (!isEmailsResponse(data)) {
         console.error('Invalid email data received:', data);
         throw new Error('Invalid response format: Expected an object with emails array');
@@ -109,7 +109,7 @@ export async function getEmails(): Promise<Email[]> {
 }
 
 export async function getEmailById(id: string): Promise<Email> {
-    const data = await fetchWithAuth(`/emails/${id}`);
+    const data = await fetchWithAuth<Email>(`/emails/${id}`);
     if (!data || typeof data !== 'object' || !('id' in data)) {
         console.error('Invalid email data received:', data);
         throw new Error('Invalid response format: Expected an email object');
@@ -117,4 +117,137 @@ export async function getEmailById(id: string): Promise<Email> {
     return data as Email;
 }
 
-export type { Email }; 
+export type { Email };
+
+// Analytics Response Types
+interface SentimentTrendItem {
+  date: string;
+  sentiment: number;
+}
+
+interface SentimentAnalyticsResponse {
+  total_emails: number;
+  period_days: number;
+  average_sentiment: number;
+  sentiment_distribution: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  sentiment_trend: SentimentTrendItem[];
+}
+
+interface ResponseTimeAnalyticsResponse {
+  periods: Record<string, number>;
+  unit: string;
+}
+
+interface VolumeDataItem {
+  date: string;
+  count: number;
+}
+
+interface VolumeAnalyticsResponse {
+  daily_volume: VolumeDataItem[];
+  total_days: number;
+  total_emails: number;
+}
+
+interface TopContactItem {
+  email: string;
+  count: number;
+}
+
+interface TopContactsResponse {
+  top_contacts: TopContactItem[];
+  period_days: number;
+  total_contacts: number;
+}
+
+// Analytics Types
+interface SentimentAnalytics {
+  dates: string[];
+  scores: number[];
+}
+
+interface ResponseTimeAnalytics {
+  periods: string[];
+  averages: number[];
+}
+
+interface VolumeAnalytics {
+  dates: string[];
+  counts: number[];
+}
+
+interface TopContactsAnalytics {
+  contacts: string[];
+  counts: number[];
+}
+
+// Analytics API endpoints
+export async function getSentimentAnalytics(days: number = 30): Promise<SentimentAnalytics> {
+  const response = await fetchWithAuth<SentimentAnalyticsResponse>(`/analytics/sentiment?days=${days}`);
+  console.log('Sentiment Analytics Response:', response);
+  
+  if (!response?.sentiment_trend || !Array.isArray(response.sentiment_trend)) {
+    throw new Error('Invalid sentiment analytics response format');
+  }
+
+  return {
+    dates: response.sentiment_trend.map((item: SentimentTrendItem) => item.date),
+    scores: response.sentiment_trend.map((item: SentimentTrendItem) => item.sentiment)
+  };
+}
+
+export async function getResponseTimeAnalytics(periods: number = 90): Promise<ResponseTimeAnalytics> {
+  const response = await fetchWithAuth<ResponseTimeAnalyticsResponse>(`/analytics/response-time?periods=${periods}`);
+  console.log('Response Time Analytics Response:', response);
+  
+  if (!response?.periods || typeof response.periods !== 'object') {
+    throw new Error('Invalid response time analytics response format');
+  }
+
+  const periodNames = Object.keys(response.periods);
+  const periodValues = Object.values(response.periods) as number[];
+
+  return {
+    periods: periodNames.map(name => name.replace('_days', ' Days')),
+    averages: periodValues
+  };
+}
+
+export async function getVolumeAnalytics(days: number = 30): Promise<VolumeAnalytics> {
+  const response = await fetchWithAuth<VolumeAnalyticsResponse>(`/analytics/volume?days=${days}`);
+  console.log('Volume Analytics Response:', response);
+  
+  if (!response?.daily_volume || !Array.isArray(response.daily_volume)) {
+    throw new Error('Invalid volume analytics response format');
+  }
+
+  return {
+    dates: response.daily_volume.map((item: VolumeDataItem) => item.date),
+    counts: response.daily_volume.map((item: VolumeDataItem) => item.count)
+  };
+}
+
+export async function getTopContacts(limit: number = 10, days: number = 30): Promise<TopContactsAnalytics> {
+  const response = await fetchWithAuth<TopContactsResponse>(`/analytics/top-contacts?limit=${limit}&days=${days}`);
+  console.log('Top Contacts Response:', response);
+  
+  if (!response?.top_contacts || !Array.isArray(response.top_contacts)) {
+    throw new Error('Invalid top contacts response format');
+  }
+
+  return {
+    contacts: response.top_contacts.map((item: TopContactItem) => item.email),
+    counts: response.top_contacts.map((item: TopContactItem) => item.count)
+  };
+}
+
+export type { 
+  SentimentAnalytics, 
+  ResponseTimeAnalytics, 
+  VolumeAnalytics, 
+  TopContactsAnalytics 
+}; 
