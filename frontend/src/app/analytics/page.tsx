@@ -12,6 +12,20 @@ export default function AnalyticsPage() {
       <h1 className="text-2xl font-semibold text-gray-900">Email Analytics Dashboard</h1>
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Top Contacts */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Top Contacts</h2>
+          <div className="h-[300px]">
+            <TopContactsChart />
+          </div>
+        </div>
+        {/* Email Volume */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Email Volume Trends</h2>
+          <div className="h-[300px]">
+            <VolumeChart />
+          </div>
+        </div>
         {/* Sentiment Analysis */}
         <div className="bg-white rounded-lg shadow p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Sentiment Trends</h2>
@@ -25,22 +39,6 @@ export default function AnalyticsPage() {
           <h2 className="text-lg font-medium text-gray-900 mb-4">Response Time Analysis</h2>
           <div className="h-[300px]">
             <ResponseTimeChart />
-          </div>
-        </div>
-
-        {/* Email Volume */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Email Volume Trends</h2>
-          <div className="h-[300px]">
-            <VolumeChart />
-          </div>
-        </div>
-
-        {/* Top Contacts */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Top Contacts</h2>
-          <div className="h-[300px]">
-            <TopContactsChart />
           </div>
         </div>
       </div>
