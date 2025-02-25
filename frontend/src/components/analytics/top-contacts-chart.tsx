@@ -55,26 +55,26 @@ export default function TopContactsChart() {
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto overflow-y-auto h-full">
       <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+        <thead className="bg-gray-50 sticky top-0 z-10">
           <tr>
             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Contact
+              Email Count
             </th>
             <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Email Count
+              Contact
             </th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
           {contacts.map((contact, index) => (
             <tr key={contact.email} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                {contact.email}
-              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                 {contact.count}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                {contact.email}
               </td>
             </tr>
           ))}
