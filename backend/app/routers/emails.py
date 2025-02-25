@@ -39,13 +39,32 @@ async def sync_emails(
 async def get_emails(
     category: str = None,
     importance_threshold: int = None,
-    limit: int = 50,
+    limit: int = 20,
+    page: int = 1,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get user's emails with optional filtering
+    Get user's emails with optional filtering for continuous scrolling
+    
+    Parameters:
+    - category: Filter emails by category
+    - importance_threshold: Filter emails with importance score >= threshold
+    - limit: Number of emails per page (default: 20)
+    - page: Page number (starting from 1)
+    
+    Returns paginated results for continuous scrolling with metadata
     """
+    # Validate parameters
+    if limit <= 0:
+        limit = 20
+    
+    if page <= 0:
+        page = 1
+        
+    # Calculate offset
+    offset = (page - 1) * limit
+        
     query = db.query(Email).filter(Email.user_id == current_user.id)
     
     if category:
@@ -54,9 +73,32 @@ async def get_emails(
     if importance_threshold is not None:
         query = query.filter(Email.importance_score >= importance_threshold)
     
-    emails = query.order_by(Email.received_at.desc()).limit(limit).all()
-    logger.info(f"Found {len(emails)} emails")
-    return {"emails": emails}
+    # Get total count for pagination metadata
+    total_count = query.count()
+    
+    # Get emails for current page
+    emails = query.order_by(Email.received_at.desc()).offset(offset).limit(limit).all()
+    
+    # Calculate pagination metadata
+    total_pages = (total_count + limit - 1) // limit  # Ceiling division
+    has_next = page < total_pages
+    has_previous = page > 1
+    
+    logger.info(f"Found {len(emails)} emails for page {page} (total: {total_count})")
+    
+    return {
+        "emails": emails,
+        "pagination": {
+            "total": total_count,
+            "limit": limit,
+            "current_page": page,
+            "total_pages": total_pages,
+            "has_next": has_next,
+            "has_previous": has_previous,
+            "next_page": page + 1 if has_next else None,
+            "previous_page": page - 1 if has_previous else None
+        }
+    }
 
 @router.get("/{email_id}")
 async def get_email(

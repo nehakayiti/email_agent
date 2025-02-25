@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getEmails, type Email } from '@/lib/api';
+import { getEmails, type Email, type EmailsParams } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
@@ -14,36 +14,107 @@ export default function EmailsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
-
+    const [hasMore, setHasMore] = useState(true);
+    const [page, setPage] = useState(1);
+    const [totalEmails, setTotalEmails] = useState(0);
+    const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    
     // Get category from URL parameters
     const categoryParam = searchParams.get('category');
+    
+    // Create a ref for the observer target element
+    const observerTarget = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                if (!isAuthenticated()) {
-                    console.log('User not authenticated, redirecting to login');
-                    router.push('/');
-                    return;
-                }
+    // Function to fetch emails with pagination
+    const fetchEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
+        try {
+            if (!isAuthenticated()) {
+                console.log('User not authenticated, redirecting to login');
+                router.push('/');
+                return;
+            }
 
+            if (isInitialLoad) {
                 setLoading(true);
-                console.log('Fetching emails...');
-                const data = await getEmails();
-                console.log('Emails fetched successfully:', data.length, 'emails');
-                setEmails(data);
-                setError(null);
-            } catch (err) {
-                console.error('Error in emails page:', err);
-                const errorMessage = err instanceof Error ? err.message : 'Failed to fetch emails';
-                setError(errorMessage);
-            } finally {
+            } else {
+                setLoadingMore(true);
+            }
+            
+            console.log(`Fetching emails for page ${pageNum}...`);
+            
+            const params: EmailsParams = {
+                page: pageNum,
+                limit: 20,
+            };
+            
+            if (categoryParam) {
+                params.category = categoryParam;
+            }
+            
+            const response = await getEmails(params);
+            console.log('Emails fetched successfully:', response.emails.length, 'emails');
+            
+            if (isInitialLoad) {
+                setEmails(response.emails);
+            } else {
+                setEmails(prev => [...prev, ...response.emails]);
+            }
+            
+            setTotalEmails(response.pagination.total);
+            setHasMore(response.pagination.has_next);
+            setError(null);
+            
+            if (isInitialLoad) {
+                setInitialLoadComplete(true);
+            }
+        } catch (err) {
+            console.error('Error in emails page:', err);
+            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch emails';
+            setError(errorMessage);
+        } finally {
+            if (isInitialLoad) {
                 setLoading(false);
+            } else {
+                setLoadingMore(false);
+            }
+        }
+    }, [router, categoryParam]);
+
+    // Initial data load
+    useEffect(() => {
+        setPage(1);
+        setEmails([]);
+        setHasMore(true);
+        setInitialLoadComplete(false);
+        fetchEmails(1, true);
+    }, [fetchEmails, categoryParam]);
+
+    // Set up intersection observer for infinite scrolling
+    useEffect(() => {
+        if (!initialLoadComplete || !hasMore || loadingMore) return;
+        
+        const observer = new IntersectionObserver(
+            entries => {
+                if (entries[0].isIntersecting && hasMore && !loadingMore) {
+                    const nextPage = page + 1;
+                    setPage(nextPage);
+                    fetchEmails(nextPage);
+                }
+            },
+            { threshold: 0.5 }
+        );
+        
+        if (observerTarget.current) {
+            observer.observe(observerTarget.current);
+        }
+        
+        return () => {
+            if (observerTarget.current) {
+                observer.unobserve(observerTarget.current);
             }
         };
-
-        fetchData();
-    }, [router]);
+    }, [initialLoadComplete, hasMore, loadingMore, page, fetchEmails]);
 
     if (loading) {
         return (
@@ -71,16 +142,13 @@ export default function EmailsPage() {
             </div>
         );
     }
-
-    const emailList = Array.isArray(emails) ? emails : [];
     
-    const filteredEmails = emailList.filter(email => {
-        const matchesCategory = !categoryParam || email.category?.toLowerCase() === categoryParam.toLowerCase();
+    const filteredEmails = emails.filter(email => {
         const matchesSearch = !searchTerm || 
             email.subject?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             email.from_email.toLowerCase().includes(searchTerm.toLowerCase()) ||
             email.snippet.toLowerCase().includes(searchTerm.toLowerCase());
-        return matchesCategory && matchesSearch;
+        return matchesSearch;
     });
 
     const categoryTitle = categoryParam 
@@ -92,7 +160,7 @@ export default function EmailsPage() {
             <div className="w-full max-w-2xl">
                 <h1 className="text-2xl font-semibold text-gray-800 mb-4">{categoryTitle}</h1>
                 <p className="mt-1 text-sm text-gray-600">
-                    {filteredEmails.length} {filteredEmails.length === 1 ? 'email' : 'emails'} found
+                    {totalEmails} {totalEmails === 1 ? 'email' : 'emails'} found
                 </p>
 
                 {/* Search */}
@@ -114,13 +182,36 @@ export default function EmailsPage() {
                             </p>
                         </div>
                     ) : (
-                        filteredEmails.map((email) => (
-                            <EmailCard
-                                key={email.id}
-                                email={email}
-                                onClick={() => router.push(`/emails/${email.id}`)}
+                        <>
+                            {filteredEmails.map((email) => (
+                                <EmailCard
+                                    key={email.id}
+                                    email={email}
+                                    onClick={() => router.push(`/emails/${email.id}`)}
+                                />
+                            ))}
+                            
+                            {/* Loading indicator for more emails */}
+                            {loadingMore && (
+                                <div className="flex justify-center py-4">
+                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                </div>
+                            )}
+                            
+                            {/* Observer target element */}
+                            <div 
+                                ref={observerTarget} 
+                                className="h-10 w-full"
+                                aria-hidden="true"
                             />
-                        ))
+                            
+                            {/* End of list message */}
+                            {!hasMore && emails.length > 0 && (
+                                <div className="text-center py-8 text-gray-500 text-sm">
+                                    You've reached the end of the list
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

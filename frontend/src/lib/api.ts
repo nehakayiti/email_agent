@@ -29,8 +29,20 @@ interface Email {
     thread_id: string;
 }
 
+interface PaginationMetadata {
+    total: number;
+    limit: number;
+    current_page: number;
+    total_pages: number;
+    has_next: boolean;
+    has_previous: boolean;
+    next_page: number | null;
+    previous_page: number | null;
+}
+
 interface EmailsResponse {
     emails: Email[];
+    pagination: PaginationMetadata;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -55,7 +67,9 @@ function isEmailsResponse(data: unknown): data is EmailsResponse {
         typeof data === 'object' &&
         data !== null &&
         'emails' in data &&
-        isEmailArray((data as EmailsResponse).emails)
+        isEmailArray((data as EmailsResponse).emails) &&
+        'pagination' in data &&
+        typeof (data as EmailsResponse).pagination === 'object'
     );
 }
 
@@ -99,13 +113,43 @@ async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Pr
     }
 }
 
-export async function getEmails(): Promise<Email[]> {
-    const data = await fetchWithAuth<EmailsResponse>('/emails');
+export interface EmailsParams {
+    category?: string;
+    importance_threshold?: number;
+    limit?: number;
+    page?: number;
+}
+
+export async function getEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
+    const queryParams = new URLSearchParams();
+    
+    if (params.category) {
+        queryParams.append('category', params.category);
+    }
+    
+    if (params.importance_threshold !== undefined) {
+        queryParams.append('importance_threshold', params.importance_threshold.toString());
+    }
+    
+    if (params.limit) {
+        queryParams.append('limit', params.limit.toString());
+    }
+    
+    if (params.page) {
+        queryParams.append('page', params.page.toString());
+    }
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/emails${queryString ? `?${queryString}` : ''}`;
+    
+    const data = await fetchWithAuth<EmailsResponse>(endpoint);
+    
     if (!isEmailsResponse(data)) {
         console.error('Invalid email data received:', data);
-        throw new Error('Invalid response format: Expected an object with emails array');
+        throw new Error('Invalid response format: Expected an object with emails array and pagination metadata');
     }
-    return data.emails;
+    
+    return data;
 }
 
 export async function getEmailById(id: string): Promise<Email> {
