@@ -6,6 +6,10 @@ from .routers.auth import router as auth_router
 from .routers.emails import router as emails_router
 from .routers.analytics import router as analytics_router
 from .db import engine, Base
+# Import models to ensure they're registered with SQLAlchemy
+from .models.user import User
+from .models.email import Email
+from .models.email_sync import EmailSync
 
 # Configure logging before anything else
 logging.basicConfig(

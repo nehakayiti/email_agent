@@ -15,4 +15,7 @@ class User(Base):
     credentials = Column(JSON)
     
     # Add the relationship to emails
-    emails = relationship("Email", back_populates="user", cascade="all, delete-orphan") 
+    emails = relationship("Email", back_populates="user", cascade="all, delete-orphan")
+    
+    # Add the relationship to email_sync
+    email_sync = relationship("EmailSync", back_populates="user", uselist=False, cascade="all, delete-orphan") 

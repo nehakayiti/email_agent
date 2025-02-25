@@ -37,7 +37,10 @@ def process_and_store_emails(
             if existing_email:
                 # Update existing email
                 for key, value in email_data.items():
-                    if hasattr(existing_email, key):
+                    if key == 'received_at':
+                        # Parse the date string to datetime object
+                        setattr(existing_email, key, parse_date(value))
+                    elif hasattr(existing_email, key):
                         setattr(existing_email, key, value)
                 email = existing_email
             else:

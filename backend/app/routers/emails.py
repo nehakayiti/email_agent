@@ -8,6 +8,7 @@ from ..db import get_db
 from ..models.user import User
 from ..services.gmail import fetch_emails_from_gmail
 from ..services.email_processor import process_and_store_emails
+from ..services.email_sync_service import sync_emails_since_last_fetch
 from ..dependencies import get_current_user
 import logging
 
@@ -20,20 +21,12 @@ async def sync_emails(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Sync emails from Gmail to local database
+    Sync emails from Gmail to local database since the last fetch time
     """
     try:
-        # Fetch emails from Gmail
-        emails = fetch_emails_from_gmail(current_user.credentials)
-        
-        # Process and store emails
-        processed_emails = process_and_store_emails(db, current_user, emails)
-        
-        return {
-            "status": "success",
-            "message": f"Processed {len(processed_emails)} emails",
-            "sync_count": len(processed_emails)
-        }
+        # Use the new sync service
+        result = sync_emails_since_last_fetch(db, current_user)
+        return result
         
     except Exception as e:
         logger.error(f"Error syncing emails: {str(e)}")

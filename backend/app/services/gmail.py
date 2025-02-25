@@ -26,13 +26,14 @@ def create_gmail_service(credentials_dict: Dict[str, Any]):
     
     return build('gmail', 'v1', credentials=credentials)
 
-def fetch_emails_from_gmail(credentials: Dict[str, Any], max_results: int = 100) -> List[Dict[str, Any]]:
+def fetch_emails_from_gmail(credentials: Dict[str, Any], max_results: int = 100, query: str = None) -> List[Dict[str, Any]]:
     """
     Fetch emails from Gmail API with detailed information
     
     Args:
         credentials: User's OAuth credentials dictionary
         max_results: Maximum number of emails to fetch
+        query: Optional Gmail search query (e.g., "after:2023/01/01")
         
     Returns:
         List of email dictionaries containing metadata and content
@@ -40,12 +41,19 @@ def fetch_emails_from_gmail(credentials: Dict[str, Any], max_results: int = 100)
     try:
         service = create_gmail_service(credentials)
         
+        # Prepare request parameters
+        params = {
+            'userId': 'me',
+            'maxResults': max_results,
+            'labelIds': ['INBOX']
+        }
+        
+        # Add query if provided
+        if query:
+            params['q'] = query
+        
         # Fetch email list with metadata
-        results = service.users().messages().list(
-            userId='me',
-            maxResults=max_results,
-            labelIds=['INBOX']
-        ).execute()
+        results = service.users().messages().list(**params).execute()
         
         messages = results.get('messages', [])
         emails = []
