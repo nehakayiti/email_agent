@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { getEmails, type Email } from '@/lib/api';
+import { getEmails, type Email, triggerEmailSync } from '@/lib/api';
 
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -16,6 +16,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const router = useRouter();
   const [categories, setCategories] = useState<string[]>([]);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
+  const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
   const [greeting] = useState(() => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -26,8 +29,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const emails = await getEmails();
-        const uniqueCategories = [...new Set(emails.map(email => email.category).filter(Boolean))];
+        const response = await getEmails();
+        const uniqueCategories = [...new Set(response.emails.map(email => email.category).filter(Boolean))];
         setCategories(uniqueCategories.sort()); // Sort categories alphabetically
       } catch (error) {
         console.error('Error fetching categories:', error);
@@ -36,6 +39,55 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
     fetchCategories();
   }, []);
+
+  const handleSync = async () => {
+    if (isSyncing) return;
+    
+    try {
+      setIsSyncing(true);
+      setSyncMessage('Syncing emails...');
+      setSyncStatus(null);
+      
+      const response = await triggerEmailSync();
+      
+      // Check for success based on the response structure
+      if (response.success || response.status === 'success') {
+        setSyncStatus('success');
+        
+        // Handle the case when no new emails are found
+        if (response.sync_count === 0) {
+          setSyncMessage('No new emails to sync.');
+        } else {
+          setSyncMessage(response.message || `Sync completed! ${response.sync_count || ''} emails processed.`);
+        }
+        
+        // Clear the success message after 3 seconds
+        setTimeout(() => {
+          setSyncMessage('');
+          setSyncStatus(null);
+        }, 3000);
+      } else {
+        setSyncStatus('error');
+        setSyncMessage(`Sync failed: ${response.message}`);
+        // Clear the error message after 5 seconds
+        setTimeout(() => {
+          setSyncMessage('');
+          setSyncStatus(null);
+        }, 5000);
+      }
+    } catch (error) {
+      console.error('Error syncing emails:', error);
+      setSyncStatus('error');
+      setSyncMessage('Failed to sync emails. Please try again.');
+      // Clear the error message after 5 seconds
+      setTimeout(() => {
+        setSyncMessage('');
+        setSyncStatus(null);
+      }, 5000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Create navigation items with base items and categories
   const navigation = [
@@ -109,6 +161,36 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <h2 className="text-lg font-medium text-gray-900">
               {greeting}, Sunny!
             </h2>
+            
+            <div className="flex items-center space-x-3">
+              {syncMessage && (
+                <span className={`text-sm font-medium px-3 py-1 rounded-md ${
+                  syncStatus === 'error' 
+                    ? 'text-red-800 bg-red-100' 
+                    : syncStatus === 'success'
+                      ? 'text-green-800 bg-green-100'
+                      : 'text-gray-800 bg-gray-100'
+                }`}>
+                  {syncMessage}
+                </span>
+              )}
+              <button
+                onClick={handleSync}
+                disabled={isSyncing}
+                className={`inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm ${
+                  isSyncing 
+                    ? 'bg-blue-400 text-white cursor-not-allowed' 
+                    : 'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+                }`}
+                aria-label="Sync emails"
+              >
+                <ArrowPathIcon 
+                  className={`-ml-1 mr-2 h-5 w-5 ${isSyncing ? 'animate-spin' : ''}`} 
+                  aria-hidden="true" 
+                />
+                {isSyncing ? 'Syncing...' : 'Sync Emails'}
+              </button>
+            </div>
           </div>
         </header>
 

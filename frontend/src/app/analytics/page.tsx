@@ -5,6 +5,7 @@ import SentimentChart from '@/components/analytics/sentiment-chart';
 import ResponseTimeChart from '@/components/analytics/response-time-chart';
 import VolumeChart from '@/components/analytics/volume-chart';
 import TopContactsChart from '@/components/analytics/top-contacts-chart';
+import DbInsightsCard from '@/components/analytics/db-insights-card';
 
 export default function AnalyticsPage() {
   return (
@@ -39,6 +40,14 @@ export default function AnalyticsPage() {
           <h2 className="text-lg font-medium text-gray-900 mb-4">Response Time Analysis</h2>
           <div className="h-[300px]">
             <ResponseTimeChart />
+          </div>
+        </div>
+        
+        {/* DB Insights */}
+        <div className="bg-white rounded-lg shadow p-6 md:col-span-2">
+          <h2 className="text-lg font-medium text-gray-900 mb-4">Database Insights</h2>
+          <div className="h-[400px]">
+            <DbInsightsCard />
           </div>
         </div>
       </div>

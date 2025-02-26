@@ -294,4 +294,53 @@ export type {
   ResponseTimeAnalytics, 
   VolumeAnalytics, 
   TopContactsAnalytics 
-}; 
+};
+
+export interface DbInsightsResponse {
+  user_count: number;
+  email_count: number;
+  last_sync: string | null;
+  user_syncs: Array<{
+    email: string;
+    last_fetched_at: string;
+    sync_cadence_minutes: number;
+  }>;
+  table_sizes: Array<{
+    table_name: string;
+    size: string;
+    raw_size: number;
+  }>;
+  sample_token: string;
+}
+
+export async function getDbInsights(): Promise<DbInsightsResponse> {
+  try {
+    const response = await fetchWithAuth<DbInsightsResponse>(`/analytics/db-insights`);
+    return response;
+  } catch (error) {
+    console.error('Error fetching DB insights:', error);
+    throw error;
+  }
+}
+
+export interface SyncResponse {
+  success?: boolean;
+  status?: string;
+  message: string;
+  sync_started_at?: string;
+  user_id?: string;
+  sync_count?: number;
+}
+
+export async function triggerEmailSync(): Promise<SyncResponse> {
+  try {
+    const timestamp = new Date().getTime();
+    const response = await fetchWithAuth<SyncResponse>(`/emails/sync?t=${timestamp}`, {
+      method: 'POST',
+    });
+    return response;
+  } catch (error) {
+    console.error('Error triggering email sync:', error);
+    throw error;
+  }
+} 
