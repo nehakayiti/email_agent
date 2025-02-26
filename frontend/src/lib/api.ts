@@ -76,7 +76,6 @@ function isEmailsResponse(data: unknown): data is EmailsResponse {
 async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = getToken();
     if (!token) {
-        handleAuthError();
         throw new Error('No authentication token found');
     }
 
@@ -93,7 +92,6 @@ async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Pr
 
         if (!response.ok) {
             if (response.status === 401) {
-                handleAuthError();
                 throw new Error('Authentication failed: Invalid or expired token');
             }
 

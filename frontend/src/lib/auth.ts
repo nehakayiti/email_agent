@@ -19,8 +19,24 @@ export const removeToken = () => {
 
 export const handleAuthError = () => {
     removeToken();
-    if (typeof window !== 'undefined' && !window.location.pathname.includes('/auth')) {
-        window.location.href = '/';
+    
+    // Prevent redirect loops by checking if we're already on the home page
+    // or in the authentication flow
+    if (typeof window !== 'undefined' && 
+        !window.location.pathname.includes('/auth') && 
+        window.location.pathname !== '/') {
+        
+        // Use a flag in sessionStorage to prevent multiple redirects
+        if (!sessionStorage.getItem('auth_redirect_in_progress')) {
+            sessionStorage.setItem('auth_redirect_in_progress', 'true');
+            
+            // Clear the flag after navigation completes
+            window.addEventListener('load', () => {
+                sessionStorage.removeItem('auth_redirect_in_progress');
+            }, { once: true });
+            
+            window.location.href = '/';
+        }
     }
 };
 

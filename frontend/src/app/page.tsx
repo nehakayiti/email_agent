@@ -11,17 +11,35 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Use a flag to prevent multiple checks in a short time
+    let isCheckingAuth = false;
+    
     const checkAuth = () => {
+      // Prevent multiple simultaneous checks
+      if (isCheckingAuth) return;
+      
+      isCheckingAuth = true;
       const authenticated = isAuthenticated();
       setIsLoggedIn(authenticated);
       setIsLoading(false);
+      isCheckingAuth = false;
     };
 
     checkAuth();
 
     // Check authentication status when the window gains focus
-    window.addEventListener('focus', checkAuth);
-    return () => window.removeEventListener('focus', checkAuth);
+    // but limit the frequency to prevent loops
+    let focusTimeout: NodeJS.Timeout;
+    const handleFocus = () => {
+      clearTimeout(focusTimeout);
+      focusTimeout = setTimeout(checkAuth, 500); // Debounce focus events
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearTimeout(focusTimeout);
+    };
   }, []);
 
   const handleEmailsClick = () => {

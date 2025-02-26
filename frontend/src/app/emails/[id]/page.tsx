@@ -6,6 +6,8 @@ interface EmailPageProps {
     };
 }
 
-export default function EmailPage({ params }: EmailPageProps) {
-    return <EmailDetail emailId={params.id} />;
+export default async function EmailPage({ params }: EmailPageProps) {
+    // Await params to fix the "params should be awaited before using its properties" error
+    const { id } = params;
+    return <EmailDetail emailId={id} />;
 } 

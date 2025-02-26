@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getEmails, type Email, triggerEmailSync } from '@/lib/api';
+import { isAuthenticated, handleAuthError } from '@/lib/auth';
 
 const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: HomeIcon },
@@ -19,6 +20,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState('');
   const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
+  const [isAuthError, setIsAuthError] = useState(false);
   const [greeting] = useState(() => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good morning';
@@ -26,22 +28,39 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     return 'Good evening';
   });
 
-  useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        const response = await getEmails();
-        const uniqueCategories = [...new Set(response.emails.map(email => email.category).filter(Boolean))];
-        setCategories(uniqueCategories.sort()); // Sort categories alphabetically
-      } catch (error) {
-        console.error('Error fetching categories:', error);
-      }
-    };
+  const fetchCategories = useCallback(async () => {
+    // Skip API calls if we're not authenticated
+    if (!isAuthenticated()) {
+      setIsAuthError(true);
+      return;
+    }
 
-    fetchCategories();
+    try {
+      const response = await getEmails();
+      const uniqueCategories = [...new Set(response.emails.map(email => email.category).filter(Boolean))];
+      setCategories(uniqueCategories.sort()); // Sort categories alphabetically
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      // Check if it's an auth error
+      if (error instanceof Error && 
+          (error.message.includes('No authentication token found') || 
+           error.message.includes('Authentication failed'))) {
+        setIsAuthError(true);
+        handleAuthError();
+      }
+    }
   }, []);
 
+  useEffect(() => {
+    // Only fetch categories if we're on a protected route
+    // and we haven't encountered an auth error yet
+    if (!isAuthError && !pathname.includes('/auth')) {
+      fetchCategories();
+    }
+  }, [fetchCategories, isAuthError, pathname]);
+
   const handleSync = async () => {
-    if (isSyncing) return;
+    if (isSyncing || !isAuthenticated()) return;
     
     try {
       setIsSyncing(true);
@@ -78,7 +97,18 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     } catch (error) {
       console.error('Error syncing emails:', error);
       setSyncStatus('error');
-      setSyncMessage('Failed to sync emails. Please try again.');
+      
+      // Check if it's an auth error
+      if (error instanceof Error && 
+          (error.message.includes('No authentication token found') || 
+           error.message.includes('Authentication failed'))) {
+        setIsAuthError(true);
+        handleAuthError();
+        setSyncMessage('Authentication failed. Please log in again.');
+      } else {
+        setSyncMessage('Failed to sync emails. Please try again.');
+      }
+      
       // Clear the error message after 5 seconds
       setTimeout(() => {
         setSyncMessage('');
