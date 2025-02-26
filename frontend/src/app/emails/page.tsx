@@ -6,6 +6,7 @@ import { getEmails, type Email, type EmailsParams } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
+import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
 
 export default function EmailsPage() {
     const router = useRouter();
@@ -89,6 +90,27 @@ export default function EmailsPage() {
         setInitialLoadComplete(false);
         fetchEmails(1, true);
     }, [fetchEmails, categoryParam]);
+
+    // Listen for email sync completion event
+    useEffect(() => {
+        const handleSyncCompleted = () => {
+            console.log('Email sync completed, refreshing email list');
+            // Reset pagination and reload emails
+            setPage(1);
+            setEmails([]);
+            setHasMore(true);
+            setInitialLoadComplete(false);
+            fetchEmails(1, true);
+        };
+
+        // Add event listener
+        window.addEventListener(EMAIL_SYNC_COMPLETED_EVENT, handleSyncCompleted);
+
+        // Clean up
+        return () => {
+            window.removeEventListener(EMAIL_SYNC_COMPLETED_EVENT, handleSyncCompleted);
+        };
+    }, [fetchEmails]);
 
     // Set up intersection observer for infinite scrolling
     useEffect(() => {

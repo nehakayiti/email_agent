@@ -1,10 +1,11 @@
 from typing import Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from sqlalchemy.orm import Session
 from ..models.email import Email
 from ..models.user import User
 from email.utils import parsedate_to_datetime
+import dateutil.parser
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,21 @@ def process_and_store_emails(
         List of created/updated Email model instances
     """
     processed_emails = []
+    new_emails_count = 0
+    updated_emails_count = 0
     
-    for email_data in emails:
+    logger.info(f"[PROCESSOR] Starting to process {len(emails)} emails for user {user.id}")
+    
+    for i, email_data in enumerate(emails):
         try:
+            gmail_id = email_data.get('gmail_id', 'unknown')
+            subject = email_data.get('subject', 'No Subject')[:30]
+            from_email = email_data.get('from_email', 'unknown')
+            received_at = email_data.get('received_at', 'unknown')
+            
+            logger.info(f"[PROCESSOR] Processing email {i+1}/{len(emails)}: ID={gmail_id}, "
+                       f"Subject='{subject}...', From={from_email}, Received={received_at}")
+            
             # Check if email already exists
             existing_email = db.query(Email).filter(
                 Email.user_id == user.id,
@@ -35,6 +48,7 @@ def process_and_store_emails(
             ).first()
             
             if existing_email:
+                logger.info(f"[PROCESSOR] Email {gmail_id} already exists, updating")
                 # Update existing email
                 for key, value in email_data.items():
                     if key == 'received_at':
@@ -43,8 +57,17 @@ def process_and_store_emails(
                     elif hasattr(existing_email, key):
                         setattr(existing_email, key, value)
                 email = existing_email
+                # Mark as not new for counting purposes
+                email._is_new = False
+                updated_emails_count += 1
             else:
+                logger.info(f"[PROCESSOR] Email {gmail_id} is new, creating")
                 # Create new email
+                category = categorize_email(email_data)
+                importance = calculate_importance(email_data)
+                
+                logger.info(f"[PROCESSOR] Categorized as '{category}' with importance {importance}")
+                
                 email = Email(
                     user_id=user.id,
                     gmail_id=email_data['gmail_id'],
@@ -56,21 +79,27 @@ def process_and_store_emails(
                     labels=email_data['labels'],
                     is_read=email_data['is_read'],
                     raw_data=email_data['raw_data'],
-                    category=categorize_email(email_data),
-                    importance_score=calculate_importance(email_data)
+                    category=category,
+                    importance_score=importance
                 )
                 db.add(email)
+                # Mark as new for counting purposes
+                email._is_new = True
+                new_emails_count += 1
             
             processed_emails.append(email)
             
         except Exception as e:
-            logger.error(f"Error processing email {email_data.get('gmail_id')}: {str(e)}")
+            logger.error(f"[PROCESSOR] Error processing email {email_data.get('gmail_id', 'unknown')}: {str(e)}", exc_info=True)
             continue
     
     try:
+        logger.info(f"[PROCESSOR] Committing {len(processed_emails)} emails to database")
         db.commit()
+        logger.info(f"[PROCESSOR] Successfully processed {len(processed_emails)} emails "
+                   f"({new_emails_count} new, {updated_emails_count} updated)")
     except Exception as e:
-        logger.error(f"Error committing emails to database: {str(e)}")
+        logger.error(f"[PROCESSOR] Error committing emails to database: {str(e)}", exc_info=True)
         db.rollback()
         raise
         
@@ -125,5 +154,29 @@ def calculate_importance(email_data: Dict[str, Any]) -> int:
     return max(0, min(100, score))
 
 def parse_date(date_str: str) -> datetime:
-    """Parse email date string to datetime object"""
-    return parsedate_to_datetime(date_str) 
+    """
+    Parse email date string to datetime object with proper timezone handling
+    
+    Args:
+        date_str: Date string in various formats
+        
+    Returns:
+        Datetime object with timezone information
+    """
+    try:
+        # First try to parse as ISO format (from our Gmail service)
+        dt = dateutil.parser.parse(date_str)
+        
+        # Ensure timezone info is present
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+            
+        return dt
+    except Exception as e:
+        # Fallback to email.utils parser for RFC 2822 format
+        try:
+            return parsedate_to_datetime(date_str)
+        except Exception as e2:
+            logger.error(f"[PROCESSOR] Failed to parse date '{date_str}': {str(e2)}")
+            # Last resort fallback
+            return datetime.now(timezone.utc) 

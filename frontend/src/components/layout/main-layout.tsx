@@ -13,6 +13,9 @@ const baseNavigation = [
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
 ];
 
+// Custom event name for email sync completion
+export const EMAIL_SYNC_COMPLETED_EVENT = 'emailSyncCompleted';
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -77,8 +80,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         if (response.sync_count === 0) {
           setSyncMessage('No new emails to sync.');
         } else {
-          setSyncMessage(response.message || `Sync completed! ${response.sync_count || ''} emails processed.`);
+          // Extract only the count of new emails, not including checkpoint emails
+          const newEmailCount = response.new_email_count || response.sync_count || 0;
+          setSyncMessage(response.message || `Sync completed! ${newEmailCount} new emails processed.`);
         }
+        
+        // Dispatch a custom event to notify components that sync is complete
+        window.dispatchEvent(new CustomEvent(EMAIL_SYNC_COMPLETED_EVENT, { 
+          detail: { syncCount: response.sync_count || 0 } 
+        }));
         
         // Clear the success message after 3 seconds
         setTimeout(() => {

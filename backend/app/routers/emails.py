@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
+from datetime import datetime
 
 from ..models.email import Email
 from ..db import get_db
@@ -17,19 +18,35 @@ router = APIRouter()
 
 @router.post("/sync")
 async def sync_emails(
+    use_current_date: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
     Sync emails from Gmail to local database since the last fetch time
+    
+    Parameters:
+    - use_current_date: If true, use the current date for checkpoint instead of treating it as next day
     """
+    logger.info(f"[API] Email sync requested for user {current_user.id} (email: {current_user.email})")
+    logger.info(f"[API] Sync parameters: use_current_date={use_current_date}")
+    
     try:
         # Use the new sync service
-        result = sync_emails_since_last_fetch(db, current_user)
+        start_time = datetime.now()
+        logger.info(f"[API] Starting sync process at {start_time.isoformat()}")
+        
+        result = sync_emails_since_last_fetch(db, current_user, use_current_date=use_current_date)
+        
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        logger.info(f"[API] Sync completed in {duration:.2f} seconds")
+        logger.info(f"[API] Sync result: {result}")
+        
         return result
         
     except Exception as e:
-        logger.error(f"Error syncing emails: {str(e)}")
+        logger.error(f"[API] Error syncing emails: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to sync emails"

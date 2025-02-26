@@ -328,12 +328,13 @@ export interface SyncResponse {
   sync_started_at?: string;
   user_id?: string;
   sync_count?: number;
+  new_email_count?: number;
 }
 
 export async function triggerEmailSync(): Promise<SyncResponse> {
   try {
     const timestamp = new Date().getTime();
-    const response = await fetchWithAuth<SyncResponse>(`/emails/sync?t=${timestamp}`, {
+    const response = await fetchWithAuth<SyncResponse>(`/emails/sync?t=${timestamp}&use_current_date=true`, {
       method: 'POST',
     });
     return response;
