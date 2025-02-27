@@ -20,11 +20,11 @@ export const removeToken = () => {
 export const handleAuthError = () => {
     removeToken();
     
-    // Prevent redirect loops by checking if we're already on the home page
+    // Prevent redirect loops by checking if we're already on the login page
     // or in the authentication flow
     if (typeof window !== 'undefined' && 
         !window.location.pathname.includes('/auth') && 
-        window.location.pathname !== '/') {
+        window.location.pathname !== '/login') {
         
         // Use a flag in sessionStorage to prevent multiple redirects
         if (!sessionStorage.getItem('auth_redirect_in_progress')) {
@@ -35,7 +35,7 @@ export const handleAuthError = () => {
                 sessionStorage.removeItem('auth_redirect_in_progress');
             }, { once: true });
             
-            window.location.href = '/';
+            window.location.href = '/login';
         }
     }
 };
@@ -43,4 +43,33 @@ export const handleAuthError = () => {
 export const isAuthenticated = (): boolean => {
     const token = getToken();
     return !!token;
+};
+
+export const logout = async () => {
+    try {
+        // Call the backend logout endpoint
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${getToken()}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            console.error('Logout failed:', response.statusText);
+        } else {
+            console.log('Logged out successfully');
+        }
+    } catch (error) {
+        console.error('Logout error:', error);
+    } finally {
+        // Always remove the token from local storage
+        removeToken();
+        
+        // Redirect to login page
+        if (typeof window !== 'undefined') {
+            window.location.href = '/login';
+        }
+    }
 }; 

@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getEmails, type Email, type EmailsParams } from '@/lib/api';
+import { getEmails, checkDeletedEmails, type Email, type EmailsParams, type CheckDeletedResponse } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
 import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
+import { toast, Toaster } from 'react-hot-toast';
 
 export default function EmailsPage() {
     const router = useRouter();
@@ -20,12 +21,45 @@ export default function EmailsPage() {
     const [totalEmails, setTotalEmails] = useState(0);
     const [initialLoadComplete, setInitialLoadComplete] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [checkingDeleted, setCheckingDeleted] = useState(false);
     
     // Get category from URL parameters
     const categoryParam = searchParams.get('category');
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
+
+    // Function to check for deleted emails
+    const handleCheckDeletedEmails = async () => {
+        try {
+            if (!isAuthenticated()) {
+                console.log('User not authenticated, redirecting to login');
+                router.push('/');
+                return;
+            }
+
+            setCheckingDeleted(true);
+            toast.loading('Checking for deleted emails...');
+            
+            const response = await checkDeletedEmails();
+            
+            toast.dismiss();
+            if (response.deleted_count > 0) {
+                toast.success(`Found ${response.deleted_count} deleted emails`);
+                // Refresh the email list
+                setPage(1);
+                fetchEmails(1, true);
+            } else {
+                toast.success('No deleted emails found');
+            }
+        } catch (err) {
+            toast.dismiss();
+            console.error('Error checking deleted emails:', err);
+            toast.error('Failed to check deleted emails');
+        } finally {
+            setCheckingDeleted(false);
+        }
+    };
 
     // Function to fetch emails with pagination
     const fetchEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
@@ -178,21 +212,35 @@ export default function EmailsPage() {
         : 'All Emails';
 
     return (
-        <div className="flex flex-col items-center p-6 bg-gray-100 min-h-screen">
+        <div className="container mx-auto px-4 py-8">
+            <Toaster position="top-right" />
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
+                <h1 className="text-2xl font-bold text-gray-900 mb-4 md:mb-0">
+                    {categoryParam 
+                        ? `${categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1)} Emails` 
+                        : 'All Emails'}
+                    {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
+                </h1>
+                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+                    <SearchInput 
+                        value={searchTerm} 
+                        onChange={setSearchTerm} 
+                        placeholder="Search emails..." 
+                        className="w-full sm:w-64"
+                    />
+                    <button
+                        onClick={handleCheckDeletedEmails}
+                        disabled={checkingDeleted}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
+                    >
+                        {checkingDeleted ? 'Checking...' : 'Check Deleted'}
+                    </button>
+                </div>
+            </div>
             <div className="w-full max-w-2xl">
-                <h1 className="text-2xl font-semibold text-gray-800 mb-4">{categoryTitle}</h1>
                 <p className="mt-1 text-sm text-gray-600">
                     {totalEmails} {totalEmails === 1 ? 'email' : 'emails'} found
                 </p>
-
-                {/* Search */}
-                <div className="mb-8 mt-4">
-                    <SearchInput
-                        value={searchTerm}
-                        onChange={setSearchTerm}
-                        placeholder="Search in emails..."
-                    />
-                </div>
 
                 {/* Email list */}
                 <div className="space-y-4">

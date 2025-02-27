@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/email_agent_db"
     
     # Security
-    SECRET_KEY: str
+    SECRET_KEY: str = "your-secret-key-please-change-in-production"
     
     class Config:
         env_file = ".env"

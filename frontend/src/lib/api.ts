@@ -9,6 +9,7 @@ interface Email {
     is_read: boolean;
     importance_score: number;
     category: string;
+    labels: string[];
     raw_data: {
         payload: {
             headers: Array<{ name: string; value: string }>;
@@ -27,6 +28,7 @@ interface Email {
     };
     gmail_id: string;
     thread_id: string;
+    is_deleted_in_gmail: boolean;
 }
 
 interface PaginationMetadata {
@@ -73,9 +75,12 @@ function isEmailsResponse(data: unknown): data is EmailsResponse {
     );
 }
 
-async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const token = getToken();
+    
     if (!token) {
+        console.log('No authentication token found');
+        handleAuthError();
         throw new Error('No authentication token found');
     }
 
@@ -92,7 +97,12 @@ async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Pr
 
         if (!response.ok) {
             if (response.status === 401) {
-                throw new Error('Authentication failed: Invalid or expired token');
+                console.log('Authentication failed: Invalid or expired token');
+                handleAuthError();
+                return {
+                    error: 'Authentication failed. Please log in again.',
+                    status: 401
+                } as unknown as T;
             }
 
             const errorData = await response.json().catch(() => null);
@@ -141,6 +151,23 @@ export async function getEmails(params: EmailsParams = {}): Promise<EmailsRespon
     const endpoint = `/emails${queryString ? `?${queryString}` : ''}`;
     
     const data = await fetchWithAuth<EmailsResponse>(endpoint);
+    
+    if ('error' in data && 'status' in data) {
+        console.error('Error fetching emails:', data.error);
+        return {
+            emails: [],
+            pagination: {
+                total: 0,
+                limit: params.limit || 20,
+                current_page: params.page || 1,
+                total_pages: 0,
+                has_next: false,
+                has_previous: false,
+                next_page: null,
+                previous_page: null
+            }
+        };
+    }
     
     if (!isEmailsResponse(data)) {
         console.error('Invalid email data received:', data);
@@ -340,6 +367,60 @@ export async function triggerEmailSync(): Promise<SyncResponse> {
     return response;
   } catch (error) {
     console.error('Error triggering email sync:', error);
+    throw error;
+  }
+}
+
+export interface CheckDeletedResponse {
+  status: string;
+  message: string;
+  deleted_count: number;
+}
+
+export async function checkDeletedEmails(): Promise<CheckDeletedResponse> {
+  try {
+    const response = await fetchWithAuth<CheckDeletedResponse>('/emails/check-deleted', {
+      method: 'POST',
+    });
+    return response;
+  } catch (error) {
+    console.error('Error checking deleted emails:', error);
+    throw error;
+  }
+}
+
+export interface UpdateLabelsResponse {
+  status: string;
+  message: string;
+  email_id: string;
+  labels: string[];
+  is_read: boolean;
+}
+
+export async function updateEmailLabels(
+  emailId: string,
+  addLabels?: string[],
+  removeLabels?: string[]
+): Promise<UpdateLabelsResponse> {
+  try {
+    const body: Record<string, any> = {};
+    
+    if (addLabels && addLabels.length > 0) {
+      body.add_labels = addLabels;
+    }
+    
+    if (removeLabels && removeLabels.length > 0) {
+      body.remove_labels = removeLabels;
+    }
+    
+    const response = await fetchWithAuth<UpdateLabelsResponse>(`/emails/${emailId}/update-labels`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    
+    return response;
+  } catch (error) {
+    console.error('Error updating email labels:', error);
     throw error;
   }
 } 

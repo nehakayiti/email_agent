@@ -24,7 +24,10 @@ GOOGLE_SCOPES = [
     "openid",
     "https://www.googleapis.com/auth/userinfo.profile",
     "https://www.googleapis.com/auth/userinfo.email",
-    "https://www.googleapis.com/auth/gmail.readonly"
+    # We need both readonly and modify scopes because Google may return either or both
+    # depending on what the user has previously authorized
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.modify"
 ]
 
 def create_flow():
@@ -90,8 +93,48 @@ async def callback(
             flow.fetch_token(code=code)
             logger.debug("Successfully fetched OAuth token")
         except Exception as e:
-            logger.error(f"Error fetching token: {str(e)}", exc_info=True)
-            raise HTTPException(status_code=400, detail="Failed to fetch token")
+            error_str = str(e)
+            logger.error(f"Error fetching token: {error_str}", exc_info=True)
+            
+            # Check if it's a scope change warning that we can safely ignore
+            if "Scope has changed" in error_str:
+                logger.warning("Detected scope change warning, attempting to proceed anyway")
+                # We need to manually fetch the token since the automatic fetch failed
+                try:
+                    # Get the token directly from the authorization code
+                    token_url = "https://oauth2.googleapis.com/token"
+                    token_data = {
+                        "code": code,
+                        "client_id": settings.GOOGLE_CLIENT_ID,
+                        "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                        "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                        "grant_type": "authorization_code"
+                    }
+                    token_response = requests.post(token_url, data=token_data)
+                    token_json = token_response.json()
+                    
+                    if "error" in token_json:
+                        logger.error(f"Error in token response: {token_json}")
+                        raise HTTPException(status_code=400, detail="Failed to fetch token")
+                    
+                    # Manually set the credentials
+                    from google.oauth2.credentials import Credentials
+                    credentials = Credentials(
+                        token=token_json.get("access_token"),
+                        refresh_token=token_json.get("refresh_token"),
+                        token_uri=flow.client_config["token_uri"],
+                        client_id=settings.GOOGLE_CLIENT_ID,
+                        client_secret=settings.GOOGLE_CLIENT_SECRET,
+                        scopes=token_json.get("scope", "").split(" ")
+                    )
+                    flow.credentials = credentials
+                    logger.debug("Manually set credentials after scope change")
+                except Exception as manual_error:
+                    logger.error(f"Error in manual token fetch: {str(manual_error)}", exc_info=True)
+                    raise HTTPException(status_code=400, detail="Failed to fetch token")
+            else:
+                # For other errors, raise the exception
+                raise HTTPException(status_code=400, detail="Failed to fetch token")
         
         credentials = flow.credentials
         logger.debug("Got credentials object")

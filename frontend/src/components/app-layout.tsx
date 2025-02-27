@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useState } from 'react';
-import { isAuthenticated, removeToken } from '@/lib/auth';
+import { isAuthenticated, removeToken, logout } from '@/lib/auth';
+import Header from './header';
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -28,8 +29,7 @@ export default function AppLayout({ children, userName = 'User' }: AppLayoutProp
 
   const handleLogout = () => {
     console.log('Logout clicked');
-    removeToken();
-    router.push('/');
+    logout();
   };
 
   const handleLogoClick = () => {

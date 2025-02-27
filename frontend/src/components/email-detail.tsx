@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getEmailById, type Email } from '@/lib/api';
+import { getEmailById, checkDeletedEmails, type Email } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { EmailContent } from './email-content';
+import { Toaster, toast } from 'react-hot-toast';
 
 interface EmailDetailProps {
     emailId: string;
@@ -31,6 +32,22 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
                 console.log('Email details fetched:', data);
                 setEmail(data);
                 setError(null);
+                
+                // Check if the email has been deleted in Gmail
+                if (!data.is_deleted_in_gmail) {
+                    try {
+                        await checkDeletedEmails();
+                        // Refresh the email data to get updated deletion status
+                        const refreshedData = await getEmailById(emailId);
+                        setEmail(refreshedData);
+                        
+                        if (refreshedData.is_deleted_in_gmail) {
+                            toast.error('This email has been deleted in Gmail');
+                        }
+                    } catch (checkError) {
+                        console.error('Error checking deleted status:', checkError);
+                    }
+                }
             } catch (err) {
                 console.error('Error in email detail page:', err);
                 const errorMessage = err instanceof Error ? err.message : 'Failed to fetch email';
@@ -44,6 +61,11 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
             fetchEmail();
         }
     }, [emailId, router]);
+
+    // Handle label updates
+    const handleLabelsUpdated = (updatedEmail: Email) => {
+        setEmail(updatedEmail);
+    };
 
     if (loading) {
         return (
@@ -79,8 +101,9 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
 
     return (
         <div className="p-6 bg-white rounded-2xl shadow-lg border border-gray-300">
+            <Toaster position="top-right" />
             <button className="text-blue-600 text-sm mb-4" onClick={() => router.back()}>← Back to Emails</button>
-            <EmailContent email={email} />
+            <EmailContent email={email} onLabelsUpdated={handleLabelsUpdated} />
         </div>
     );
 } 
