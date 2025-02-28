@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ..models.email import Email
 from ..db import get_db
@@ -20,6 +20,7 @@ router = APIRouter()
 @router.post("/sync")
 async def sync_emails(
     use_current_date: bool = False,
+    force_full_sync: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -28,9 +29,10 @@ async def sync_emails(
     
     Parameters:
     - use_current_date: If true, use the current date for checkpoint instead of treating it as next day
+    - force_full_sync: If true, forces a full sync ignoring the last checkpoint date
     """
     logger.info(f"[API] Email sync requested for user {current_user.id} (email: {current_user.email})")
-    logger.info(f"[API] Sync parameters: use_current_date={use_current_date}")
+    logger.info(f"[API] Sync parameters: use_current_date={use_current_date}, force_full_sync={force_full_sync}")
     
     try:
         # Store the original token for comparison later
@@ -41,7 +43,14 @@ async def sync_emails(
         logger.info(f"[API] Starting sync process at {start_time.isoformat()}")
         
         try:
-            result = sync_emails_since_last_fetch(db, current_user, use_current_date=use_current_date)
+            # When force_full_sync is true, we'll pass it to sync_emails_since_last_fetch
+            # which will adjust the query to get more emails
+            result = sync_emails_since_last_fetch(
+                db, 
+                current_user, 
+                use_current_date=use_current_date,
+                force_full_sync=force_full_sync
+            )
             
             # If credentials were refreshed, update them in the database
             current_token = current_user.credentials.get('token') if current_user.credentials else None
@@ -71,6 +80,221 @@ async def sync_emails(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to sync emails"
+        )
+
+@router.post("/sync/fresh")
+async def sync_fresh_emails(
+    days_back: int = 3,
+    max_emails: int = 200,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Force a fresh sync grabbing recent emails without using history ID
+    
+    This endpoint is useful when you want to grab recent emails with a cleaner approach
+    than the standard sync (avoiding date-time parsing issues).
+    
+    Parameters:
+    - days_back: Number of days to look back for emails (default: 3)
+    - max_emails: Maximum number of emails to retrieve (default: 200)
+    """
+    logger.info(f"[API] Fresh email sync requested for user {current_user.id} (email: {current_user.email})")
+    logger.info(f"[API] Fresh sync parameters: days_back={days_back}, max_emails={max_emails}")
+    
+    try:
+        # Store the original token for comparison later
+        original_token = current_user.credentials.get('token') if current_user.credentials else None
+        
+        # Start timer for performance tracking
+        start_time = datetime.now()
+        logger.info(f"[API] Starting fresh sync at {start_time.isoformat()}")
+        
+        try:
+            # Get existing Gmail IDs to filter out already processed emails
+            existing_gmail_ids = db.query(Email.gmail_id).filter(
+                Email.user_id == current_user.id
+            ).all()
+            existing_gmail_ids = set([id[0] for id in existing_gmail_ids]) 
+            logger.info(f"[API] Found {len(existing_gmail_ids)} existing emails in database")
+            
+            # Create a date-based query that looks back a specific number of days
+            # This is more reliable than trying to use timestamp-based queries
+            past_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y/%m/%d')
+            query = f"after:{past_date} in:inbox"
+            logger.info(f"[API] Using query: '{query}'")
+            
+            # Fetch emails from Gmail with the specified query
+            emails = gmail.fetch_emails_from_gmail(
+                current_user.credentials, 
+                max_results=max_emails,
+                query=query
+            )
+            
+            if not emails:
+                logger.info(f"[API] No emails found with query: '{query}'")
+                return {
+                    "status": "success",
+                    "message": "No emails found",
+                    "emails_synced": 0
+                }
+            
+            logger.info(f"[API] Retrieved {len(emails)} emails from Gmail API")
+            
+            # Filter out already processed emails
+            new_emails = []
+            for email in emails:
+                if email['gmail_id'] not in existing_gmail_ids:
+                    new_emails.append(email)
+            
+            logger.info(f"[API] After filtering, {len(new_emails)} new emails remain for processing")
+            
+            if not new_emails:
+                logger.info(f"[API] All retrieved emails were already processed")
+                return {
+                    "status": "success",
+                    "message": "All emails already synced",
+                    "emails_synced": 0
+                }
+            
+            # Process and store the new emails
+            processed_emails = process_and_store_emails(db, current_user, new_emails)
+            logger.info(f"[API] Successfully processed and stored {len(processed_emails)} emails")
+            
+            # If credentials were refreshed, update them
+            current_token = current_user.credentials.get('token') if current_user.credentials else None
+            if original_token and current_token and original_token != current_token:
+                logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
+                db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
+                db.commit()
+            
+            # Calculate duration
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.info(f"[API] Fresh sync completed in {duration:.2f} seconds")
+            
+            return {
+                "status": "success",
+                "message": f"Synced {len(processed_emails)} new emails",
+                "emails_synced": len(processed_emails)
+            }
+            
+        except Exception as gmail_error:
+            logger.error(f"[API] Gmail API error during fresh sync: {str(gmail_error)}")
+            return {
+                "status": "error",
+                "message": f"Error during fresh sync: {str(gmail_error)}",
+                "emails_synced": 0
+            }
+        
+    except Exception as e:
+        logger.error(f"[API] Error in fresh sync: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to sync fresh emails"
+        )
+
+@router.post("/notifications/setup")
+async def setup_push_notifications(
+    webhook_url: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Set up Gmail push notifications for real-time updates
+    
+    Parameters:
+    - webhook_url: HTTPS URL that will receive push notifications
+    """
+    logger.info(f"[API] Setting up push notifications for user {current_user.id} with webhook: {webhook_url}")
+    
+    try:
+        # Store the original token for comparison later
+        original_token = current_user.credentials.get('token') if current_user.credentials else None
+        
+        # Set up push notifications
+        result = gmail.setup_push_notifications(
+            current_user.credentials,
+            webhook_url
+        )
+        
+        # If credentials were refreshed, update them
+        current_token = current_user.credentials.get('token') if current_user.credentials else None
+        if original_token and current_token and original_token != current_token:
+            logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
+            db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
+            db.commit()
+        
+        # Store the push notification details in the user record for future reference
+        update_data = {
+            "push_notification_data": {
+                "webhook_url": webhook_url,
+                "history_id": result.get("historyId"),
+                "expiration": result.get("expiration"),
+                "topic_name": result.get("topic_name"),
+                "setup_time": datetime.now().isoformat()
+            }
+        }
+        
+        db.query(User).filter(User.id == current_user.id).update(update_data)
+        db.commit()
+        
+        logger.info(f"[API] Push notifications set up successfully: {result}")
+        
+        return {
+            "status": "success",
+            "message": "Push notifications set up successfully",
+            "historyId": result.get("historyId"),
+            "expiration": result.get("expiration")
+        }
+        
+    except Exception as e:
+        logger.error(f"[API] Error setting up push notifications: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to set up push notifications: {str(e)}"
+        )
+
+@router.post("/notifications/stop")
+async def stop_push_notifications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Stop Gmail push notifications that were previously set up
+    """
+    logger.info(f"[API] Stopping push notifications for user {current_user.id}")
+    
+    try:
+        # Store the original token for comparison later
+        original_token = current_user.credentials.get('token') if current_user.credentials else None
+        
+        # Stop push notifications
+        result = gmail.stop_push_notifications(current_user.credentials)
+        
+        # If credentials were refreshed, update them
+        current_token = current_user.credentials.get('token') if current_user.credentials else None
+        if original_token and current_token and original_token != current_token:
+            logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
+            db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
+            db.commit()
+        
+        # Clear the push notification data from the user record
+        db.query(User).filter(User.id == current_user.id).update({"push_notification_data": None})
+        db.commit()
+        
+        logger.info(f"[API] Push notifications stopped successfully")
+        
+        return {
+            "status": "success",
+            "message": "Push notifications stopped successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"[API] Error stopping push notifications: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop push notifications: {str(e)}"
         )
 
 @router.get("/")

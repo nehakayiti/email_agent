@@ -164,46 +164,80 @@ def sync_gmail_changes(
         # Process each history event
         event_counts = {"messageAdded": 0, "messageDeleted": 0, "labelAdded": 0, "labelRemoved": 0}
         
+        # Debug information: log some sample history events for debugging
+        if history_events:
+            sample_size = min(2, len(history_events))
+            for i in range(sample_size):
+                logger.debug(f"[GMAIL] Sample history event {i+1}: {history_events[i]}")
+        
         for event in history_events:
             # Track messageAdded events (new emails)
-            for msg_added in event.get('messageAdded', []):
-                msg_id = msg_added['message']['id']
-                new_email_ids.add(msg_id)
-                event_counts["messageAdded"] += 1
+            if 'messagesAdded' in event:  # Note: the API actually uses 'messagesAdded', not 'messageAdded'
+                for msg_added in event.get('messagesAdded', []):
+                    msg_id = msg_added['message']['id']
+                    
+                    # Check if this is a new message in the INBOX or other relevant label
+                    # Messages with CHAT, DRAFT, SENT labels should be ignored as they're not new incoming emails
+                    message_labels = set(msg_added['message'].get('labelIds', []))
+                    system_labels = {'CHAT', 'DRAFT', 'SENT'}
+                    
+                    # Only consider it a new email if it's not a chat, draft, or sent message
+                    # or if it explicitly has the INBOX label
+                    if 'INBOX' in message_labels or not message_labels.intersection(system_labels):
+                        new_email_ids.add(msg_id)
+                        event_counts["messageAdded"] += 1
+                        logger.debug(f"[GMAIL] New message detected: {msg_id} with labels: {message_labels}")
+            
+            # Also check 'messages' field which might contain added messages
+            if 'messages' in event:
+                for message in event.get('messages', []):
+                    msg_id = message['id']
+                    # We'll process these messages later to see if they're actually new
+                    # (Gmail API sometimes includes messages here that should be considered)
+                    new_email_ids.add(msg_id)
+                    event_counts["messageAdded"] += 1
+                    logger.debug(f"[GMAIL] Potential new message from 'messages' field: {msg_id}")
             
             # Track messageDeleted events
-            for msg_deleted in event.get('messageDeleted', []):
-                msg_id = msg_deleted['message']['id']
-                deleted_email_ids.add(msg_id)
-                event_counts["messageDeleted"] += 1
+            if 'messagesDeleted' in event:  # Note: the API uses 'messagesDeleted', not 'messageDeleted'
+                for msg_deleted in event.get('messagesDeleted', []):
+                    msg_id = msg_deleted['message']['id']
+                    deleted_email_ids.add(msg_id)
+                    event_counts["messageDeleted"] += 1
+                    logger.debug(f"[GMAIL] Deleted message detected: {msg_id}")
             
             # Track labelAdded events (includes emails moved to Trash)
-            for label_event in event.get('labelAdded', []):
-                msg_id = label_event['message']['id']
-                label_ids = label_event.get('labelIds', [])
-                
-                # If TRASH label was added, count as deleted
-                if 'TRASH' in label_ids:
-                    deleted_email_ids.add(msg_id)
-                
-                # Track all label changes
-                if msg_id not in label_changes:
-                    label_changes[msg_id] = {'added': [], 'removed': []}
-                label_changes[msg_id]['added'].extend(label_ids)
-                
-                event_counts["labelAdded"] += 1
+            if 'labelsAdded' in event:  # Note: the API uses 'labelsAdded', not 'labelAdded'
+                for label_event in event.get('labelsAdded', []):
+                    msg_id = label_event['message']['id']
+                    label_ids = label_event.get('labelIds', [])
+                    
+                    # If TRASH label was added, count as deleted
+                    if 'TRASH' in label_ids:
+                        deleted_email_ids.add(msg_id)
+                        logger.debug(f"[GMAIL] Message {msg_id} moved to TRASH")
+                    
+                    # Track all label changes
+                    if msg_id not in label_changes:
+                        label_changes[msg_id] = {'added': [], 'removed': []}
+                    label_changes[msg_id]['added'].extend(label_ids)
+                    
+                    event_counts["labelAdded"] += 1
+                    logger.debug(f"[GMAIL] Labels added to message {msg_id}: {label_ids}")
             
             # Track labelRemoved events
-            for label_event in event.get('labelRemoved', []):
-                msg_id = label_event['message']['id']
-                label_ids = label_event.get('labelIds', [])
-                
-                # Track all label changes
-                if msg_id not in label_changes:
-                    label_changes[msg_id] = {'added': [], 'removed': []}
-                label_changes[msg_id]['removed'].extend(label_ids)
-                
-                event_counts["labelRemoved"] += 1
+            if 'labelsRemoved' in event:  # Note: the API uses 'labelsRemoved', not 'labelRemoved'
+                for label_event in event.get('labelsRemoved', []):
+                    msg_id = label_event['message']['id']
+                    label_ids = label_event.get('labelIds', [])
+                    
+                    # Track all label changes
+                    if msg_id not in label_changes:
+                        label_changes[msg_id] = {'added': [], 'removed': []}
+                    label_changes[msg_id]['removed'].extend(label_ids)
+                    
+                    event_counts["labelRemoved"] += 1
+                    logger.debug(f"[GMAIL] Labels removed from message {msg_id}: {label_ids}")
         
         logger.info(f"[GMAIL] Processed events: {event_counts}")
         
@@ -399,10 +433,15 @@ def fetch_emails_from_gmail(
         
         # Add query if provided
         if query:
+            # Gmail requires certain escaping for special characters in time-based queries
+            # Replace spaces with actual space characters to ensure proper formatting
+            query = query.replace(" ", " ")
             params['q'] = query
+            logger.info(f"[GMAIL] Using formatted query: '{query}'")
         
         # Fetch email list with metadata
         try:
+            logger.info(f"[GMAIL] Executing messages.list with params: {params}")
             results = service.users().messages().list(**params).execute()
             
             messages = results.get('messages', [])
@@ -410,7 +449,30 @@ def fetch_emails_from_gmail(
             logger.info(f"[GMAIL] Found {message_count} messages matching query")
             
             if message_count == 0:
-                logger.info("[GMAIL] No messages found, returning empty list")
+                # When no emails are found, log more details to help diagnose issues
+                if query:
+                    logger.info(f"[GMAIL] No messages found for query: '{query}'. This could mean no new emails or the query may need adjustment.")
+                    
+                    # Try a simpler query to see if there are any emails at all
+                    try:
+                        # Get a small sample with just INBOX label to check if API is working 
+                        test_params = {
+                            'userId': 'me',
+                            'maxResults': 5,
+                            'labelIds': ['INBOX']
+                        }
+                        test_results = service.users().messages().list(**test_params).execute()
+                        test_count = len(test_results.get('messages', []))
+                        
+                        if test_count > 0:
+                            logger.info(f"[GMAIL] Test query returned {test_count} messages, suggesting the original query may be too restrictive.")
+                        else:
+                            logger.info("[GMAIL] Test query also returned no results. Inbox may be empty or there may be access issues.")
+                    except Exception as test_e:
+                        logger.warning(f"[GMAIL] Error running test query: {str(test_e)}")
+                else:
+                    logger.info("[GMAIL] No messages found with default INBOX label.")
+                
                 return []
         except Exception as e:
             logger.error(f"[GMAIL] Error listing messages: {str(e)}")
@@ -674,3 +736,110 @@ def _check_deleted_emails_batch(
     deleted_count = sum(deleted_status.values())
     logger.info(f"[GMAIL] Found {deleted_count} deleted messages out of {len(gmail_ids)}")
     return deleted_status 
+
+def setup_push_notifications(
+    credentials: Dict[str, Any],
+    webhook_url: str,
+    topic_name: str = None
+) -> Dict[str, Any]:
+    """
+    Set up Gmail push notifications to a webhook endpoint.
+    
+    This allows Gmail to notify your application in real-time when new emails arrive,
+    which is more efficient than polling for changes.
+    
+    Args:
+        credentials: Dictionary containing OAuth credentials
+        webhook_url: HTTPS URL that will receive the notifications
+        topic_name: Optional topic name (defaults to "gmail_<random>")
+        
+    Returns:
+        Dictionary with setup information including expiration
+    """
+    try:
+        logger.info(f"[GMAIL] Setting up push notifications to webhook: {webhook_url}")
+        service = create_gmail_service(credentials)
+        
+        # Create a unique topic name if not provided
+        if not topic_name:
+            # Create a unique ID based on timestamp and random number
+            unique_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
+            topic_name = f"gmail_{unique_id}"
+        
+        # Set up the watch request
+        watch_request = {
+            'topicName': topic_name,
+            'labelIds': ['INBOX'],  # Watch for changes to INBOX
+            'labelFilterAction': 'include'  # Only include specified labels
+        }
+        
+        # Execute the watch request
+        watch_response = service.users().watch(
+            userId='me',
+            body=watch_request
+        ).execute()
+        
+        logger.info(f"[GMAIL] Successfully set up push notifications: {watch_response}")
+        
+        # Add webhook URL to the response
+        watch_response['webhook_url'] = webhook_url
+        watch_response['topic_name'] = topic_name
+        
+        return watch_response
+        
+    except Exception as e:
+        logger.error(f"[GMAIL] Error setting up push notifications: {str(e)}", exc_info=True)
+        raise
+
+def stop_push_notifications(credentials: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Stop Gmail push notifications that were previously set up.
+    
+    Args:
+        credentials: Dictionary containing OAuth credentials
+        
+    Returns:
+        Success status
+    """
+    try:
+        logger.info(f"[GMAIL] Stopping push notifications")
+        service = create_gmail_service(credentials)
+        
+        # Execute the stop command
+        service.users().stop(userId='me').execute()
+        
+        logger.info(f"[GMAIL] Successfully stopped push notifications")
+        
+        return {
+            "status": "success",
+            "message": "Push notifications stopped successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"[GMAIL] Error stopping push notifications: {str(e)}", exc_info=True)
+        raise
+
+def get_gmail_profile(credentials: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Get Gmail profile information which includes account details and metadata.
+    
+    Args:
+        credentials: Dictionary containing OAuth credentials
+        
+    Returns:
+        Dictionary with Gmail profile information
+    """
+    try:
+        logger.info(f"[GMAIL] Retrieving Gmail profile information")
+        service = create_gmail_service(credentials)
+        
+        # Get the profile data
+        profile = service.users().getProfile(userId='me').execute()
+        
+        logger.info(f"[GMAIL] Successfully retrieved profile: {profile}")
+        
+        return profile
+        
+    except Exception as e:
+        logger.error(f"[GMAIL] Error retrieving Gmail profile: {str(e)}", exc_info=True)
+        raise 
