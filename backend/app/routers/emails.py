@@ -166,7 +166,11 @@ async def check_deleted_emails_endpoint(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Check which emails have been deleted in Gmail and update their status in the database
+    Check which emails have been deleted in Gmail and update their status in the database.
+    This endpoint uses an optimized approach to minimize API calls by:
+    1. Sampling a small subset of emails first
+    2. Only performing a full check if needed
+    3. Using exponential backoff for rate limiting
     """
     try:
         logger.info(f"[API] Checking deleted emails for user {current_user.id}")
@@ -193,8 +197,13 @@ async def check_deleted_emails_endpoint(
         logger.info(f"[API] Checking {len(gmail_ids)} emails for deletion status")
         
         try:
-            # Check which emails have been deleted in Gmail
-            deleted_status = gmail.check_deleted_emails(current_user.credentials, gmail_ids)
+            # Check which emails have been deleted in Gmail - using optimized approach
+            # The force_full_check parameter is False by default, which means it will
+            # first sample a few emails and only check all if deletions are detected
+            deleted_status = gmail.check_deleted_emails(
+                credentials=current_user.credentials, 
+                gmail_ids=gmail_ids
+            )
             
             # Update the database with the deleted status
             deleted_count = 0
@@ -239,7 +248,7 @@ async def check_deleted_emails_endpoint(
         )
 
 @router.post("/{email_id}/update-labels")
-async def update_email_labels(
+async def update_labels_endpoint(
     email_id: UUID,
     add_labels: List[str] = None,
     remove_labels: List[str] = None,
@@ -279,53 +288,63 @@ async def update_email_labels(
             )
         
         try:
-            # Update the labels in Gmail
-            result = update_email_labels(
-                current_user.credentials,
-                email.gmail_id,
+            # Update the labels in Gmail - be careful with parameter names to avoid errors
+            result = gmail.update_email_labels(
+                credentials=current_user.credentials,
+                gmail_id=email.gmail_id,
                 add_labels=add_labels,
                 remove_labels=remove_labels
             )
             
-            # Update the labels in the database
+            # Update the email model with new labels
+            email_updated = False
             current_labels = set(email.labels or [])
             
             if add_labels:
                 for label in add_labels:
-                    current_labels.add(label)
+                    if label not in current_labels:
+                        current_labels.add(label)
+                        email_updated = True
+                
+                # Special handling for read status based on UNREAD label
+                if 'UNREAD' in add_labels and email.is_read:
+                    email.is_read = False
+                    email_updated = True
             
             if remove_labels:
                 for label in remove_labels:
                     if label in current_labels:
                         current_labels.remove(label)
+                        email_updated = True
+                
+                # Special handling for read status based on UNREAD label
+                if 'UNREAD' in remove_labels and not email.is_read:
+                    email.is_read = True
+                    email_updated = True
             
-            email.labels = list(current_labels)
-            
-            # Update read status if UNREAD label is added or removed
-            if add_labels and 'UNREAD' in add_labels:
-                email.is_read = False
-            elif remove_labels and 'UNREAD' in remove_labels:
-                email.is_read = True
+            # Update labels if changed
+            if email_updated:
+                email.labels = list(current_labels)
+                logger.info(f"[API] Updated email {email_id} labels in database to {list(current_labels)}")
             
             # If credentials were refreshed, update them in the database
             current_token = current_user.credentials.get('token') if current_user.credentials else None
             if original_token and current_token and original_token != current_token:
                 logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
-                # Update the credentials in the database
                 db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
+                email_updated = True
             
-            # Commit the changes
-            db.commit()
-            
-            logger.info(f"[API] Labels updated successfully for email {email_id}")
+            # Commit if needed
+            if email_updated:
+                db.commit()
             
             return {
                 "status": "success",
                 "message": "Labels updated successfully",
                 "email_id": str(email_id),
-                "labels": email.labels,
-                "is_read": email.is_read
+                "current_labels": list(current_labels)
             }
+            
         except Exception as gmail_error:
             logger.error(f"[API] Gmail API error updating labels: {str(gmail_error)}")
             # If there's an error with the Gmail API, we'll return a specific error
@@ -334,13 +353,10 @@ async def update_email_labels(
                 "message": f"Error updating labels with Gmail API: {str(gmail_error)}",
                 "email_id": str(email_id)
             }
-        
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
+    
     except Exception as e:
-        logger.error(f"[API] Error updating labels for email {email_id}: {str(e)}", exc_info=True)
+        logger.error(f"[API] Error updating labels: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update email labels"
+            detail=f"Failed to update labels: {str(e)}"
         ) 
