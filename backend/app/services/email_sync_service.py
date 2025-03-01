@@ -105,7 +105,7 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         # Check for Trash label to mark as deleted
         if 'TRASH' in changes.get('added', []):
             logger.info(f"[SYNC] Email {gmail_id} moved to Trash, marking as deleted")
-            email.is_deleted = True
+            email.is_deleted_in_gmail = True
             updated_count += 1
             
         # Update read status
@@ -129,7 +129,7 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
 
 def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool = False, force_full_sync: bool = False) -> Dict[str, Any]:
     """
-    Sync emails from Gmail since the last fetch time
+    Sync emails from Gmail since the last fetch time using Gmail's historyId for efficiency
     
     Args:
         db: Database session
@@ -140,6 +140,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
     Returns:
         Dictionary with sync results
     """
+    start_time = datetime.now(timezone.utc)
     try:
         # Get or create email sync record
         email_sync = get_or_create_email_sync(db, user)
@@ -154,12 +155,6 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             logger.info(f"[SYNC] Force full sync requested, setting checkpoint to 7 days ago")
             last_fetched_at = now - timedelta(days=7)
             last_history_id = None  # Don't use history ID for forced syncs
-        else:
-            # Check if the last_fetched_at is in the future (timezone issue)
-            if last_fetched_at > now:
-                logger.warning(f"[SYNC] Last checkpoint date {last_fetched_at.isoformat()} is in the future! Resetting to current time.")
-                last_fetched_at = now - timedelta(hours=1)  # Set to 1 hour ago to be safe
-                update_sync_checkpoint(db, email_sync, last_fetched_at)
         
         # Get local time for logging
         local_time = datetime.now()
@@ -174,259 +169,228 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
         existing_gmail_ids = set([id[0] for id in existing_gmail_ids])
         logger.info(f"[SYNC] Found {len(existing_gmail_ids)} already processed emails in database")
         
-        # Determine sync strategy based on available data
+        # Initialize sync variables
         new_emails = []
         deleted_email_ids = []
-        label_changes_count = 0
         new_history_id = None
-        history_success = False  # Track if history-based approach succeeded
+        label_changes_count = 0
+        sync_method = "history"
         
         # Primary Strategy: Use history-based approach if we have a history ID and not forcing full sync
         if last_history_id and not force_full_sync:
             logger.info(f"[SYNC] Using history-based approach with history ID: {last_history_id}")
             try:
-                # Use the sync_gmail_changes function to efficiently fetch changes
+                # Use the sync_gmail_changes function to efficiently fetch changes since last history ID
                 new_emails_raw, deleted_ids, label_changes, new_history_id = sync_gmail_changes(user.credentials, last_history_id)
                 
-                # If we got a valid history ID back, mark history approach as successful
+                # If we got a valid history ID back, process the results
                 if new_history_id and new_history_id != last_history_id:
-                    history_success = True
                     logger.info(f"[SYNC] History-based sync successful with new history ID: {new_history_id}")
-                
-                # Track total emails found vs filtered
-                total_found = len(new_emails_raw)
-                already_processed = 0
-                
-                # Filter out emails that have already been processed
-                for email in new_emails_raw:
-                    if email['gmail_id'] not in existing_gmail_ids:
-                        new_emails.append(email)
-                        logger.debug(f"[SYNC] New email found: {email['gmail_id']} - {email['subject'][:30]}")
-                    else:
-                        already_processed += 1
-                        logger.debug(f"[SYNC] Skipping already processed email: {email['gmail_id']}")
-                
-                deleted_email_ids = deleted_ids
-                
-                # Process label changes (mark as read/unread, deleted, etc.)
-                label_changes_count = process_label_changes(db, user, label_changes)
-                
-                logger.info(f"[SYNC] History-based sync found {total_found} emails, of which {already_processed} already processed and {len(new_emails)} are new")
-                logger.info(f"[SYNC] Found {len(deleted_email_ids)} deleted, {label_changes_count} label changes")
-                
-                # If we didn't find any new emails but had some that were filtered out,
-                # explicitly log this to make it clear what happened
-                if not new_emails and already_processed > 0:
-                    logger.info(f"[SYNC] All {already_processed} emails found were already processed! Consider adjusting sync time window.")
-                
+                    
+                    # Track total emails found vs filtered
+                    total_found = len(new_emails_raw)
+                    already_processed = 0
+                    
+                    # Filter out emails that have already been processed
+                    for email in new_emails_raw:
+                        if email['gmail_id'] not in existing_gmail_ids:
+                            new_emails.append(email)
+                        else:
+                            already_processed += 1
+                            logger.debug(f"[SYNC] Skipping already processed email: {email['gmail_id']}")
+                    
+                    deleted_email_ids = deleted_ids
+                    
+                    # Process label changes (mark as read/unread, deleted, etc.)
+                    label_changes_count = process_label_changes(db, user, label_changes)
+                    
+                    logger.info(f"[SYNC] History-based sync found {total_found} emails, of which {already_processed} already processed and {len(new_emails)} are new")
+                    logger.info(f"[SYNC] Found {len(deleted_email_ids)} deleted, {label_changes_count} label changes")
+                else:
+                    logger.warning(f"[SYNC] History-based sync did not produce a new history ID. Will fallback to label-based sync.")
+                    sync_method = "fallback"
             except Exception as e:
-                logger.error(f"[SYNC] Error using history-based approach: {str(e)}", exc_info=True)
-                # Fallback strategy will be used below
-        
-        # Fallback Strategy / Full Sync Strategy: Use label approach for most reliable results
-        # We use this if:
-        # 1. force_full_sync is True
-        # 2. We don't have a history ID
-        # 3. The history-based sync failed
-        if not history_success or force_full_sync:
-            logger.info(f"[SYNC] Using label-based fallback approach")
-            
-            # First, try to get emails by INBOX label - this is more reliable than date-based queries
-            # and handles Gmail's internal time representation better
-            try:
-                # Use a higher max_results for full sync mode
-                max_results = 500 if force_full_sync else 100
-                logger.info(f"[SYNC] Fetching up to {max_results} emails with INBOX label")
+                error_msg = str(e)
+                if "Invalid startHistoryId" in error_msg or "Start history ID is too old" in error_msg:
+                    logger.warning(f"[SYNC] History ID {last_history_id} is invalid or too old: {error_msg}")
+                    # Clear the history ID for next time
+                    last_history_id = None
+                    # Update the sync record with null history ID
+                    email_sync.last_history_id = None
+                    db.commit()
+                else:
+                    logger.error(f"[SYNC] Error using history-based approach: {error_msg}", exc_info=True)
                 
+                # Use fallback approach
+                sync_method = "fallback"
+        else:
+            sync_method = "fallback" if not last_history_id else "full_sync"
+        
+        # Fallback Strategy / Full Sync Strategy: Use label approach as fallback
+        if sync_method in ["fallback", "full_sync"]:
+            logger.info(f"[SYNC] Using {sync_method} approach")
+            
+            # Determine how many emails to fetch
+            max_results = 500 if force_full_sync else 100
+            logger.info(f"[SYNC] Fetching up to {max_results} emails with INBOX label")
+            
+            try:
                 # Get the latest emails from INBOX or other relevant labels
                 inbox_emails = fetch_emails_from_gmail(
                     user.credentials,
                     max_results=max_results,
-                    # For most reliable results, don't use a query parameter but use labelIds instead
-                    query=None  # We'll use the default INBOX label from the Gmail service
+                    query=None  # We'll use the default INBOX label
                 )
                 
                 # Filter by date if we're not doing a force_full_sync
+                date_filtered_emails = []
                 if not force_full_sync:
-                    # Apply date filtering in memory - more reliable than Gmail query
-                    filtered_inbox_emails = []
+                    # Filter out emails older than the last_fetched_at timestamp
                     for email in inbox_emails:
-                        try:
-                            # Parse the email's received_at timestamp
-                            email_date = datetime.fromisoformat(email['received_at'])
+                        # Convert to datetime for comparison (required because received_at can be a string in some cases)
+                        received_at = email['received_at'] if isinstance(email['received_at'], datetime) else datetime.fromisoformat(email['received_at'])
+                        
+                        # Convert to UTC timezone if not already set
+                        if received_at.tzinfo is None:
+                            received_at = received_at.replace(tzinfo=timezone.utc)
                             
-                            # Only include emails after our last checkpoint with a buffer
-                            buffer_time = last_fetched_at - timedelta(hours=1)
-                            if email_date > buffer_time:
-                                filtered_inbox_emails.append(email)
-                                logger.debug(f"[SYNC] Email from {email_date.isoformat()} included (after {buffer_time.isoformat()})")
-                            else:
-                                logger.debug(f"[SYNC] Email from {email_date.isoformat()} excluded (before {buffer_time.isoformat()})")
-                        except Exception as date_e:
-                            # If date parsing fails, include the email just to be safe
-                            logger.warning(f"[SYNC] Error parsing email date, including email: {str(date_e)}")
-                            filtered_inbox_emails.append(email)
+                        # Include the email if it's newer than the last fetch timestamp
+                        if received_at >= last_fetched_at:
+                            date_filtered_emails.append(email)
                 else:
-                    # For force_full_sync, use all emails we retrieved
-                    filtered_inbox_emails = inbox_emails
+                    # For forced full sync, include all emails
+                    date_filtered_emails = inbox_emails
                 
-                logger.info(f"[SYNC] Retrieved {len(inbox_emails)} emails, filtered to {len(filtered_inbox_emails)} by date criteria")
+                logger.info(f"[SYNC] Retrieved {len(inbox_emails)} emails, filtered to {len(date_filtered_emails)} by date criteria")
                 
-                # Track total emails found vs filtered
-                already_processed = 0
-                
-                # Filter out emails that have already been processed
-                for email in filtered_inbox_emails:
+                # Filter out emails that already exist in our database
+                for email in date_filtered_emails:
                     if email['gmail_id'] not in existing_gmail_ids:
                         new_emails.append(email)
-                        logger.debug(f"[SYNC] New email found: {email['gmail_id']} - {email['subject'][:30]}")
-                    else:
-                        already_processed += 1
-                        logger.debug(f"[SYNC] Skipping already processed email: {email['gmail_id']}")
                 
-                logger.info(f"[SYNC] After filtering, {len(new_emails)} new emails remain for processing (filtered out {already_processed} already processed)")
+                logger.info(f"[SYNC] After filtering, {len(new_emails)} new emails remain for processing (filtered out {len(date_filtered_emails) - len(new_emails)} already processed)")
                 
-                # If we didn't find any new emails but had some that were filtered out,
-                # explicitly log this to make it clear what happened
-                if not new_emails and already_processed > 0:
-                    logger.info(f"[SYNC] All {already_processed} emails found were already processed! Consider adjusting sync time window.")
-                    
-                # If still no emails found and not already doing a forced sync, consider retrying with a broader query
-                if not new_emails and not force_full_sync:
-                    logger.info(f"[SYNC] No new emails found, trying with a broader date range as a last resort")
-                    
-                    # Use a query that goes back further than our checkpoint
-                    broader_date = (last_fetched_at - timedelta(days=2)).strftime('%Y/%m/%d')
-                    query = f"after:{broader_date} in:inbox"
-                    
-                    # Try the broader query
-                    logger.info(f"[SYNC] Using broader query: '{query}'")
-                    broader_emails = fetch_emails_from_gmail(
-                        user.credentials, 
-                        query=query,
-                        max_results=150  # Higher limit for the broader query
-                    )
-                    
-                    if broader_emails:
-                        logger.info(f"[SYNC] Broader query found {len(broader_emails)} emails")
-                        
-                        # Filter out already processed emails
-                        for email in broader_emails:
-                            if email['gmail_id'] not in existing_gmail_ids:
-                                new_emails.append(email)
-                                logger.debug(f"[SYNC] New email found in broader query: {email['gmail_id']} - {email['subject'][:30]}")
-                            else:
-                                logger.debug(f"[SYNC] Skipping already processed email from broader query: {email['gmail_id']}")
-                        
-                        logger.info(f"[SYNC] After filtering broader query results, {len(new_emails)} new emails identified")
-                
-                # Check for deleted emails (only if we have existing emails)
-                if existing_gmail_ids:
-                    # Check just a small sample to determine if a full scan is needed
+                # Check for deleted emails if we have a significant number of emails in database
+                if len(existing_gmail_ids) > 0:
                     logger.info(f"[SYNC] Checking sample of existing emails for deletions")
-                    deleted_status = check_deleted_emails(user.credentials, list(existing_gmail_ids), force_full_check=False)
                     
-                    # Extract the IDs of deleted emails
-                    deleted_email_ids = [gmail_id for gmail_id, is_deleted in deleted_status.items() if is_deleted]
-                    logger.info(f"[SYNC] Found {len(deleted_email_ids)} deleted emails")
-                
+                    # Check if emails have been deleted from Gmail
+                    # Start with a small sample to avoid unnecessary API calls if no deletions
+                    deleted_email_gmail_ids = {}
+                    
+                    try:
+                        # If we have many emails, check a sample first
+                        if len(existing_gmail_ids) > 50:
+                            # Take a small sample of the oldest emails first (most likely to be deleted)
+                            sample_size = 5
+                            sample_emails = db.query(Email).filter(
+                                Email.user_id == user.id,
+                                Email.gmail_id.in_(existing_gmail_ids)
+                            ).order_by(Email.received_at).limit(sample_size).all()
+                            
+                            sample_gmail_ids = [email.gmail_id for email in sample_emails]
+                            logger.info(f"[GMAIL] Large number of emails ({len(existing_gmail_ids)}), checking sample of {sample_size} first")
+                            
+                            sample_deleted = check_deleted_emails(user.credentials, sample_gmail_ids)
+                            sample_deleted_count = sum(1 for is_deleted in sample_deleted.values() if is_deleted)
+                            
+                            # If we found deleted emails in the sample, check all emails
+                            if sample_deleted_count > 0:
+                                logger.info(f"[GMAIL] Found {sample_deleted_count} deleted emails in sample, checking all {len(existing_gmail_ids)} emails")
+                                deleted_email_gmail_ids = check_deleted_emails(user.credentials, list(existing_gmail_ids), force_full_check=True)
+                            else:
+                                logger.info(f"[GMAIL] No deletions found in sample, skipping full check of {len(existing_gmail_ids)} emails")
+                                deleted_email_gmail_ids = sample_deleted
+                        else:
+                            # For a small number of emails, check them all directly
+                            deleted_email_gmail_ids = check_deleted_emails(user.credentials, list(existing_gmail_ids))
+                        
+                        # Process deletions
+                        for gmail_id, is_deleted in deleted_email_gmail_ids.items():
+                            if is_deleted:
+                                deleted_email_ids.append(gmail_id)
+                        
+                        logger.info(f"[SYNC] Found {len(deleted_email_ids)} deleted emails")
+                        
+                    except Exception as e:
+                        logger.error(f"[SYNC] Error checking for deleted emails: {str(e)}", exc_info=True)
+                        # Continue with the sync, just without deletions
             except Exception as e:
-                logger.error(f"[SYNC] Error in fallback email fetching: {str(e)}", exc_info=True)
+                logger.error(f"[SYNC] Error in fallback sync approach: {str(e)}", exc_info=True)
+                # Return error since both primary and fallback methods failed
+                return {
+                    "status": "error", 
+                    "message": f"Email sync failed: {str(e)}",
+                    "sync_count": 0
+                }
         
-        # Process results
-        if not new_emails and not deleted_email_ids and label_changes_count == 0:
-            logger.info(f"[SYNC] No new or deleted emails found for user {user.id}")
-            return {
-                "status": "success",
-                "message": "No changes detected",
-                "sync_count": 0,
-                "new_email_count": 0,
-                "deleted_email_count": 0,
-                "label_changes_count": 0
-            }
-        
-        # Process and store new emails
+        # Process and store the new emails
         processed_emails = []
         if new_emails:
+            logger.info(f"[SYNC] Processing {len(new_emails)} new emails for user {user.id}")
             processed_emails = process_and_store_emails(db, user, new_emails)
             logger.info(f"[SYNC] Successfully processed and stored {len(processed_emails)} emails")
             
-            # Log details about each processed email
-            for i, email in enumerate(processed_emails):
-                logger.info(f"[SYNC] Email {i+1}/{len(processed_emails)}: ID={email.id}, Subject='{email.subject[:30]}...', "
-                           f"From={email.from_email}, Received={email.received_at.isoformat()}, "
-                           f"Category={email.category}")
+            # Log details of the synced emails for debugging
+            for i, email in enumerate(processed_emails, 1):
+                logger.info(f"[SYNC] Email {i}/{len(processed_emails)}: ID={email.id}, Subject='{email.subject[:30]}...', From={email.from_email}, Received={email.received_at}, Category={email.category}")
         
         # Process deleted emails
-        deleted_count = 0
         if deleted_email_ids:
-            logger.info(f"[SYNC] Processing {len(deleted_email_ids)} deleted emails")
-            
-            # Mark emails as deleted in our database
+            logger.info(f"[SYNC] Marking {len(deleted_email_ids)} emails as deleted")
+            deleted_count = 0
             for gmail_id in deleted_email_ids:
+                # Find the email in our database
                 email = db.query(Email).filter(
                     Email.user_id == user.id,
                     Email.gmail_id == gmail_id
                 ).first()
                 
-                if email:
-                    logger.info(f"[SYNC] Marking email {gmail_id} as deleted")
-                    email.is_deleted = True
+                if email and not email.is_deleted_in_gmail:
+                    email.is_deleted_in_gmail = True
                     deleted_count += 1
-                else:
-                    logger.debug(f"[SYNC] Email {gmail_id} not found in database, skipping deletion")
             
-            db.commit()
-            logger.info(f"[SYNC] Marked {deleted_count} emails as deleted")
+            if deleted_count > 0:
+                db.commit()
+                logger.info(f"[SYNC] Marked {deleted_count} emails as deleted")
         
-        # Find the most recent email timestamp to update last_fetched_at
-        latest_timestamp = None
-        for email in processed_emails:
-            if email.received_at and (latest_timestamp is None or email.received_at > latest_timestamp):
-                latest_timestamp = email.received_at
+        # Find the latest timestamp from the processed emails to use as the new checkpoint
+        latest_timestamp = start_time  # Default to the start time
+        if processed_emails:
+            # Find the maximum received_at time
+            latest_received = max(email.received_at for email in processed_emails)
+            if latest_received > latest_timestamp:
+                latest_timestamp = latest_received
+                logger.info(f"[SYNC] Found latest timestamp: {latest_timestamp.isoformat()}")
         
-        # Update the sync checkpoint (only if not doing a force_full_sync)
-        # For force_full_sync, we don't want to update the checkpoint to maintain the regular sync schedule
-        if not force_full_sync:
-            # Prepare to update the checkpoint and history ID
-            update_timestamp = latest_timestamp if latest_timestamp else now
-            
-            # Ensure the timestamp has timezone info
-            if update_timestamp.tzinfo is None:
-                update_timestamp = update_timestamp.replace(tzinfo=timezone.utc)
-                
-            logger.info(f"[SYNC] Found latest timestamp: {update_timestamp.isoformat()}")
-            old_checkpoint = email_sync.last_fetched_at
-            
-            # Don't set the checkpoint in the future
-            if update_timestamp > now:
-                logger.warning(f"[SYNC] Latest email timestamp {update_timestamp.isoformat()} is in the future! Using current time instead.")
-                update_timestamp = now
-                
-            # If using history-based sync, we should update the history ID as well
-            update_sync_checkpoint(db, email_sync, update_timestamp, new_history_id if history_success else None)
-            
-            logger.info(f"[SYNC] Updated checkpoint from {old_checkpoint.isoformat()} to {email_sync.last_fetched_at.isoformat()}")
-            if history_success and new_history_id:
-                logger.info(f"[SYNC] Updated history ID to {new_history_id}")
-        else:
-            logger.info(f"[SYNC] Skipping checkpoint update because this was a force_full_sync")
+        # Update the sync checkpoint with new timestamp and possibly new history_id
+        update_sync_checkpoint(db, email_sync, latest_timestamp, new_history_id)
         
-        sync_result = {
+        logger.info(f"[SYNC] Updated checkpoint from {last_fetched_at.isoformat()} to {latest_timestamp.isoformat()}")
+        
+        # Return summary of the sync
+        result = {
             "status": "success",
-            "message": f"Processed {len(processed_emails)} new emails, {deleted_count} deleted emails, and {label_changes_count} label changes",
-            "sync_count": len(processed_emails) + deleted_count + label_changes_count,
+            "message": f"Processed {len(processed_emails)} new emails, {len(deleted_email_ids)} deleted emails, and {label_changes_count} label changes",
+            "sync_count": len(processed_emails) + len(deleted_email_ids) + label_changes_count,
             "new_email_count": len(processed_emails),
-            "deleted_email_count": deleted_count,
+            "deleted_email_count": len(deleted_email_ids),
             "label_changes_count": label_changes_count,
-            "sync_started_at": datetime.now().isoformat(),
+            "sync_started_at": start_time.isoformat(),
             "user_id": str(user.id),
-            "sync_method": "history" if history_success else "fallback"
+            "sync_method": sync_method
         }
         
-        logger.info(f"[SYNC] Sync completed successfully: {sync_result}")
-        return sync_result
-        
+        logger.info(f"[SYNC] Sync completed successfully: {result}")
+        return result
+    
     except Exception as e:
-        logger.error(f"[SYNC] Error syncing emails: {str(e)}", exc_info=True)
-        raise 
+        logger.error(f"[SYNC] Unhandled error during email sync: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Email sync failed: {str(e)}",
+            "sync_count": 0,
+            "sync_started_at": start_time.isoformat(),
+            "user_id": str(user.id) if user else None,
+            "sync_method": "error"
+        } 

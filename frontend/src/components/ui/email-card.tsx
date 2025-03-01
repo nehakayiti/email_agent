@@ -3,11 +3,17 @@ import { Email } from '@/lib/api';
 interface EmailCardProps {
     email: Email;
     onClick: () => void;
+    isDeleted?: boolean;
 }
 
-export function EmailCard({ email, onClick }: EmailCardProps) {
+export function EmailCard({ email, onClick, isDeleted = false }: EmailCardProps) {
     return (
-        <div className="p-4 bg-white rounded-2xl shadow-md border border-gray-200 cursor-pointer" onClick={onClick}>
+        <div 
+            className={`p-4 bg-white rounded-2xl shadow-md border cursor-pointer ${
+                isDeleted ? 'border-red-200 bg-red-50' : 'border-gray-200'
+            }`} 
+            onClick={onClick}
+        >
             <p className="text-sm text-gray-600">From: <span className="font-medium">{email.from_email}</span></p>
             <p className="text-xs text-gray-500">{new Date(email.received_at).toLocaleString()}</p>
             <h2 className="text-lg font-medium text-gray-800 mt-2">{email.subject || '(No subject)'}</h2>
@@ -19,6 +25,11 @@ export function EmailCard({ email, onClick }: EmailCardProps) {
                 <span className="px-2 py-1 text-xs bg-blue-100 text-blue-600 rounded-full">
                     {email.is_read ? 'Read' : 'Unread'}
                 </span>
+                {isDeleted && (
+                    <span className="px-2 py-1 text-xs bg-red-100 text-red-600 rounded-full">
+                        Deleted in Gmail
+                    </span>
+                )}
             </div>
         </div>
     );

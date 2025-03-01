@@ -25,7 +25,10 @@ async def sync_emails(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Sync emails from Gmail to local database since the last fetch time
+    Sync emails from Gmail to local database using the efficient historyId approach
+    
+    This endpoint syncs emails using Gmail's historyId for incremental synchronization when available,
+    falling back to the label approach only when necessary.
     
     Parameters:
     - use_current_date: If true, use the current date for checkpoint instead of treating it as next day
@@ -38,48 +41,47 @@ async def sync_emails(
         # Store the original token for comparison later
         original_token = current_user.credentials.get('token') if current_user.credentials else None
         
-        # Use the new sync service
+        # Use the optimized sync service
         start_time = datetime.now()
         logger.info(f"[API] Starting sync process at {start_time.isoformat()}")
         
-        try:
-            # When force_full_sync is true, we'll pass it to sync_emails_since_last_fetch
-            # which will adjust the query to get more emails
-            result = sync_emails_since_last_fetch(
-                db, 
-                current_user, 
-                use_current_date=use_current_date,
-                force_full_sync=force_full_sync
-            )
-            
-            # If credentials were refreshed, update them in the database
-            current_token = current_user.credentials.get('token') if current_user.credentials else None
-            if original_token and current_token and original_token != current_token:
-                logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
-                # Update the credentials in the database
-                db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
-                db.commit()
-            
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-            logger.info(f"[API] Sync completed in {duration:.2f} seconds")
-            logger.info(f"[API] Sync result: {result}")
-            
-            return result
-        except Exception as gmail_error:
-            logger.error(f"[API] Gmail API error during sync: {str(gmail_error)}")
-            # If there's an error with the Gmail API, we'll return a specific error
-            return {
-                "status": "error",
-                "message": f"Error syncing emails with Gmail API: {str(gmail_error)}",
-                "emails_synced": 0
-            }
+        result = sync_emails_since_last_fetch(
+            db, 
+            current_user, 
+            use_current_date=use_current_date,
+            force_full_sync=force_full_sync
+        )
         
+        # If credentials were refreshed, update them in the database
+        current_token = current_user.credentials.get('token') if current_user.credentials else None
+        if original_token and current_token and original_token != current_token:
+            logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
+            # Update the credentials in the database
+            db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
+            db.commit()
+        
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        logger.info(f"[API] Sync completed in {duration:.2f} seconds")
+        logger.info(f"[API] Sync result: {result}")
+        
+        # Find new emails for display (if any were synced)
+        if result.get("new_email_count", 0) > 0:
+            page_size = 20  # Number of emails to show on the first page
+            emails = db.query(Email).filter(
+                Email.user_id == current_user.id,
+                Email.is_deleted.is_(False)
+            ).order_by(Email.received_at.desc()).limit(page_size).all()
+            
+            if emails:
+                logger.info(f"[API] Found {len(emails)} emails for page 1 (total: {result.get('new_email_count', 0) + result.get('deleted_email_count', 0)})")
+            
+        return result
     except Exception as e:
         logger.error(f"[API] Error syncing emails: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to sync emails"
+            detail=f"Failed to sync emails: {str(e)}"
         )
 
 @router.post("/sync/fresh")
@@ -90,10 +92,10 @@ async def sync_fresh_emails(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Force a fresh sync grabbing recent emails without using history ID
+    Force a fresh sync grabbing recent emails efficiently 
     
-    This endpoint is useful when you want to grab recent emails with a cleaner approach
-    than the standard sync (avoiding date-time parsing issues).
+    This endpoint first attempts to use the historyId approach for optimal efficiency
+    and falls back to date-based queries only when necessary.
     
     Parameters:
     - days_back: Number of days to look back for emails (default: 3)
@@ -110,19 +112,53 @@ async def sync_fresh_emails(
         start_time = datetime.now()
         logger.info(f"[API] Starting fresh sync at {start_time.isoformat()}")
         
-        try:
-            # Get existing Gmail IDs to filter out already processed emails
-            existing_gmail_ids = db.query(Email.gmail_id).filter(
-                Email.user_id == current_user.id
-            ).all()
-            existing_gmail_ids = set([id[0] for id in existing_gmail_ids]) 
-            logger.info(f"[API] Found {len(existing_gmail_ids)} existing emails in database")
-            
+        # Get existing Gmail IDs to filter out already processed emails
+        existing_gmail_ids = db.query(Email.gmail_id).filter(
+            Email.user_id == current_user.id
+        ).all()
+        existing_gmail_ids = set([id[0] for id in existing_gmail_ids]) 
+        logger.info(f"[API] Found {len(existing_gmail_ids)} existing emails in database")
+        
+        # Try to get the user's last history ID (if available)
+        email_sync = db.query(EmailSync).filter(EmailSync.user_id == current_user.id).first()
+        history_id = email_sync.last_history_id if email_sync else None
+        
+        # Try different sync strategies based on available data
+        emails = []
+        sync_method = "query"
+        
+        # First try using history ID if available
+        if history_id:
+            logger.info(f"[API] Attempting sync using history ID: {history_id}")
+            try:
+                # Use the history approach first if we have a history ID
+                new_emails_raw, _, _, new_history_id = gmail.sync_gmail_changes(
+                    current_user.credentials, 
+                    history_id
+                )
+                
+                if new_emails_raw:
+                    logger.info(f"[API] Successfully retrieved {len(new_emails_raw)} emails using history ID")
+                    emails = new_emails_raw
+                    sync_method = "history"
+                    
+                    # Update the history ID in the database
+                    if new_history_id and new_history_id != history_id:
+                        email_sync.last_history_id = new_history_id
+                        db.commit()
+                        logger.info(f"[API] Updated history ID from {history_id} to {new_history_id}")
+                else:
+                    logger.info(f"[API] No new emails found using history ID")
+            except Exception as e:
+                logger.warning(f"[API] Error using history ID: {str(e)}")
+                # Fall back to query approach
+        
+        # If history approach didn't work or found no emails, try query approach
+        if not emails:
             # Create a date-based query that looks back a specific number of days
-            # This is more reliable than trying to use timestamp-based queries
             past_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y/%m/%d')
             query = f"after:{past_date} in:inbox"
-            logger.info(f"[API] Using query: '{query}'")
+            logger.info(f"[API] Using query approach with: '{query}'")
             
             # Fetch emails from Gmail with the specified query
             emails = gmail.fetch_emails_from_gmail(
@@ -130,68 +166,64 @@ async def sync_fresh_emails(
                 max_results=max_emails,
                 query=query
             )
-            
-            if not emails:
-                logger.info(f"[API] No emails found with query: '{query}'")
-                return {
-                    "status": "success",
-                    "message": "No emails found",
-                    "emails_synced": 0
-                }
-            
-            logger.info(f"[API] Retrieved {len(emails)} emails from Gmail API")
-            
-            # Filter out already processed emails
-            new_emails = []
-            for email in emails:
-                if email['gmail_id'] not in existing_gmail_ids:
-                    new_emails.append(email)
-            
-            logger.info(f"[API] After filtering, {len(new_emails)} new emails remain for processing")
-            
-            if not new_emails:
-                logger.info(f"[API] All retrieved emails were already processed")
-                return {
-                    "status": "success",
-                    "message": "All emails already synced",
-                    "emails_synced": 0
-                }
-            
-            # Process and store the new emails
-            processed_emails = process_and_store_emails(db, current_user, new_emails)
-            logger.info(f"[API] Successfully processed and stored {len(processed_emails)} emails")
-            
-            # If credentials were refreshed, update them
-            current_token = current_user.credentials.get('token') if current_user.credentials else None
-            if original_token and current_token and original_token != current_token:
-                logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
-                db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
-                db.commit()
-            
-            # Calculate duration
-            end_time = datetime.now()
-            duration = (end_time - start_time).total_seconds()
-            logger.info(f"[API] Fresh sync completed in {duration:.2f} seconds")
-            
+            sync_method = "query"
+        
+        if not emails:
+            logger.info(f"[API] No emails found with {sync_method} approach")
             return {
                 "status": "success",
-                "message": f"Synced {len(processed_emails)} new emails",
-                "emails_synced": len(processed_emails)
-            }
-            
-        except Exception as gmail_error:
-            logger.error(f"[API] Gmail API error during fresh sync: {str(gmail_error)}")
-            return {
-                "status": "error",
-                "message": f"Error during fresh sync: {str(gmail_error)}",
-                "emails_synced": 0
+                "message": "No emails found",
+                "emails_synced": 0,
+                "sync_method": sync_method
             }
         
+        logger.info(f"[API] Retrieved {len(emails)} emails from Gmail API using {sync_method} approach")
+        
+        # Filter out already processed emails
+        new_emails = []
+        for email in emails:
+            if email['gmail_id'] not in existing_gmail_ids:
+                new_emails.append(email)
+        
+        logger.info(f"[API] After filtering, {len(new_emails)} new emails remain for processing")
+        
+        if not new_emails:
+            logger.info(f"[API] All retrieved emails were already processed")
+            return {
+                "status": "success",
+                "message": "All emails already synced",
+                "emails_synced": 0,
+                "sync_method": sync_method
+            }
+        
+        # Process and store the new emails
+        processed_emails = process_and_store_emails(db, current_user, new_emails)
+        logger.info(f"[API] Successfully processed and stored {len(processed_emails)} emails")
+        
+        # If credentials were refreshed, update them
+        current_token = current_user.credentials.get('token') if current_user.credentials else None
+        if original_token and current_token and original_token != current_token:
+            logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
+            db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
+            db.commit()
+        
+        # Calculate duration
+        end_time = datetime.now()
+        duration = (end_time - start_time).total_seconds()
+        logger.info(f"[API] Fresh sync completed in {duration:.2f} seconds")
+        
+        return {
+            "status": "success",
+            "message": f"Synced {len(processed_emails)} new emails",
+            "emails_synced": len(processed_emails),
+            "sync_method": sync_method
+        }
+            
     except Exception as e:
         logger.error(f"[API] Error in fresh sync: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to sync fresh emails"
+            detail=f"Failed to sync fresh emails: {str(e)}"
         )
 
 @router.post("/notifications/setup")
@@ -329,6 +361,9 @@ async def get_emails(
         
     query = db.query(Email).filter(Email.user_id == current_user.id)
     
+    # Filter out emails deleted in Gmail
+    query = query.filter(Email.is_deleted_in_gmail == False)
+    
     if category:
         query = query.filter(Email.category == category)
     
@@ -347,6 +382,65 @@ async def get_emails(
     has_previous = page > 1
     
     logger.info(f"Found {len(emails)} emails for page {page} (total: {total_count})")
+    
+    return {
+        "emails": emails,
+        "pagination": {
+            "total": total_count,
+            "limit": limit,
+            "current_page": page,
+            "total_pages": total_pages,
+            "has_next": has_next,
+            "has_previous": has_previous,
+            "next_page": page + 1 if has_next else None,
+            "previous_page": page - 1 if has_previous else None
+        }
+    }
+
+@router.get("/deleted")
+async def get_deleted_emails(
+    limit: int = 20,
+    page: int = 1,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get user's emails that have been deleted in Gmail
+    
+    Parameters:
+    - limit: Number of emails per page (default: 20)
+    - page: Page number (starting from 1)
+    
+    Returns paginated results for continuous scrolling with metadata
+    """
+    # Validate parameters
+    if limit <= 0:
+        limit = 20
+    
+    if page <= 0:
+        page = 1
+        
+    # Calculate offset
+    offset = (page - 1) * limit
+        
+    # Specifically query for emails that have been deleted in Gmail
+    query = db.query(Email).filter(
+        Email.user_id == current_user.id,
+        Email.is_deleted_in_gmail == True
+    )
+    
+    # Get total count for pagination metadata
+    total_count = query.count()
+    
+    # Get emails for current page
+    emails = query.order_by(Email.received_at.desc()).offset(offset).limit(limit).all()
+    
+    # Calculate pagination metadata
+    total_pages = (total_count + limit - 1) // limit  # Ceiling division
+    has_next = page < total_pages
+    has_previous = page > 1
+    
+    logger.info(f"Found {len(emails)} deleted emails for page {page} (total: {total_count})")
     
     return {
         "emails": emails,

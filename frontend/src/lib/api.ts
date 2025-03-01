@@ -389,6 +389,24 @@ export async function checkDeletedEmails(): Promise<CheckDeletedResponse> {
   }
 }
 
+export async function getDeletedEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
+  try {
+    const queryParams = new URLSearchParams();
+    
+    if (params.limit) queryParams.set('limit', params.limit.toString());
+    if (params.page) queryParams.set('page', params.page.toString());
+    
+    const queryString = queryParams.toString();
+    const url = `/emails/deleted${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await fetchWithAuth<EmailsResponse>(url);
+    return response;
+  } catch (error) {
+    console.error('Error fetching deleted emails:', error);
+    throw error;
+  }
+}
+
 export interface UpdateLabelsResponse {
   status: string;
   message: string;

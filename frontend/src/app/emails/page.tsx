@@ -235,6 +235,12 @@ export default function EmailsPage() {
                     >
                         {checkingDeleted ? 'Checking...' : 'Check Deleted'}
                     </button>
+                    <button
+                        onClick={() => router.push('/emails/deleted')}
+                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
+                    >
+                        View Deleted
+                    </button>
                 </div>
             </div>
             <div className="w-full max-w-2xl">
