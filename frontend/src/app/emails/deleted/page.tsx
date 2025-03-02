@@ -145,36 +145,36 @@ export default function DeletedEmailsPage() {
     });
 
     return (
-        <div className="container mx-auto px-4 py-8">
+        <div className="px-4 py-8">
             <Toaster position="top-right" />
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-                <div>
-                    <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                        Deleted Emails
-                        {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
-                    </h1>
-                    <p className="text-sm text-gray-600 mb-4 md:mb-0">
-                        Emails that have been deleted in Gmail but are preserved locally
-                    </p>
+            <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
+                <div className="flex flex-col mb-6">
+                    <div className="flex-shrink-0 mb-4">
+                        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                            Deleted Emails
+                            {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
+                        </h1>
+                        <p className="text-sm text-gray-600">
+                            Emails that have been deleted in Gmail but are preserved locally
+                        </p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                        <SearchInput 
+                            value={searchTerm} 
+                            onChange={setSearchTerm} 
+                            placeholder="Search deleted emails..." 
+                            className="w-full"
+                        />
+                        <button
+                            onClick={() => router.push('/emails')}
+                            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex-shrink-0"
+                        >
+                            Back to Inbox
+                        </button>
+                    </div>
                 </div>
-                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
-                    <SearchInput 
-                        value={searchTerm} 
-                        onChange={setSearchTerm} 
-                        placeholder="Search deleted emails..." 
-                        className="w-full sm:w-64"
-                    />
-                    <button
-                        onClick={() => router.push('/emails')}
-                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
-                    >
-                        Back to Inbox
-                    </button>
-                </div>
-            </div>
-            
-            <div className="w-full max-w-2xl">
-                <p className="mt-1 text-sm text-gray-600">
+                
+                <p className="mt-1 text-sm text-gray-600 mb-4">
                     {totalEmails} {totalEmails === 1 ? 'deleted email' : 'deleted emails'} found
                 </p>
 

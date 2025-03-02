@@ -191,24 +191,25 @@ export default function EmailsPage() {
     }
 
     return (
-        <div className="container mx-auto px-4 py-8">
+        <div className="px-4 py-8">
             <Toaster position="top-right" />
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
-                <h1 className="text-2xl font-bold text-gray-900 mb-4 md:mb-0">
-                    {pageTitle}
-                    {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
-                </h1>
-                <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+            <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
+                <div className="flex flex-col mb-6">
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4">
+                        <h1 className="text-2xl font-bold text-gray-900 mb-4 lg:mb-0 flex-shrink-0">
+                            {pageTitle}
+                            {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
+                        </h1>
+                    </div>
                     <SearchInput 
                         value={searchTerm} 
                         onChange={setSearchTerm} 
                         placeholder="Search emails..." 
-                        className="w-full sm:w-64"
+                        className="w-full"
                     />
                 </div>
-            </div>
-            <div className="w-full max-w-2xl">
-                <p className="mt-1 text-sm text-gray-600">
+                
+                <p className="mt-1 text-sm text-gray-600 mb-4">
                     {totalEmails} {totalEmails === 1 ? 'email' : 'emails'} found
                 </p>
 

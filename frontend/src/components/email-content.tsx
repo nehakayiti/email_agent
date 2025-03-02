@@ -15,6 +15,14 @@ function decodeBase64Url(str: string): string {
   }
 }
 
+function normalizeCategory(cat: string | undefined): string {
+    if (!cat) return 'primary';
+    if (cat.toLowerCase() === 'promotional') return 'promotions';
+    return cat.toLowerCase(); 
+  }
+
+
+
 function extractEmailBody(payload: any): string {
   if (payload.body && payload.body.data) {
     return decodeBase64Url(payload.body.data);
@@ -39,7 +47,7 @@ interface EmailContentProps {
 
 export function EmailContent({ email, onCategoryUpdated }: EmailContentProps) {
   const [bodyContent, setBodyContent] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState(email.category || '');
+  const [selectedCategory, setSelectedCategory] = useState(() => normalizeCategory(email.category));
 
   const decodedContent = useMemo(() => {
     if (email?.raw_data?.payload) {
@@ -53,7 +61,7 @@ export function EmailContent({ email, onCategoryUpdated }: EmailContentProps) {
   }, [decodedContent]);
 
   useEffect(() => {
-    setSelectedCategory(email.category || '');
+    setSelectedCategory(normalizeCategory(email.category));
   }, [email.category]);
 
   const categoryOptions = [
