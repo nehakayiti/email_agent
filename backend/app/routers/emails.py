@@ -335,6 +335,7 @@ async def stop_push_notifications(
 async def get_emails(
     category: str = None,
     importance_threshold: int = None,
+    status: str = None,
     limit: int = 20,
     page: int = 1,
     db: Session = Depends(get_db),
@@ -346,6 +347,7 @@ async def get_emails(
     Parameters:
     - category: Filter emails by category
     - importance_threshold: Filter emails with importance score >= threshold
+    - status: Filter emails by read status ("read" or "unread")
     - limit: Number of emails per page (default: 20)
     - page: Page number (starting from 1)
     
@@ -371,6 +373,13 @@ async def get_emails(
     
     if importance_threshold is not None:
         query = query.filter(Email.importance_score >= importance_threshold)
+    
+    # Filter by read/unread status
+    if status:
+        if status.lower() == "read":
+            query = query.filter(Email.is_read == True)
+        elif status.lower() == "unread":
+            query = query.filter(Email.is_read == False)
     
     # Get total count for pagination metadata
     total_count = query.count()

@@ -1,16 +1,28 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon, ArrowPathIcon, TrashIcon, EnvelopeIcon, EnvelopeOpenIcon } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getEmails, type Email, triggerEmailSync } from '@/lib/api';
 import { isAuthenticated, handleAuthError } from '@/lib/auth';
 
-const baseNavigation = [
-  { name: 'Dashboard', href: '/', icon: HomeIcon },
-  { name: 'All Emails', href: '/emails', icon: InboxIcon },
-  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
+// Define types for navigation items
+type NavItem = {
+  name: string;
+  href?: string;
+  icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  type?: 'link' | 'divider' | 'category';
+};
+
+const baseNavigation: NavItem[] = [
+  { name: 'Dashboard', href: '/', icon: HomeIcon, type: 'link' },
+  { name: 'All Emails', href: '/emails', icon: InboxIcon, type: 'link' },
+  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon, type: 'link' },
+  { type: 'divider', name: 'Status' },
+  { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link' },
+  { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link' },
+  { name: 'Deleted In Gmail', href: '/emails/deleted', icon: TrashIcon, type: 'link' },
 ];
 
 // Custom event name for email sync completion
@@ -130,16 +142,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   };
 
   // Create navigation items with base items and categories
-  const navigation = [
+  const navigation: NavItem[] = [
     ...baseNavigation,
     // Add a divider for categories if there are any
-    ...(categories.length > 0 ? [{ type: 'divider', name: 'Categories' }] : []),
+    ...(categories.length > 0 ? [{ type: 'divider' as const, name: 'Categories' }] : []),
     // Add the categories
     ...categories.map(category => ({
       name: category.charAt(0).toUpperCase() + category.slice(1),
       href: `/emails?category=${category.toLowerCase()}`,
       icon: TagIcon,
-      type: 'category'
+      type: 'category' as const
     }))
   ];
 
@@ -155,7 +167,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </div>
         <nav className="mt-6 px-3">
           {navigation.map((item) => {
-            if ('type' in item && item.type === 'divider') {
+            if (item.type === 'divider') {
               return (
                 <div key={item.name} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   {item.name}
@@ -163,12 +175,12 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               );
             }
 
-            if (!('href' in item)) return null;
+            if (!item.href || !item.icon) return null;
 
             const isActive = pathname === item.href || 
               (pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
-               new URLSearchParams(item.href.split('?')[1]).get('category') === 
-               new URLSearchParams(pathname.split('?')[1]).get('category'));
+                new URLSearchParams(item.href.split('?')[1]).get('category') === 
+                new URLSearchParams(pathname.split('?')[1]).get('category'));
             
             return (
               <Link

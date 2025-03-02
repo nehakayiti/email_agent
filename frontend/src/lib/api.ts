@@ -126,6 +126,7 @@ export interface EmailsParams {
     importance_threshold?: number;
     limit?: number;
     page?: number;
+    status?: 'read' | 'unread';
 }
 
 export async function getEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
@@ -145,6 +146,10 @@ export async function getEmails(params: EmailsParams = {}): Promise<EmailsRespon
     
     if (params.page) {
         queryParams.append('page', params.page.toString());
+    }
+    
+    if (params.status) {
+        queryParams.append('status', params.status);
     }
     
     const queryString = queryParams.toString();

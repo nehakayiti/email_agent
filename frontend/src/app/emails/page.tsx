@@ -25,6 +25,8 @@ export default function EmailsPage() {
     
     // Get category from URL parameters
     const categoryParam = searchParams.get('category');
+    // Get status from URL parameters
+    const statusParam = searchParams.get('status');
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
@@ -86,6 +88,12 @@ export default function EmailsPage() {
             if (categoryParam) {
                 params.category = categoryParam;
             }
+
+            if (statusParam) {
+                if (statusParam === 'read' || statusParam === 'unread') {
+                    params.status = statusParam;
+                }
+            }
             
             const response = await getEmails(params);
             console.log('Emails fetched successfully:', response.emails.length, 'emails');
@@ -114,7 +122,7 @@ export default function EmailsPage() {
                 setLoadingMore(false);
             }
         }
-    }, [router, categoryParam]);
+    }, [router, categoryParam, statusParam]);
 
     // Initial data load
     useEffect(() => {
@@ -123,7 +131,7 @@ export default function EmailsPage() {
         setHasMore(true);
         setInitialLoadComplete(false);
         fetchEmails(1, true);
-    }, [fetchEmails, categoryParam]);
+    }, [fetchEmails, categoryParam, statusParam]);
 
     // Listen for email sync completion event
     useEffect(() => {
@@ -207,18 +215,20 @@ export default function EmailsPage() {
         return matchesSearch;
     });
 
-    const categoryTitle = categoryParam 
-        ? categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1) + ' Emails'
-        : 'All Emails';
+    // Determine the title based on category or status parameters
+    let pageTitle = 'All Emails';
+    if (categoryParam) {
+        pageTitle = `${categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1)} Emails`;
+    } else if (statusParam) {
+        pageTitle = `${statusParam.charAt(0).toUpperCase() + statusParam.slice(1)} Emails`;
+    }
 
     return (
         <div className="container mx-auto px-4 py-8">
             <Toaster position="top-right" />
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
                 <h1 className="text-2xl font-bold text-gray-900 mb-4 md:mb-0">
-                    {categoryParam 
-                        ? `${categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1)} Emails` 
-                        : 'All Emails'}
+                    {pageTitle}
                     {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
                 </h1>
                 <div className="flex flex-col sm:flex-row gap-2 w-full md:w-auto">
@@ -234,12 +244,6 @@ export default function EmailsPage() {
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
                     >
                         {checkingDeleted ? 'Checking...' : 'Check Deleted'}
-                    </button>
-                    <button
-                        onClick={() => router.push('/emails/deleted')}
-                        className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700"
-                    >
-                        View Deleted
                     </button>
                 </div>
             </div>
