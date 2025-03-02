@@ -2,6 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
+# Import routers directly rather than through __init__.py to avoid circular imports
 from .routers.auth import router as auth_router
 from .routers.emails import router as emails_router
 from .routers.analytics import router as analytics_router

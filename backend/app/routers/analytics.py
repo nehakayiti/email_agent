@@ -4,14 +4,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, text
 
 
-from app.db import get_db
-from app.services.analytics.sentiment_service import analyze_sentiment
-from app.services.analytics.response_time_service import analyze_response_time
-from app.services.analytics.volume_service import analyze_email_volume
-from app.services.analytics.contacts_service import analyze_top_contacts
-from app.models.user import User
-from app.models.email import Email
-from app.models.email_sync import EmailSync
+from ..db import get_db
+from ..services.analytics.sentiment_service import analyze_sentiment
+from ..services.analytics.response_time_service import analyze_response_time
+from ..services.analytics.volume_service import analyze_email_volume
+from ..services.analytics.contacts_service import analyze_top_contacts
+from ..models.user import User
+from ..models.email import Email
+from ..models.email_sync import EmailSync
 
 router = APIRouter()  # Remove prefix here, it will be added in main.py
 

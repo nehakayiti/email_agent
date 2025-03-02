@@ -1,6 +1,7 @@
 """API route handlers"""
-from .auth import router as auth_router
-from .emails import router as emails_router
-from .analytics import router as analytics_router
+# Import the router objects at usage time, not during initialization
+# to avoid circular imports
 
-__all__ = ["auth_router", "emails_router", "analytics_router"] 
+__all__ = ["auth_router", "emails_router", "analytics_router"]
+
+# The routers will be imported when they're actually used, not at module load time 

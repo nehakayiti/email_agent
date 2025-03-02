@@ -5,10 +5,12 @@ from uuid import UUID
 from datetime import datetime, timedelta
 
 from ..models.email import Email
+from ..models.email_sync import EmailSync
 from ..db import get_db
 from ..models.user import User
+# Use the module import pattern for gmail
 from ..services import gmail
-from ..services.gmail import fetch_emails_from_gmail, update_email_labels
+# Remove the individual function imports
 from ..services.email_processor import process_and_store_emails
 from ..services.email_sync_service import sync_emails_since_last_fetch
 from ..dependencies import get_current_user
@@ -70,7 +72,7 @@ async def sync_emails(
             page_size = 20  # Number of emails to show on the first page
             emails = db.query(Email).filter(
                 Email.user_id == current_user.id,
-                Email.is_deleted.is_(False)
+                Email.is_deleted_in_gmail.is_(False)
             ).order_by(Email.received_at.desc()).limit(page_size).all()
             
             if emails:
