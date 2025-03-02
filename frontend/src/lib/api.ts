@@ -376,24 +376,6 @@ export async function triggerEmailSync(): Promise<SyncResponse> {
   }
 }
 
-export interface CheckDeletedResponse {
-  status: string;
-  message: string;
-  deleted_count: number;
-}
-
-export async function checkDeletedEmails(): Promise<CheckDeletedResponse> {
-  try {
-    const response = await fetchWithAuth<CheckDeletedResponse>('/emails/check-deleted', {
-      method: 'POST',
-    });
-    return response;
-  } catch (error) {
-    console.error('Error checking deleted emails:', error);
-    throw error;
-  }
-}
-
 export async function getDeletedEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
   try {
     const queryParams = new URLSearchParams();

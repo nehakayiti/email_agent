@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { getEmails, checkDeletedEmails, type Email, type EmailsParams, type CheckDeletedResponse } from '@/lib/api';
+import { getEmails, type Email, type EmailsParams } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
@@ -21,7 +21,6 @@ export default function EmailsPage() {
     const [totalEmails, setTotalEmails] = useState(0);
     const [initialLoadComplete, setInitialLoadComplete] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
-    const [checkingDeleted, setCheckingDeleted] = useState(false);
     
     // Get category from URL parameters
     const categoryParam = searchParams.get('category');
@@ -30,38 +29,6 @@ export default function EmailsPage() {
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
-
-    // Function to check for deleted emails
-    const handleCheckDeletedEmails = async () => {
-        try {
-            if (!isAuthenticated()) {
-                console.log('User not authenticated, redirecting to login');
-                router.push('/');
-                return;
-            }
-
-            setCheckingDeleted(true);
-            toast.loading('Checking for deleted emails...');
-            
-            const response = await checkDeletedEmails();
-            
-            toast.dismiss();
-            if (response.deleted_count > 0) {
-                toast.success(`Found ${response.deleted_count} deleted emails`);
-                // Refresh the email list
-                setPage(1);
-                fetchEmails(1, true);
-            } else {
-                toast.success('No deleted emails found');
-            }
-        } catch (err) {
-            toast.dismiss();
-            console.error('Error checking deleted emails:', err);
-            toast.error('Failed to check deleted emails');
-        } finally {
-            setCheckingDeleted(false);
-        }
-    };
 
     // Function to fetch emails with pagination
     const fetchEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
@@ -238,13 +205,6 @@ export default function EmailsPage() {
                         placeholder="Search emails..." 
                         className="w-full sm:w-64"
                     />
-                    <button
-                        onClick={handleCheckDeletedEmails}
-                        disabled={checkingDeleted}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
-                    >
-                        {checkingDeleted ? 'Checking...' : 'Check Deleted'}
-                    </button>
                 </div>
             </div>
             <div className="w-full max-w-2xl">

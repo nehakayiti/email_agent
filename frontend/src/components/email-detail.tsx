@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getEmailById, checkDeletedEmails, type Email } from '@/lib/api';
+import { getEmailById, type Email } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { EmailContent } from './email-content';
 import { Toaster, toast } from 'react-hot-toast';
@@ -33,20 +33,9 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
                 setEmail(data);
                 setError(null);
                 
-                // Check if the email has been deleted in Gmail
-                if (!data.is_deleted_in_gmail) {
-                    try {
-                        await checkDeletedEmails();
-                        // Refresh the email data to get updated deletion status
-                        const refreshedData = await getEmailById(emailId);
-                        setEmail(refreshedData);
-                        
-                        if (refreshedData.is_deleted_in_gmail) {
-                            toast.error('This email has been deleted in Gmail');
-                        }
-                    } catch (checkError) {
-                        console.error('Error checking deleted status:', checkError);
-                    }
+                // Display a message if the email has been deleted in Gmail
+                if (data.is_deleted_in_gmail) {
+                    toast.error('This email has been deleted in Gmail');
                 }
             } catch (err) {
                 console.error('Error in email detail page:', err);
