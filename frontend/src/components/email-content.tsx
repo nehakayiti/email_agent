@@ -71,7 +71,8 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
     'Promotions',
     'Updates',
     'Forums',
-    'Personal'
+    'Personal',
+    'Trash'
   ];
 
   const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -95,7 +96,8 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
         const updatedEmail = {
           ...email,
           category: response.category,
-          labels: response.labels
+          labels: response.labels,
+          is_deleted_in_gmail: response.is_deleted_in_gmail ?? email.is_deleted_in_gmail
         };
         
         // Call onLabelsUpdated to update the parent component
@@ -123,6 +125,12 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
     <div>
       <h1 className="text-xl font-bold mb-2">{email.subject}</h1>
       <p className="mb-2 text-gray-700">From: {email.from_email}</p>
+
+      {email.is_deleted_in_gmail && (
+        <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md border border-red-300">
+          <span className="font-semibold">⚠️ This email is in Trash</span>
+        </div>
+      )}
 
       <div className="mb-4">
         <span className="font-semibold mr-2">Labels:</span>

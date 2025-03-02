@@ -104,11 +104,41 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         if not email:
             logger.debug(f"[SYNC] Email {gmail_id} not found in database, skipping label update")
             continue
+        
+        logger.debug(f"[SYNC] Processing label changes for email {gmail_id}: added={changes.get('added', [])}, removed={changes.get('removed', [])}")
             
         # Check for Trash label to mark as deleted
         if 'TRASH' in changes.get('added', []):
-            logger.info(f"[SYNC] Email {gmail_id} moved to Trash, marking as deleted")
+            logger.info(f"[SYNC] Email {gmail_id} moved to Trash, marking as deleted in EA")
             email.is_deleted_in_gmail = True
+            
+            # Update the email's labels to include TRASH
+            current_labels = set(email.labels or [])
+            current_labels.add('TRASH')
+            email.labels = list(current_labels)
+            
+            # Also update category if needed to reflect trash status
+            if email.category != 'trash':
+                logger.info(f"[SYNC] Setting category to 'trash' for email {gmail_id} (previously {email.category})")
+                email.category = 'trash'
+            
+            updated_count += 1
+        
+        # Check if email is being restored from trash
+        if 'TRASH' in changes.get('removed', []):
+            logger.info(f"[SYNC] Email {gmail_id} removed from Trash, updating in EA")
+            email.is_deleted_in_gmail = False
+            
+            # Remove TRASH from the email's labels
+            current_labels = set(email.labels or [])
+            if 'TRASH' in current_labels:
+                current_labels.remove('TRASH')
+                email.labels = list(current_labels)
+            
+            # Recategorize the email based on its current labels
+            email.category = categorize_email_from_labels(email.labels)
+            logger.info(f"[SYNC] Recategorized email {gmail_id} as {email.category} after trash removal")
+            
             updated_count += 1
             
         # Update read status
@@ -120,15 +150,40 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
             logger.debug(f"[SYNC] Email {gmail_id} marked as read")
             email.is_read = True
             updated_count += 1
-            
-        # We could handle more label types here if needed
-        # For example INBOX, SPAM, CATEGORY_SOCIAL, etc.
     
     if updated_count > 0:
         db.commit()
         logger.info(f"[SYNC] Updated {updated_count} emails due to label changes")
         
     return updated_count
+
+def categorize_email_from_labels(labels: List[str]) -> str:
+    """
+    Determine category based on Gmail labels
+    
+    Args:
+        labels: List of Gmail labels
+        
+    Returns:
+        Category name (primary, social, promotions, updates, forums, personal, trash)
+    """
+    if not labels:
+        return 'primary'
+    
+    if 'TRASH' in labels:
+        return 'trash'
+    elif 'CATEGORY_PROMOTIONS' in labels:
+        return 'promotions'
+    elif 'CATEGORY_SOCIAL' in labels:
+        return 'social'
+    elif 'CATEGORY_UPDATES' in labels:
+        return 'updates'
+    elif 'CATEGORY_FORUMS' in labels:
+        return 'forums'
+    elif 'CATEGORY_PERSONAL' in labels:
+        return 'personal'
+    else:
+        return 'primary'
 
 def process_pending_category_updates(db: Session, user: User) -> int:
     """
@@ -153,14 +208,15 @@ def process_pending_category_updates(db: Session, user: User) -> int:
     if not pending_emails:
         return 0
     
-    # Map categories to Gmail labels
+    # Map categories to Gmail labels with special handling for trash
     category_to_label = {
         "primary": None,  # No specific label for primary
         "social": "CATEGORY_SOCIAL",
         "promotions": "CATEGORY_PROMOTIONS",
         "updates": "CATEGORY_UPDATES",
         "forums": "CATEGORY_FORUMS",
-        "personal": "CATEGORY_PERSONAL"
+        "personal": "CATEGORY_PERSONAL",
+        "trash": "TRASH"  # Add trash mapping
     }
     
     # All category labels for removal check
@@ -169,13 +225,21 @@ def process_pending_category_updates(db: Session, user: User) -> int:
     updated_count = 0
     for email in pending_emails:
         try:
+            # Special handling for trash category
+            if email.category == 'trash' and not email.is_deleted_in_gmail:
+                logger.info(f"[SYNC] Email {email.id} has trash category but not marked as deleted, fixing")
+                email.is_deleted_in_gmail = True
+            elif email.category != 'trash' and email.is_deleted_in_gmail:
+                logger.info(f"[SYNC] Email {email.id} is marked as deleted but not in trash category, fixing")
+                email.is_deleted_in_gmail = False
+            
             # Get current labels without our update marker
             current_labels = set(email.labels)
             current_labels.remove("EA_NEEDS_LABEL_UPDATE")
             
             # Determine which label to add based on the category
             add_labels = []
-            if email.category != "primary" and category_to_label.get(email.category):
+            if category_to_label.get(email.category):
                 add_labels = [category_to_label[email.category]]
             
             # Remove all other category labels

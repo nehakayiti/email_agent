@@ -7,7 +7,10 @@ interface EmailPageProps {
 }
 
 export default async function EmailPage({ params }: EmailPageProps) {
-    // Await params to fix the "params should be awaited before using its properties" error
-    const { id } = params;
+    // We need to use Promise.resolve to properly handle params in Next.js App Router
+    // This fixes the "params should be awaited" error
+    const resolvedParams = await Promise.resolve(params);
+    const id = resolvedParams.id;
+    
     return <EmailDetail emailId={id} />;
 } 

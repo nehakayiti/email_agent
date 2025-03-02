@@ -436,6 +436,7 @@ export interface UpdateCategoryResponse {
   email_id: string;
   category: string;
   labels: string[];
+  is_deleted_in_gmail?: boolean;
 }
 
 export async function updateEmailCategory(

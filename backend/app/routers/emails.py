@@ -705,7 +705,7 @@ async def update_category_endpoint(
     Update the category of an email in the database
     
     Parameters:
-    - category: New category for the email (primary, social, promotions, updates, forums, personal)
+    - category: New category for the email (primary, social, promotions, updates, forums, personal, trash)
     """
     try:
         category = category_data.category
@@ -723,15 +723,17 @@ async def update_category_endpoint(
                 detail="Email not found"
             )
         
-        # Check if the email has been deleted in Gmail
-        if email.is_deleted_in_gmail:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot update category for an email that has been deleted in Gmail"
-            )
+        # Special handling for trash category
+        if category.lower() == 'trash':
+            logger.info(f"[API] Moving email {email_id} to trash category")
+            email.is_deleted_in_gmail = True
+        elif email.is_deleted_in_gmail and category.lower() != 'trash':
+            # If moving out of trash category, update the is_deleted flag
+            logger.info(f"[API] Restoring email {email_id} from trash because category changed to '{category}'")
+            email.is_deleted_in_gmail = False
         
         # Validate the category
-        valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal"]
+        valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal", "trash"]
         normalized_category = category.lower()
         
         if normalized_category not in valid_categories:
@@ -752,6 +754,15 @@ async def update_category_endpoint(
             # Add or ensure "EA_NEEDS_LABEL_UPDATE" is in labels - will be processed during sync
             current_labels = set(email.labels or [])
             current_labels.add("EA_NEEDS_LABEL_UPDATE")
+            
+            # Special handling for trash category
+            if normalized_category == 'trash':
+                current_labels.add('TRASH')
+                logger.info(f"[API] Added TRASH label to email {email_id}")
+            elif 'TRASH' in current_labels and normalized_category != 'trash':
+                current_labels.remove('TRASH')
+                logger.info(f"[API] Removed TRASH label from email {email_id}")
+            
             email.labels = list(current_labels)
             logger.info(f"[API] Marked email {email_id} for label update during next sync")
         
@@ -763,7 +774,8 @@ async def update_category_endpoint(
             "message": "Category updated successfully. Changes will sync to Gmail during next email sync.",
             "email_id": str(email_id),
             "category": normalized_category,
-            "labels": email.labels
+            "labels": email.labels,
+            "is_deleted_in_gmail": email.is_deleted_in_gmail
         }
     
     except Exception as e:
