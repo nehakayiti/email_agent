@@ -428,4 +428,29 @@ export async function updateEmailLabels(
     console.error('Error updating email labels:', error);
     throw error;
   }
+}
+
+export interface UpdateCategoryResponse {
+  status: string;
+  message: string;
+  email_id: string;
+  category: string;
+  labels: string[];
+}
+
+export async function updateEmailCategory(
+  emailId: string,
+  category: string
+): Promise<UpdateCategoryResponse> {
+  try {
+    const response = await fetchWithAuth<UpdateCategoryResponse>(`/emails/${emailId}/update-category`, {
+      method: 'POST',
+      body: JSON.stringify({ category }),
+    });
+    
+    return response;
+  } catch (error) {
+    console.error('Error updating email category:', error);
+    throw error;
+  }
 } 

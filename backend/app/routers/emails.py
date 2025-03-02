@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from uuid import UUID
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 from ..models.email import Email
 from ..models.email_sync import EmailSync
@@ -18,6 +19,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+class CategoryUpdate(BaseModel):
+    category: str
 
 @router.post("/sync")
 async def sync_emails(
@@ -688,4 +692,83 @@ async def update_labels_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update labels: {str(e)}"
+        )
+
+@router.post("/{email_id}/update-category")
+async def update_category_endpoint(
+    email_id: UUID,
+    category_data: CategoryUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update the category of an email in the database
+    
+    Parameters:
+    - category: New category for the email (primary, social, promotions, updates, forums, personal)
+    """
+    try:
+        category = category_data.category
+        logger.info(f"[API] Updating category for email {email_id} to {category}")
+        
+        # Get the email from the database
+        email = db.query(Email).filter(
+            Email.id == email_id,
+            Email.user_id == current_user.id
+        ).first()
+        
+        if not email:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Email not found"
+            )
+        
+        # Check if the email has been deleted in Gmail
+        if email.is_deleted_in_gmail:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot update category for an email that has been deleted in Gmail"
+            )
+        
+        # Validate the category
+        valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal"]
+        normalized_category = category.lower()
+        
+        if normalized_category not in valid_categories:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
+            )
+        
+        # Store old category for comparison
+        old_category = email.category
+        
+        # Update the email in the database
+        email.category = normalized_category
+        
+        # Add a needs_label_update flag if we changed category - this will be used during sync
+        if old_category != normalized_category:
+            # This could be a field in the database, but for simplicity we'll use a property in labels
+            # Add or ensure "EA_NEEDS_LABEL_UPDATE" is in labels - will be processed during sync
+            current_labels = set(email.labels or [])
+            current_labels.add("EA_NEEDS_LABEL_UPDATE")
+            email.labels = list(current_labels)
+            logger.info(f"[API] Marked email {email_id} for label update during next sync")
+        
+        # Commit the changes to the database
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Category updated successfully. Changes will sync to Gmail during next email sync.",
+            "email_id": str(email_id),
+            "category": normalized_category,
+            "labels": email.labels
+        }
+    
+    except Exception as e:
+        logger.error(f"[API] Error updating category: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update category: {str(e)}"
         ) 

@@ -130,6 +130,100 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         
     return updated_count
 
+def process_pending_category_updates(db: Session, user: User) -> int:
+    """
+    Process any pending category updates from our database to Gmail
+    
+    Args:
+        db: Database session
+        user: User model instance
+        
+    Returns:
+        Number of emails updated
+    """
+    # Find all emails that have the EA_NEEDS_LABEL_UPDATE label
+    pending_emails = db.query(Email).filter(
+        Email.user_id == user.id,
+        Email.labels.contains(["EA_NEEDS_LABEL_UPDATE"]),
+        Email.is_deleted_in_gmail == False
+    ).all()
+    
+    logger.info(f"[SYNC] Found {len(pending_emails)} emails with pending category updates")
+    
+    if not pending_emails:
+        return 0
+    
+    # Map categories to Gmail labels
+    category_to_label = {
+        "primary": None,  # No specific label for primary
+        "social": "CATEGORY_SOCIAL",
+        "promotions": "CATEGORY_PROMOTIONS",
+        "updates": "CATEGORY_UPDATES",
+        "forums": "CATEGORY_FORUMS",
+        "personal": "CATEGORY_PERSONAL"
+    }
+    
+    # All category labels for removal check
+    all_category_labels = [label for label in category_to_label.values() if label]
+    
+    updated_count = 0
+    for email in pending_emails:
+        try:
+            # Get current labels without our update marker
+            current_labels = set(email.labels)
+            current_labels.remove("EA_NEEDS_LABEL_UPDATE")
+            
+            # Determine which label to add based on the category
+            add_labels = []
+            if email.category != "primary" and category_to_label.get(email.category):
+                add_labels = [category_to_label[email.category]]
+            
+            # Remove all other category labels
+            remove_labels = [label for label in all_category_labels if label not in add_labels]
+            
+            # If we have labels to add or remove, update in Gmail
+            if add_labels or remove_labels:
+                logger.info(f"[SYNC] Updating Gmail labels for email {email.id} (Gmail ID: {email.gmail_id}), "
+                           f"category: {email.category}, add: {add_labels}, remove: {remove_labels}")
+                
+                try:
+                    # Update labels in Gmail
+                    result = gmail.update_email_labels(
+                        credentials=user.credentials,
+                        gmail_id=email.gmail_id,
+                        add_labels=add_labels,
+                        remove_labels=remove_labels
+                    )
+                    
+                    # Update our database labels to match Gmail
+                    for label in add_labels:
+                        current_labels.add(label)
+                    
+                    for label in remove_labels:
+                        if label in current_labels:
+                            current_labels.remove(label)
+                    
+                    # Update the email record
+                    email.labels = list(current_labels)
+                    updated_count += 1
+                    
+                except Exception as e:
+                    logger.error(f"[SYNC] Error updating Gmail labels for email {email.id}: {str(e)}")
+                    # Keep the EA_NEEDS_LABEL_UPDATE label for retry in next sync
+                    email.labels = list(current_labels) + ["EA_NEEDS_LABEL_UPDATE"]
+            else:
+                # No Gmail updates needed, just remove our marker
+                email.labels = list(current_labels)
+                updated_count += 1
+        except Exception as e:
+            logger.error(f"[SYNC] Error processing category update for email {email.id}: {str(e)}")
+    
+    if updated_count > 0:
+        db.commit()
+        logger.info(f"[SYNC] Successfully updated {updated_count} emails with pending category changes")
+    
+    return updated_count
+
 def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool = False, force_full_sync: bool = False) -> Dict[str, Any]:
     """
     Sync emails from Gmail using only the historyId approach for efficiency
@@ -265,8 +359,11 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                 # Process label changes (mark as read/unread, deleted, etc.)
                 label_changes_count = process_label_changes(db, user, label_changes)
                 
+                # Process any pending category updates from our database to Gmail
+                category_updates_count = process_pending_category_updates(db, user)
+                
                 logger.info(f"[SYNC] History-based sync found {total_found} emails, of which {already_processed} already processed and {len(new_emails)} are new")
-                logger.info(f"[SYNC] Found {len(deleted_email_ids)} deleted, {label_changes_count} label changes")
+                logger.info(f"[SYNC] Found {len(deleted_email_ids)} deleted, {label_changes_count} label changes, {category_updates_count} category updates")
             else:
                 logger.warning(f"[SYNC] History-based sync did not produce a new history ID.")
                 return {
@@ -387,11 +484,12 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
         # Return summary of the sync
         result = {
             "status": "success",
-            "message": f"Processed {len(processed_emails)} new emails, {len(deleted_email_ids)} deleted emails, and {label_changes_count} label changes",
-            "sync_count": len(processed_emails) + len(deleted_email_ids) + label_changes_count,
+            "message": f"Processed {len(processed_emails)} new emails, {len(deleted_email_ids)} deleted emails, and {label_changes_count} label changes, {category_updates_count} category updates",
+            "sync_count": len(processed_emails) + len(deleted_email_ids) + label_changes_count + category_updates_count,
             "new_email_count": len(processed_emails),
             "deleted_email_count": len(deleted_email_ids),
             "label_changes_count": label_changes_count,
+            "category_updates_processed": category_updates_count,
             "sync_started_at": start_time.isoformat(),
             "user_id": str(user.id),
             "sync_method": "history"
