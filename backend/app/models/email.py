@@ -24,7 +24,6 @@ class Email(Base):
         importance_score: Calculated importance (0-100)
         category: Classified category (promotional, social, primary, etc.)
         raw_data: Complete email data for future processing
-        is_deleted_in_gmail: Whether email has been deleted in Gmail
     """
     __tablename__ = "emails"
 
@@ -42,7 +41,6 @@ class Email(Base):
     importance_score = Column(Integer)
     category = Column(String)
     raw_data = Column(JSON)
-    is_deleted_in_gmail = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

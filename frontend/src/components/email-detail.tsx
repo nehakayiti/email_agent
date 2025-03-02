@@ -33,9 +33,9 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
                 setEmail(data);
                 setError(null);
                 
-                // Display a message if the email has been deleted in Gmail
-                if (data.is_deleted_in_gmail) {
-                    toast.error('This email has been deleted in Gmail');
+                // Display a message if the email is in Trash
+                if (data.labels.includes('TRASH')) {
+                    toast.error('This email is in Trash');
                 }
             } catch (err) {
                 console.error('Error in email detail page:', err);

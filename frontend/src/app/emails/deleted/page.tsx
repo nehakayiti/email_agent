@@ -2,13 +2,13 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getDeletedEmails, type Email, type EmailsParams } from '@/lib/api';
+import { getTrashedEmails, type Email, type EmailsParams } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
 import { Toaster } from 'react-hot-toast';
 
-export default function DeletedEmailsPage() {
+export default function TrashPage() {
     const router = useRouter();
     const [emails, setEmails] = useState<Email[]>([]);
     const [loading, setLoading] = useState(true);
@@ -23,8 +23,8 @@ export default function DeletedEmailsPage() {
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
 
-    // Function to fetch deleted emails with pagination
-    const fetchDeletedEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
+    // Function to fetch trashed emails with pagination
+    const fetchTrashedEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
         try {
             if (!isAuthenticated()) {
                 console.log('User not authenticated, redirecting to login');
@@ -38,15 +38,15 @@ export default function DeletedEmailsPage() {
                 setLoadingMore(true);
             }
             
-            console.log(`Fetching deleted emails for page ${pageNum}...`);
+            console.log(`Fetching trashed emails for page ${pageNum}...`);
             
             const params: EmailsParams = {
                 page: pageNum,
                 limit: 20,
             };
             
-            const response = await getDeletedEmails(params);
-            console.log('Deleted emails fetched successfully:', response.emails.length, 'emails');
+            const response = await getTrashedEmails(params);
+            console.log('Trashed emails fetched successfully:', response.emails.length, 'emails');
             
             if (isInitialLoad) {
                 setEmails(response.emails);
@@ -62,8 +62,8 @@ export default function DeletedEmailsPage() {
                 setInitialLoadComplete(true);
             }
         } catch (err) {
-            console.error('Error in deleted emails page:', err);
-            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch deleted emails';
+            console.error('Error in trashed emails page:', err);
+            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch trashed emails';
             setError(errorMessage);
         } finally {
             if (isInitialLoad) {
@@ -80,8 +80,8 @@ export default function DeletedEmailsPage() {
         setEmails([]);
         setHasMore(true);
         setInitialLoadComplete(false);
-        fetchDeletedEmails(1, true);
-    }, [fetchDeletedEmails]);
+        fetchTrashedEmails(1, true);
+    }, [fetchTrashedEmails]);
 
     // Set up intersection observer for infinite scrolling
     useEffect(() => {
@@ -92,7 +92,7 @@ export default function DeletedEmailsPage() {
                 if (entries[0].isIntersecting && hasMore && !loadingMore) {
                     const nextPage = page + 1;
                     setPage(nextPage);
-                    fetchDeletedEmails(nextPage);
+                    fetchTrashedEmails(nextPage);
                 }
             },
             { threshold: 0.5 }
@@ -107,7 +107,7 @@ export default function DeletedEmailsPage() {
                 observer.unobserve(observerTarget.current);
             }
         };
-    }, [initialLoadComplete, hasMore, loadingMore, page, fetchDeletedEmails]);
+    }, [initialLoadComplete, hasMore, loadingMore, page, fetchTrashedEmails]);
 
     if (loading) {
         return (
@@ -122,7 +122,7 @@ export default function DeletedEmailsPage() {
             <div className="flex items-center justify-center h-screen">
                 <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full mx-4">
                     <div className="text-center">
-                        <h2 className="text-xl font-bold text-gray-900 mb-2">Error Loading Deleted Emails</h2>
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">Error Loading Trashed Emails</h2>
                         <p className="text-gray-600">{error}</p>
                         <button
                             onClick={() => window.location.reload()}
@@ -151,18 +151,18 @@ export default function DeletedEmailsPage() {
                 <div className="flex flex-col mb-6">
                     <div className="flex-shrink-0 mb-4">
                         <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                            Deleted Emails
+                            Trash
                             {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
                         </h1>
                         <p className="text-sm text-gray-600">
-                            Emails that have been deleted in Gmail but are preserved locally
+                            Emails that have been trashed in Gmail but are preserved locally
                         </p>
                     </div>
                     <div className="flex flex-col sm:flex-row gap-2">
                         <SearchInput 
                             value={searchTerm} 
                             onChange={setSearchTerm} 
-                            placeholder="Search deleted emails..." 
+                            placeholder="Search trashed emails..." 
                             className="w-full"
                         />
                         <button
@@ -175,16 +175,16 @@ export default function DeletedEmailsPage() {
                 </div>
                 
                 <p className="mt-1 text-sm text-gray-600 mb-4">
-                    {totalEmails} {totalEmails === 1 ? 'deleted email' : 'deleted emails'} found
+                    {totalEmails} {totalEmails === 1 ? 'trashed email' : 'trashed emails'} found
                 </p>
 
                 {/* Email list */}
                 <div className="space-y-4">
                     {filteredEmails.length === 0 ? (
                         <div className="bg-white rounded-2xl shadow-md p-8 text-center">
-                            <h3 className="text-lg font-medium text-gray-900">No deleted emails found</h3>
+                            <h3 className="text-lg font-medium text-gray-900">No trashed emails found</h3>
                             <p className="mt-2 text-sm text-gray-500">
-                                When emails are deleted in Gmail, they will appear here
+                                When emails are trashed in Gmail, they will appear here
                             </p>
                         </div>
                     ) : (

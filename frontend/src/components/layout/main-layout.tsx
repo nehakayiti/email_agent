@@ -22,7 +22,7 @@ const baseNavigation: NavItem[] = [
   { type: 'divider', name: 'Status' },
   { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link' },
   { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link' },
-  { name: 'Deleted In Gmail', href: '/emails/deleted', icon: TrashIcon, type: 'link' },
+  { name: 'Trash', href: '/emails/deleted', icon: TrashIcon, type: 'link' },
 ];
 
 // Custom event name for email sync completion

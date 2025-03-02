@@ -1,34 +1,20 @@
 import { getToken, handleAuthError } from './auth';
 
-interface Email {
+export interface Email {
     id: string;
+    gmail_id: string;
+    thread_id: string;
     subject: string;
     from_email: string;
     received_at: string;
     snippet: string;
+    labels: string[];
     is_read: boolean;
+    is_processed: boolean;
     importance_score: number;
     category: string;
-    labels: string[];
-    raw_data: {
-        payload: {
-            headers: Array<{ name: string; value: string }>;
-            parts?: Array<{
-                mimeType: string;
-                body: {
-                    data?: string;
-                    size?: number;
-                };
-            }>;
-            body?: {
-                data?: string;
-                size?: number;
-            };
-        };
-    };
-    gmail_id: string;
-    thread_id: string;
-    is_deleted_in_gmail: boolean;
+    raw_data?: any;
+    created_at: string;
 }
 
 interface PaginationMetadata {
@@ -376,7 +362,7 @@ export async function triggerEmailSync(): Promise<SyncResponse> {
   }
 }
 
-export async function getDeletedEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
+export async function getTrashedEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
   try {
     const queryParams = new URLSearchParams();
     
@@ -389,9 +375,14 @@ export async function getDeletedEmails(params: EmailsParams = {}): Promise<Email
     const response = await fetchWithAuth<EmailsResponse>(url);
     return response;
   } catch (error) {
-    console.error('Error fetching deleted emails:', error);
+    console.error('Error fetching trashed emails:', error);
     throw error;
   }
+}
+
+// Keep for backward compatibility
+export async function getDeletedEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
+  return getTrashedEmails(params);
 }
 
 export interface UpdateLabelsResponse {
@@ -436,7 +427,6 @@ export interface UpdateCategoryResponse {
   email_id: string;
   category: string;
   labels: string[];
-  is_deleted_in_gmail?: boolean;
 }
 
 export async function updateEmailCategory(

@@ -4,6 +4,7 @@ from typing import List
 from uuid import UUID
 from datetime import datetime, timedelta
 from pydantic import BaseModel
+from sqlalchemy import or_
 
 from ..models.email import Email
 from ..models.email_sync import EmailSync
@@ -76,7 +77,7 @@ async def sync_emails(
             page_size = 20  # Number of emails to show on the first page
             emails = db.query(Email).filter(
                 Email.user_id == current_user.id,
-                Email.is_deleted_in_gmail.is_(False)
+                ~Email.labels.contains(['TRASH'])
             ).order_by(Email.received_at.desc()).limit(page_size).all()
             
             if emails:
@@ -337,25 +338,41 @@ async def stop_push_notifications(
 
 @router.get("/")
 async def get_emails(
-    category: str = None,
-    importance_threshold: int = None,
-    status: str = None,
-    limit: int = 20,
     page: int = 1,
+    limit: int = 20,
+    folder: str = None,
+    important: bool = None,
+    read_status: bool = None,
+    sort_by: str = "received_at",
+    sort_order: str = "desc",
+    query: str = None,
+    label: str = None,
+    category: str = None,
+    date_from: datetime = None,
+    date_to: datetime = None,
+    update_read_status: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get user's emails with optional filtering for continuous scrolling
+    Get user's emails with flexible filtering and sorting
     
     Parameters:
-    - category: Filter emails by category
-    - importance_threshold: Filter emails with importance score >= threshold
-    - status: Filter emails by read status ("read" or "unread")
-    - limit: Number of emails per page (default: 20)
     - page: Page number (starting from 1)
+    - limit: Number of emails per page
+    - folder: Filter by folder (inbox, sent, etc.)
+    - important: Filter by importance flag
+    - read_status: Filter by read status (true/false)
+    - sort_by: Field to sort by (received_at, importance_score, etc.)
+    - sort_order: Sort direction (asc/desc)
+    - query: Search query for subject and snippet
+    - label: Filter by specific label
+    - category: Filter emails by category
+    - date_from: Filter emails received after this date
+    - date_to: Filter emails received before this date
+    - update_read_status: Whether to mark returned emails as read
     
-    Returns paginated results for continuous scrolling with metadata
+    Returns paginated results with metadata
     """
     # Validate parameters
     if limit <= 0:
@@ -363,33 +380,52 @@ async def get_emails(
     
     if page <= 0:
         page = 1
-        
-    # Calculate offset
-    offset = (page - 1) * limit
-        
-    query = db.query(Email).filter(Email.user_id == current_user.id)
     
-    # Filter out emails deleted in Gmail
-    query = query.filter(Email.is_deleted_in_gmail == False)
+    # Build the query
+    query_obj = db.query(Email).filter(Email.user_id == current_user.id)
+    
+    # Don't show emails in trash by default unless explicitly asked for trash category
+    if category and category.lower() == 'trash':
+        query_obj = query_obj.filter(Email.labels.contains(['TRASH']))
+    else:
+        query_obj = query_obj.filter(~Email.labels.contains(['TRASH']))
+    
+    if important is not None:
+        query_obj = query_obj.filter(Email.importance_score >= 70 if important else Email.importance_score < 70)
+    
+    if read_status is not None:
+        query_obj = query_obj.filter(Email.is_read == read_status)
+    
+    if query:
+        search_term = f"%{query}%"
+        query_obj = query_obj.filter(
+            or_(
+                Email.subject.ilike(search_term),
+                Email.snippet.ilike(search_term),
+                Email.from_email.ilike(search_term)
+            )
+        )
+    
+    if label:
+        query_obj = query_obj.filter(Email.labels.contains([label]))
     
     if category:
-        query = query.filter(Email.category == category)
+        query_obj = query_obj.filter(Email.category == category)
     
-    if importance_threshold is not None:
-        query = query.filter(Email.importance_score >= importance_threshold)
+    if date_from:
+        query_obj = query_obj.filter(Email.received_at >= date_from)
     
-    # Filter by read/unread status
-    if status:
-        if status.lower() == "read":
-            query = query.filter(Email.is_read == True)
-        elif status.lower() == "unread":
-            query = query.filter(Email.is_read == False)
+    if date_to:
+        query_obj = query_obj.filter(Email.received_at <= date_to)
     
     # Get total count for pagination metadata
-    total_count = query.count()
+    total_count = query_obj.count()
+    
+    # Calculate offset
+    offset = (page - 1) * limit
     
     # Get emails for current page
-    emails = query.order_by(Email.received_at.desc()).offset(offset).limit(limit).all()
+    emails = query_obj.order_by(Email.received_at.desc()).offset(offset).limit(limit).all()
     
     # Calculate pagination metadata
     total_pages = (total_count + limit - 1) // limit  # Ceiling division
@@ -414,19 +450,22 @@ async def get_emails(
 
 @router.get("/deleted")
 async def get_deleted_emails(
-    limit: int = 20,
     page: int = 1,
+    limit: int = 20,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Get user's emails that have been deleted in Gmail
+    Get emails that are in the Trash (have the TRASH label)
     
-    Parameters:
-    - limit: Number of emails per page (default: 20)
-    - page: Page number (starting from 1)
-    
-    Returns paginated results for continuous scrolling with metadata
+    Args:
+        page: Page number (1-indexed)
+        limit: Number of emails per page
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        List of emails with pagination metadata
     """
     # Validate parameters
     if limit <= 0:
@@ -438,10 +477,10 @@ async def get_deleted_emails(
     # Calculate offset
     offset = (page - 1) * limit
         
-    # Specifically query for emails that have been deleted in Gmail
+    # Specifically query for emails that have the TRASH label
     query = db.query(Email).filter(
         Email.user_id == current_user.id,
-        Email.is_deleted_in_gmail == True
+        Email.labels.contains(['TRASH'])
     )
     
     # Get total count for pagination metadata
@@ -455,7 +494,7 @@ async def get_deleted_emails(
     has_next = page < total_pages
     has_previous = page > 1
     
-    logger.info(f"Found {len(emails)} deleted emails for page {page} (total: {total_count})")
+    logger.info(f"Found {len(emails)} trashed emails for page {page} (total: {total_count})")
     
     return {
         "emails": emails,
@@ -704,83 +743,149 @@ async def update_category_endpoint(
     """
     Update the category of an email in the database
     
-    Parameters:
-    - category: New category for the email (primary, social, promotions, updates, forums, personal, trash)
+    Args:
+        email_id: UUID of the email to update
+        category_data: New category information
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Updated email information
+        
+    Notes:
+        - category: New category for the email (primary, social, promotions, updates, forums, personal, trash)
     """
     try:
         category = category_data.category
         logger.info(f"[API] Updating category for email {email_id} to {category}")
         
-        # Get the email from the database
+        # Find the email
         email = db.query(Email).filter(
             Email.id == email_id,
             Email.user_id == current_user.id
         ).first()
         
         if not email:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Email not found"
-            )
+            raise HTTPException(status_code=404, detail="Email not found")
         
         # Special handling for trash category
         if category.lower() == 'trash':
             logger.info(f"[API] Moving email {email_id} to trash category")
-            email.is_deleted_in_gmail = True
-        elif email.is_deleted_in_gmail and category.lower() != 'trash':
-            # If moving out of trash category, update the is_deleted flag
+            # Add TRASH label if not already present
+            current_labels = set(email.labels or [])
+            if 'TRASH' not in current_labels:
+                current_labels.add('TRASH')
+                email.labels = list(current_labels)
+        elif 'TRASH' in (email.labels or []) and category.lower() != 'trash':
+            # If moving out of trash category, remove the TRASH label
             logger.info(f"[API] Restoring email {email_id} from trash because category changed to '{category}'")
-            email.is_deleted_in_gmail = False
-        
+            current_labels = set(email.labels or [])
+            current_labels.remove('TRASH')
+            email.labels = list(current_labels)
+            
         # Validate the category
         valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal", "trash"]
         normalized_category = category.lower()
         
         if normalized_category not in valid_categories:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=400,
                 detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
             )
         
         # Store old category for comparison
         old_category = email.category
         
-        # Update the email in the database
+        # Update the category
         email.category = normalized_category
         
         # Add a needs_label_update flag if we changed category - this will be used during sync
         if old_category != normalized_category:
-            # This could be a field in the database, but for simplicity we'll use a property in labels
-            # Add or ensure "EA_NEEDS_LABEL_UPDATE" is in labels - will be processed during sync
-            current_labels = set(email.labels or [])
-            current_labels.add("EA_NEEDS_LABEL_UPDATE")
-            
-            # Special handling for trash category
-            if normalized_category == 'trash':
-                current_labels.add('TRASH')
-                logger.info(f"[API] Added TRASH label to email {email_id}")
-            elif 'TRASH' in current_labels and normalized_category != 'trash':
-                current_labels.remove('TRASH')
-                logger.info(f"[API] Removed TRASH label from email {email_id}")
-            
-            email.labels = list(current_labels)
-            logger.info(f"[API] Marked email {email_id} for label update during next sync")
+            email.labels = list(set(email.labels or []) | {"EA_NEEDS_LABEL_UPDATE"})
         
-        # Commit the changes to the database
+        # Special handling for trash category
+        if normalized_category == 'trash':
+            current_labels = set(email.labels or [])
+            current_labels.add('TRASH')
+            email.labels = list(current_labels)
+            logger.info(f"[API] Added TRASH label to email {email_id}")
+        elif 'TRASH' in (email.labels or []) and normalized_category != 'trash':
+            current_labels = set(email.labels or [])
+            current_labels.remove('TRASH')
+            email.labels = list(current_labels)
+            logger.info(f"[API] Removed TRASH label from email {email_id}")
+        
         db.commit()
         
         return {
             "status": "success",
             "message": "Category updated successfully. Changes will sync to Gmail during next email sync.",
-            "email_id": str(email_id),
+            "email_id": str(email.id),
             "category": normalized_category,
-            "labels": email.labels,
-            "is_deleted_in_gmail": email.is_deleted_in_gmail
+            "labels": email.labels
         }
-    
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
+        db.rollback()
         logger.error(f"[API] Error updating category: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Failed to update category: {str(e)}"
-        ) 
+        )
+
+@router.delete("/{email_id}")
+async def delete_email(
+    email_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Move an email to trash by setting the TRASH label
+    
+    Args:
+        email_id: UUID of the email to delete
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Success message
+    """
+    try:
+        # Find the email
+        email = db.query(Email).filter(
+            Email.id == email_id,
+            Email.user_id == current_user.id
+        ).first()
+        
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Check if it's already in trash
+        if 'TRASH' in (email.labels or []):
+            logger.info(f"[API] Email {email_id} already in trash")
+            return {"status": "success", "message": "Email is already in trash"}
+        
+        # Add TRASH label
+        current_labels = set(email.labels or [])
+        current_labels.add('TRASH')
+        email.labels = list(current_labels)
+        
+        # Update category to trash
+        email.category = 'trash'
+        
+        # Mark for Gmail sync
+        email.labels = list(set(email.labels or []) | {"EA_NEEDS_LABEL_UPDATE"})
+        
+        db.commit()
+        logger.info(f"[API] Email {email_id} moved to trash")
+        
+        return {
+            "status": "success",
+            "message": "Email moved to trash. Will be synced to Gmail."
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[API] Error deleting email: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete email: {str(e)}") 

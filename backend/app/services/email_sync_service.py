@@ -78,24 +78,22 @@ def update_sync_checkpoint(
 
 def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict[str, List[str]]]) -> int:
     """
-    Process label changes from Gmail and update email records accordingly
+    Process label changes from Gmail's history API
     
     Args:
         db: Database session
         user: User model instance
-        label_changes: Dictionary of message IDs to label changes {'added': [], 'removed': []}
+        label_changes: Dictionary of Gmail ID to label changes
         
     Returns:
         Number of emails updated
     """
     if not label_changes:
         return 0
-        
-    logger.info(f"[SYNC] Processing label changes for {len(label_changes)} emails")
-    updated_count = 0
     
+    updated_count = 0
     for gmail_id, changes in label_changes.items():
-        # Look up the email in our database
+        # Find the email in our database
         email = db.query(Email).filter(
             Email.user_id == user.id,
             Email.gmail_id == gmail_id
@@ -107,10 +105,9 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         
         logger.debug(f"[SYNC] Processing label changes for email {gmail_id}: added={changes.get('added', [])}, removed={changes.get('removed', [])}")
             
-        # Check for Trash label to mark as deleted
+        # Check for Trash label to mark email as trash
         if 'TRASH' in changes.get('added', []):
-            logger.info(f"[SYNC] Email {gmail_id} moved to Trash, marking as deleted in EA")
-            email.is_deleted_in_gmail = True
+            logger.info(f"[SYNC] Email {gmail_id} moved to Trash")
             
             # Update the email's labels to include TRASH
             current_labels = set(email.labels or [])
@@ -126,8 +123,7 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         
         # Check if email is being restored from trash
         if 'TRASH' in changes.get('removed', []):
-            logger.info(f"[SYNC] Email {gmail_id} removed from Trash, updating in EA")
-            email.is_deleted_in_gmail = False
+            logger.info(f"[SYNC] Email {gmail_id} removed from Trash")
             
             # Remove TRASH from the email's labels
             current_labels = set(email.labels or [])
@@ -138,18 +134,6 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
             # Recategorize the email based on its current labels
             email.category = categorize_email_from_labels(email.labels)
             logger.info(f"[SYNC] Recategorized email {gmail_id} as {email.category} after trash removal")
-            
-            updated_count += 1
-            
-        # Update read status
-        if 'UNREAD' in changes.get('added', []):
-            logger.debug(f"[SYNC] Email {gmail_id} marked as unread")
-            email.is_read = False
-            updated_count += 1
-        elif 'UNREAD' in changes.get('removed', []):
-            logger.debug(f"[SYNC] Email {gmail_id} marked as read")
-            email.is_read = True
-            updated_count += 1
     
     if updated_count > 0:
         db.commit()
@@ -200,7 +184,6 @@ def process_pending_category_updates(db: Session, user: User) -> int:
     pending_emails = db.query(Email).filter(
         Email.user_id == user.id,
         Email.labels.contains(["EA_NEEDS_LABEL_UPDATE"]),
-        Email.is_deleted_in_gmail == False
     ).all()
     
     logger.info(f"[SYNC] Found {len(pending_emails)} emails with pending category updates")
@@ -225,14 +208,6 @@ def process_pending_category_updates(db: Session, user: User) -> int:
     updated_count = 0
     for email in pending_emails:
         try:
-            # Special handling for trash category
-            if email.category == 'trash' and not email.is_deleted_in_gmail:
-                logger.info(f"[SYNC] Email {email.id} has trash category but not marked as deleted, fixing")
-                email.is_deleted_in_gmail = True
-            elif email.category != 'trash' and email.is_deleted_in_gmail:
-                logger.info(f"[SYNC] Email {email.id} is marked as deleted but not in trash category, fixing")
-                email.is_deleted_in_gmail = False
-            
             # Get current labels without our update marker
             current_labels = set(email.labels)
             current_labels.remove("EA_NEEDS_LABEL_UPDATE")
@@ -516,22 +491,29 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                     not_found_count += 1
                     if not_found_count <= 5:  # Log first 5 not found emails to avoid log spam
                         logger.debug(f"[SYNC] Email with gmail_id {gmail_id} not found in database")
-                elif email.is_deleted_in_gmail:
+                elif 'TRASH' in (email.labels or []):
                     already_deleted_count += 1
                     if already_deleted_count <= 5:  # Log first 5 already deleted emails
-                        logger.debug(f"[SYNC] Email {email.id} (gmail_id: {gmail_id}) already marked as deleted")
+                        logger.debug(f"[SYNC] Email {email.id} (gmail_id: {gmail_id}) already has TRASH label")
                 else:
-                    logger.info(f"[SYNC] Marking email {email.id} (gmail_id: {gmail_id}) as deleted")
-                    email.is_deleted_in_gmail = True
+                    logger.info(f"[SYNC] Adding TRASH label to email {email.id} (gmail_id: {gmail_id})")
+                    # Add TRASH label
+                    current_labels = set(email.labels or [])
+                    current_labels.add('TRASH')
+                    email.labels = list(current_labels)
+                    
+                    # Update category to 'trash'
+                    email.category = 'trash'
+                    
                     deleted_count += 1
             
             logger.info(f"[SYNC] Deletion summary before commit: deleted_count={deleted_count}, not_found_count={not_found_count}, already_deleted_count={already_deleted_count}")
             
             if deleted_count > 0:
                 db.commit()
-                logger.info(f"[SYNC] Marked {deleted_count} emails as deleted")
+                logger.info(f"[SYNC] Added TRASH label to {deleted_count} emails")
             else:
-                logger.warning(f"[SYNC] No emails were marked as deleted despite finding {len(deleted_email_ids)} deleted emails")
+                logger.warning(f"[SYNC] No emails were updated with TRASH label despite finding {len(deleted_email_ids)} deleted emails")
                 # Check if all emails were either not found or already deleted
                 if not_found_count + already_deleted_count == len(deleted_email_ids):
                     logger.info(f"[SYNC] All deleted emails were either not found ({not_found_count}) or already marked as deleted ({already_deleted_count})")

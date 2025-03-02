@@ -97,7 +97,6 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
           ...email,
           category: response.category,
           labels: response.labels,
-          is_deleted_in_gmail: response.is_deleted_in_gmail ?? email.is_deleted_in_gmail
         };
         
         // Call onLabelsUpdated to update the parent component
@@ -126,8 +125,8 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
       <h1 className="text-xl font-bold mb-2">{email.subject}</h1>
       <p className="mb-2 text-gray-700">From: {email.from_email}</p>
 
-      {email.is_deleted_in_gmail && (
-        <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md border border-red-300">
+      {email.labels.includes('TRASH') && (
+        <div className="my-2 px-3 py-2 bg-red-50 border-l-4 border-red-500 text-red-700">
           <span className="font-semibold">⚠️ This email is in Trash</span>
         </div>
       )}
