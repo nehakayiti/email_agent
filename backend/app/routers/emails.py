@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timedelta
 from pydantic import BaseModel
@@ -17,6 +17,8 @@ from ..services.email_processor import process_and_store_emails
 from ..services.email_sync_service import sync_emails_since_last_fetch
 from ..dependencies import get_current_user
 import logging
+from ..models.email_operation import EmailOperation, OperationType, OperationStatus
+from ..services import email_operations_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -622,8 +624,7 @@ async def check_deleted_emails_endpoint(
 @router.post("/{email_id}/update-labels")
 async def update_labels_endpoint(
     email_id: UUID,
-    add_labels: List[str] = None,
-    remove_labels: List[str] = None,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -635,10 +636,20 @@ async def update_labels_endpoint(
     - remove_labels: List of labels to remove
     """
     try:
-        logger.info(f"[API] Updating labels for email {email_id}")
+        body = await request.json()
+        add_labels = body.get('add_labels', [])
+        remove_labels = body.get('remove_labels', [])
         
-        # Store the original token for comparison later
-        original_token = current_user.credentials.get('token') if current_user.credentials else None
+        logger.info(f"[API] Updating labels for email {email_id}")
+        logger.info(f"[API] Adding labels: {add_labels}")
+        logger.info(f"[API] Removing labels: {remove_labels}")
+        
+        # Validate the request
+        if not add_labels and not remove_labels:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Must provide at least one label to add or remove"
+            )
         
         # Get the email from the database
         email = db.query(Email).filter(
@@ -652,81 +663,51 @@ async def update_labels_endpoint(
                 detail="Email not found"
             )
         
-        # Check if the email has been deleted in Gmail
-        if email.is_deleted_in_gmail:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot update labels for an email that has been deleted in Gmail"
-            )
+        # Update the email's labels in our database
+        current_labels = set(email.labels or [])
         
-        try:
-            # Update the labels in Gmail - be careful with parameter names to avoid errors
-            result = gmail.update_email_labels(
-                credentials=current_user.credentials,
-                gmail_id=email.gmail_id,
-                add_labels=add_labels,
-                remove_labels=remove_labels
-            )
-            
-            # Update the email model with new labels
-            email_updated = False
-            current_labels = set(email.labels or [])
-            
-            if add_labels:
-                for label in add_labels:
-                    if label not in current_labels:
-                        current_labels.add(label)
-                        email_updated = True
-                
-                # Special handling for read status based on UNREAD label
-                if 'UNREAD' in add_labels and email.is_read:
-                    email.is_read = False
-                    email_updated = True
-            
-            if remove_labels:
-                for label in remove_labels:
-                    if label in current_labels:
-                        current_labels.remove(label)
-                        email_updated = True
-                
-                # Special handling for read status based on UNREAD label
-                if 'UNREAD' in remove_labels and not email.is_read:
-                    email.is_read = True
-                    email_updated = True
-            
-            # Update labels if changed
-            if email_updated:
-                email.labels = list(current_labels)
-                logger.info(f"[API] Updated email {email_id} labels in database to {list(current_labels)}")
-            
-            # If credentials were refreshed, update them in the database
-            current_token = current_user.credentials.get('token') if current_user.credentials else None
-            if original_token and current_token and original_token != current_token:
-                logger.info(f"[API] Updating refreshed credentials for user {current_user.id}")
-                db.query(User).filter(User.id == current_user.id).update({"credentials": current_user.credentials})
-                email_updated = True
-            
-            # Commit if needed
-            if email_updated:
-                db.commit()
-            
-            return {
-                "status": "success",
-                "message": "Labels updated successfully",
-                "email_id": str(email_id),
-                "current_labels": list(current_labels)
-            }
-            
-        except Exception as gmail_error:
-            logger.error(f"[API] Gmail API error updating labels: {str(gmail_error)}")
-            # If there's an error with the Gmail API, we'll return a specific error
-            return {
-                "status": "error",
-                "message": f"Error updating labels with Gmail API: {str(gmail_error)}",
-                "email_id": str(email_id)
-            }
-    
+        # Add new labels
+        for label in add_labels:
+            current_labels.add(label)
+            logger.debug(f"[API] Added label '{label}' to email {email_id}")
+        
+        # Remove labels
+        for label in remove_labels:
+            if label in current_labels:
+                current_labels.remove(label)
+                logger.debug(f"[API] Removed label '{label}' from email {email_id}")
+        
+        # Update the email with the new labels
+        email.labels = list(current_labels)
+        
+        # Create an operation record to track the label change in Gmail
+        operation_data = {
+            "add_labels": add_labels,
+            "remove_labels": remove_labels
+        }
+        
+        email_operations_service.create_operation(
+            db=db,
+            user=current_user,
+            email=email,
+            operation_type=OperationType.UPDATE_LABELS,
+            operation_data=operation_data
+        )
+        
+        logger.info(f"[API] Created label update operation for email {email_id}")
+        
+        db.commit()
+        
+        return {
+            "status": "success",
+            "message": "Labels updated. Will be synced to Gmail.",
+            "labels": email.labels
+        }
+    except HTTPException as e:
+        # Re-raise HTTP exceptions
+        raise
     except Exception as e:
+        db.rollback()
         logger.error(f"[API] Error updating labels: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -881,11 +862,23 @@ async def delete_email(
         # Update category to trash
         email.category = 'trash'
         
-        # Mark for Gmail sync
-        email.labels = list(set(email.labels or []) | {"EA_NEEDS_LABEL_UPDATE"})
+        # Create operation record to track sync with Gmail
+        operation_data = {
+            "add_labels": ["TRASH"],
+            "remove_labels": ["INBOX"]
+        }
+        
+        email_operations_service.create_operation(
+            db=db,
+            user=current_user,
+            email=email,
+            operation_type=OperationType.DELETE,
+            operation_data=operation_data
+        )
+        
+        logger.info(f"[API] Email {email_id} moved to trash and operation created for sync")
         
         db.commit()
-        logger.info(f"[API] Email {email_id} moved to trash")
         
         return {
             "status": "success",
@@ -903,7 +896,7 @@ async def archive_email(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Archive an email by removing the INBOX label without adding TRASH
+    Archive an email by removing the INBOX label
     
     Args:
         email_id: UUID of the email to archive
@@ -911,7 +904,7 @@ async def archive_email(
         current_user: Current authenticated user
         
     Returns:
-        Success message
+        Success message with updated labels
     """
     try:
         # Find the email
@@ -923,25 +916,36 @@ async def archive_email(
         if not email:
             raise HTTPException(status_code=404, detail="Email not found")
         
-        # Check if it's already archived (no INBOX label)
+        # Remove INBOX label if present
         current_labels = set(email.labels or [])
-        if 'INBOX' not in current_labels:
-            logger.info(f"[API] Email {email_id} already archived (no INBOX label)")
-            return {"status": "success", "message": "Email is already archived"}
+        if 'INBOX' in current_labels:
+            current_labels.remove('INBOX')
+            email.labels = list(current_labels)
+            logger.info(f"[API] Removed INBOX label from email {email_id}")
+        else:
+            logger.info(f"[API] Email {email_id} is already archived (no INBOX label)")
+            return {"status": "success", "message": "Email is already archived", "labels": email.labels}
         
-        # Remove INBOX label
-        current_labels.remove('INBOX')
-        email.labels = list(current_labels)
+        # Create operation record for Gmail sync
+        operation_data = {
+            "remove_labels": ["INBOX"]
+        }
         
-        # Mark for Gmail sync
-        email.labels = list(set(email.labels) | {"EA_NEEDS_LABEL_UPDATE"})
+        email_operations_service.create_operation(
+            db=db,
+            user=current_user,
+            email=email,
+            operation_type=OperationType.ARCHIVE,
+            operation_data=operation_data
+        )
+        
+        logger.info(f"[API] Created archive operation for email {email_id}")
         
         db.commit()
-        logger.info(f"[API] Email {email_id} archived by removing INBOX label")
         
         return {
-            "status": "success", 
-            "message": "Email archived. Will be synced to Gmail.",
+            "status": "success",
+            "message": "Email archived successfully",
             "labels": email.labels
         }
     except Exception as e:

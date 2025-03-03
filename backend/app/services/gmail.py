@@ -404,15 +404,21 @@ def update_email_labels(
     Update email labels.
     """
     try:
-        logger.info(f"[GMAIL] Updating labels for message {gmail_id}")
+        label_actions = []
+        if add_labels:
+            label_actions.append(f"adding {add_labels}")
+        if remove_labels:
+            label_actions.append(f"removing {remove_labels}")
+            
+        change_desc = " & ".join(label_actions)
+        logger.info(f"[GMAIL] Updating labels ({change_desc}) for message {gmail_id}")
+        
         service = create_gmail_service(credentials)
         body = {}
         if add_labels:
             body['addLabelIds'] = add_labels
-            logger.info(f"[GMAIL] Labels to add: {add_labels}")
         if remove_labels:
             body['removeLabelIds'] = remove_labels
-            logger.info(f"[GMAIL] Labels to remove: {remove_labels}")
         
         max_retries = 5
         base_delay = 1
@@ -423,7 +429,7 @@ def update_email_labels(
                     id=gmail_id,
                     body=body
                 ).execute()
-                logger.info(f"[GMAIL] Successfully updated labels for {gmail_id}")
+                logger.info(f"[GMAIL] ✓ Successfully updated labels for {gmail_id}")
                 return result
             except Exception as e:
                 error_msg = str(e)
@@ -436,10 +442,12 @@ def update_email_labels(
                         logger.error(f"[GMAIL] Rate limit persisted after {max_retries} retries")
                         raise
                 else:
-                    logger.error(f"[GMAIL] Error updating labels for {gmail_id}: {error_msg}", exc_info=True)
+                    logger.error(f"[GMAIL] ✗ Error updating labels for {gmail_id}: {error_msg[:100]}")
                     raise
     except Exception as e:
-        logger.error(f"[GMAIL] Error updating labels for {gmail_id}: {str(e)}", exc_info=True)
+        error_msg = str(e)
+        truncated_msg = error_msg[:100] + ('...' if len(error_msg) > 100 else '')
+        logger.error(f"[GMAIL] ✗ Error updating labels for {gmail_id}: {truncated_msg}", exc_info=True)
         raise
 
 def check_deleted_emails(
