@@ -1,6 +1,5 @@
 ToDo:
-- Bug: View in Gmail link is missing when you click on an email in EA
-- Bug: Sync is working but when I delete emails in EA it is not deleting from Gmail, unless there is a change in the gmail history items for example: a new email is received in Gmail, then EA's update is synced.
+
 - Feature: I want EA: All Emails to show all emails and not filtered by category.
 - Bug: Some emails like "USPS Daily Digest" are not displayed properly in EA
 - Feature: I want category updates to be on the EA: Email List page vs. clicking the email to do the work
@@ -19,6 +18,10 @@ ToDo:
    - Add a feature to auto-categorize emails based on the date.
    - Add a feature to auto-categorize emails based on the attachments.
 
+
+Fixed:
+- Bug: View in Gmail link is missing when you click on an email in EA
+- Bug: Sync is working but when I delete emails in EA it is not deleting from Gmail, unless there is a change in the gmail history items for example: a new email is received in Gmail, then EA's update is synced.
 
 # Email Agent Project Setup Guide
 
