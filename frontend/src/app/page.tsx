@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import LoginButton from '@/components/login-button';
-import { isAuthenticated, removeToken } from '@/lib/auth';
+import { isAuthenticated, handleAuthError } from '@/lib/auth';
 
 export default function Home() {
   const router = useRouter();
@@ -46,8 +46,7 @@ export default function Home() {
     if (isAuthenticated()) {
       router.push('/emails');
     } else {
-      removeToken();
-      setIsLoggedIn(false);
+      handleAuthError();
     }
   };
 

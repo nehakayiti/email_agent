@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useState } from 'react';
-import { isAuthenticated, removeToken, logout } from '@/lib/auth';
+import { isAuthenticated, handleAuthError, logout } from '@/lib/auth';
 import Header from './header';
 
 interface AppLayoutProps {
@@ -18,8 +18,8 @@ export default function AppLayout({ children, userName = 'User' }: AppLayoutProp
   useEffect(() => {
     const checkAuth = () => {
       if (!isAuthenticated()) {
-        removeToken();
-        router.push('/');
+        handleAuthError();
+        return;
       }
       setIsLoading(false);
     };

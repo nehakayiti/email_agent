@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getEmails, type Email, type EmailsParams } from '@/lib/api';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, handleAuthError } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
 import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
@@ -34,8 +34,8 @@ export default function EmailsPage() {
     const fetchEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
         try {
             if (!isAuthenticated()) {
-                console.log('User not authenticated, redirecting to login');
-                router.push('/');
+                console.log('User not authenticated, redirecting to authentication');
+                handleAuthError();
                 return;
             }
 
@@ -78,18 +78,24 @@ export default function EmailsPage() {
             if (isInitialLoad) {
                 setInitialLoadComplete(true);
             }
-        } catch (err) {
-            console.error('Error in emails page:', err);
-            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch emails';
+        } catch (error) {
+            console.error('Error fetching emails:', error);
+            
+            // Check if it's an authentication error
+            const errorMessage = error instanceof Error ? error.message : 'Error fetching emails';
+            if (errorMessage.includes('Authentication failed') || 
+                errorMessage.includes('token') || 
+                errorMessage.includes('401')) {
+                handleAuthError();
+                return;
+            }
+            
             setError(errorMessage);
         } finally {
-            if (isInitialLoad) {
-                setLoading(false);
-            } else {
-                setLoadingMore(false);
-            }
+            setLoading(false);
+            setLoadingMore(false);
         }
-    }, [router, categoryParam, statusParam]);
+    }, [categoryParam, statusParam, router]);
 
     // Initial data load
     useEffect(() => {

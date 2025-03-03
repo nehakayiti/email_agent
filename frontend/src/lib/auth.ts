@@ -23,8 +23,8 @@ export const handleAuthError = () => {
     // Prevent redirect loops by checking if we're already on the login page
     // or in the authentication flow
     if (typeof window !== 'undefined' && 
-        !window.location.pathname.includes('/auth') && 
-        window.location.pathname !== '/login') {
+        !window.location.pathname.includes('/auth') &&
+        !window.location.pathname.includes('/login')) {
         
         // Use a flag in sessionStorage to prevent multiple redirects
         if (!sessionStorage.getItem('auth_redirect_in_progress')) {
@@ -35,7 +35,8 @@ export const handleAuthError = () => {
                 sessionStorage.removeItem('auth_redirect_in_progress');
             }, { once: true });
             
-            window.location.href = '/login';
+            // Redirect to login page with auth_error parameter
+            window.location.href = '/login?auth_error=session_expired';
         }
     }
 };

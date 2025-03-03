@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getEmailById, type Email } from '@/lib/api';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, handleAuthError } from '@/lib/auth';
 import { EmailContent } from './email-content';
 import { Toaster } from 'react-hot-toast';
 
@@ -21,8 +21,8 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
         const fetchEmail = async () => {
             try {
                 if (!isAuthenticated()) {
-                    console.log('User not authenticated, redirecting to login');
-                    router.push('/');
+                    console.log('User not authenticated, redirecting to authentication');
+                    handleAuthError();
                     return;
                 }
 
@@ -35,6 +35,15 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
             } catch (err) {
                 console.error('Error in email detail page:', err);
                 const errorMessage = err instanceof Error ? err.message : 'Failed to fetch email';
+                
+                // Check if this is an authentication error
+                if (errorMessage.includes('Authentication failed') || 
+                    errorMessage.includes('token') || 
+                    errorMessage.includes('401')) {
+                    handleAuthError();
+                    return;
+                }
+                
                 setError(errorMessage);
             } finally {
                 setLoading(false);

@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getTrashedEmails, type Email, type EmailsParams } from '@/lib/api';
-import { isAuthenticated } from '@/lib/auth';
+import { isAuthenticated, handleAuthError } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
 import { Toaster } from 'react-hot-toast';
@@ -27,8 +27,8 @@ export default function TrashPage() {
     const fetchTrashedEmails = useCallback(async (pageNum: number, isInitialLoad: boolean = false) => {
         try {
             if (!isAuthenticated()) {
-                console.log('User not authenticated, redirecting to login');
-                router.push('/');
+                console.log('User not authenticated, redirecting to authentication');
+                handleAuthError();
                 return;
             }
 
@@ -61,16 +61,22 @@ export default function TrashPage() {
             if (isInitialLoad) {
                 setInitialLoadComplete(true);
             }
-        } catch (err) {
-            console.error('Error in trashed emails page:', err);
-            const errorMessage = err instanceof Error ? err.message : 'Failed to fetch trashed emails';
+        } catch (error) {
+            console.error('Error fetching trashed emails:', error);
+            
+            // Check if it's an authentication error
+            const errorMessage = error instanceof Error ? error.message : 'Error fetching trashed emails';
+            if (errorMessage.includes('Authentication failed') || 
+                errorMessage.includes('token') || 
+                errorMessage.includes('401')) {
+                handleAuthError();
+                return;
+            }
+            
             setError(errorMessage);
         } finally {
-            if (isInitialLoad) {
-                setLoading(false);
-            } else {
-                setLoadingMore(false);
-            }
+            setLoading(false);
+            setLoadingMore(false);
         }
     }, [router]);
 

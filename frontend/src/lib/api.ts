@@ -1,4 +1,4 @@
-import { getToken, handleAuthError } from './auth';
+import { getToken, handleAuthError, initiateGoogleLogin } from './auth';
 
 export interface Email {
     id: string;
@@ -33,7 +33,7 @@ interface EmailsResponse {
     pagination: PaginationMetadata;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 if (!API_URL) {
     throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
@@ -85,10 +85,7 @@ export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = 
             if (response.status === 401) {
                 console.log('Authentication failed: Invalid or expired token');
                 handleAuthError();
-                return {
-                    error: 'Authentication failed. Please log in again.',
-                    status: 401
-                } as unknown as T;
+                throw new Error('Authentication failed. Token expired. Redirecting to login...');
             }
 
             const errorData = await response.json().catch(() => null);
@@ -176,8 +173,6 @@ export async function getEmailById(id: string): Promise<Email> {
     }
     return data as Email;
 }
-
-export type { Email };
 
 // Analytics Response Types
 interface SentimentTrendItem {
