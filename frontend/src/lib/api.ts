@@ -444,4 +444,44 @@ export async function updateEmailCategory(
     console.error('Error updating email category:', error);
     throw error;
   }
+}
+
+export async function archiveEmail(emailId: string): Promise<{ 
+  status: string; 
+  message: string;
+  labels?: string[];
+}> {
+  try {
+    const response = await fetchWithAuth<{ 
+      status: string; 
+      message: string;
+      labels?: string[];
+    }>(`/emails/${emailId}/archive`, {
+      method: 'POST',
+    });
+    
+    return response;
+  } catch (error) {
+    console.error('Error archiving email:', error);
+    throw error;
+  }
+}
+
+export async function deleteEmail(emailId: string): Promise<{ 
+  status: string; 
+  message: string;
+}> {
+  try {
+    const response = await fetchWithAuth<{ 
+      status: string; 
+      message: string;
+    }>(`/emails/${emailId}`, {
+      method: 'DELETE',
+    });
+    
+    return response;
+  } catch (error) {
+    console.error('Error deleting email:', error);
+    throw error;
+  }
 } 

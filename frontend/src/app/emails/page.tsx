@@ -147,6 +147,16 @@ export default function EmailsPage() {
         };
     }, [initialLoadComplete, hasMore, loadingMore, page, fetchEmails]);
 
+    // Add a handler for labels updated
+    const handleLabelsUpdated = (updatedEmail: Email) => {
+        // Update the emails list with the updated email
+        setEmails(prevEmails => 
+            prevEmails.map(email => 
+                email.id === updatedEmail.id ? updatedEmail : email
+            )
+        );
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -192,7 +202,7 @@ export default function EmailsPage() {
 
     return (
         <div className="px-4 py-8">
-            <Toaster position="top-right" />
+            <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
             <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
                 <div className="flex flex-col mb-6">
                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4">
@@ -228,6 +238,7 @@ export default function EmailsPage() {
                                 <EmailCard
                                     key={email.id}
                                     email={email}
+                                    onLabelsUpdated={handleLabelsUpdated}
                                     onClick={() => router.push(`/emails/${email.id}`)}
                                 />
                             ))}

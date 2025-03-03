@@ -220,6 +220,11 @@ def process_pending_category_updates(db: Session, user: User) -> int:
             # Remove all other category labels
             remove_labels = [label for label in all_category_labels if label not in add_labels]
             
+            # Special handling for TRASH category - ensure INBOX is removed
+            if email.category == 'trash':
+                if 'INBOX' not in remove_labels:
+                    remove_labels.append('INBOX')
+            
             # If we have labels to add or remove, update in Gmail
             if add_labels or remove_labels:
                 logger.info(f"[SYNC] Updating Gmail labels for email {email.id} (Gmail ID: {email.gmail_id}), "
@@ -241,6 +246,11 @@ def process_pending_category_updates(db: Session, user: User) -> int:
                     for label in remove_labels:
                         if label in current_labels:
                             current_labels.remove(label)
+                    
+                    # Check for label inconsistencies and fix them
+                    if 'TRASH' in current_labels and 'INBOX' in current_labels:
+                        current_labels.remove('INBOX')
+                        logger.info(f"[SYNC] Removed INBOX label from email {email.id} because it's in TRASH")
                     
                     # Update the email record
                     email.labels = list(current_labels)

@@ -775,7 +775,13 @@ async def update_category_endpoint(
             current_labels = set(email.labels or [])
             if 'TRASH' not in current_labels:
                 current_labels.add('TRASH')
-                email.labels = list(current_labels)
+            
+            # Remove INBOX label if present
+            if 'INBOX' in current_labels:
+                current_labels.remove('INBOX')
+                logger.info(f"[API] Removed INBOX label from email {email_id} because it's being moved to trash")
+                
+            email.labels = list(current_labels)
         elif 'TRASH' in (email.labels or []) and category.lower() != 'trash':
             # If moving out of trash category, remove the TRASH label
             logger.info(f"[API] Restoring email {email_id} from trash because category changed to '{category}'")
@@ -888,4 +894,57 @@ async def delete_email(
     except Exception as e:
         db.rollback()
         logger.error(f"[API] Error deleting email: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete email: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to delete email: {str(e)}")
+
+@router.post("/{email_id}/archive")
+async def archive_email(
+    email_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Archive an email by removing the INBOX label without adding TRASH
+    
+    Args:
+        email_id: UUID of the email to archive
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Success message
+    """
+    try:
+        # Find the email
+        email = db.query(Email).filter(
+            Email.id == email_id,
+            Email.user_id == current_user.id
+        ).first()
+        
+        if not email:
+            raise HTTPException(status_code=404, detail="Email not found")
+        
+        # Check if it's already archived (no INBOX label)
+        current_labels = set(email.labels or [])
+        if 'INBOX' not in current_labels:
+            logger.info(f"[API] Email {email_id} already archived (no INBOX label)")
+            return {"status": "success", "message": "Email is already archived"}
+        
+        # Remove INBOX label
+        current_labels.remove('INBOX')
+        email.labels = list(current_labels)
+        
+        # Mark for Gmail sync
+        email.labels = list(set(email.labels) | {"EA_NEEDS_LABEL_UPDATE"})
+        
+        db.commit()
+        logger.info(f"[API] Email {email_id} archived by removing INBOX label")
+        
+        return {
+            "status": "success", 
+            "message": "Email archived. Will be synced to Gmail.",
+            "labels": email.labels
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[API] Error archiving email: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to archive email: {str(e)}") 

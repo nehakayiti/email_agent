@@ -109,6 +109,16 @@ export default function TrashPage() {
         };
     }, [initialLoadComplete, hasMore, loadingMore, page, fetchTrashedEmails]);
 
+    // Add a handler for labels updated
+    const handleLabelsUpdated = (updatedEmail: Email) => {
+        // Update the emails list with the updated email
+        setEmails(prevEmails => 
+            prevEmails.map(email => 
+                email.id === updatedEmail.id ? updatedEmail : email
+            )
+        );
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -146,7 +156,7 @@ export default function TrashPage() {
 
     return (
         <div className="px-4 py-8">
-            <Toaster position="top-right" />
+            <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
             <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
                 <div className="flex flex-col mb-6">
                     <div className="flex-shrink-0 mb-4">
@@ -188,12 +198,13 @@ export default function TrashPage() {
                             </p>
                         </div>
                     ) : (
-                        filteredEmails.map(email => (
+                        filteredEmails.map((email) => (
                             <EmailCard 
                                 key={email.id} 
                                 email={email} 
-                                onClick={() => router.push(`/emails/${email.id}`)}
                                 isDeleted={true}
+                                onLabelsUpdated={handleLabelsUpdated}
+                                onClick={() => router.push(`/emails/${email.id}`)}
                             />
                         ))
                     )}

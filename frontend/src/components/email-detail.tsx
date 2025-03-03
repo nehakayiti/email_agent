@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { getEmailById, type Email } from '@/lib/api';
 import { isAuthenticated } from '@/lib/auth';
 import { EmailContent } from './email-content';
-import { Toaster, toast } from 'react-hot-toast';
+import { Toaster } from 'react-hot-toast';
 
 interface EmailDetailProps {
     emailId: string;
@@ -32,11 +32,6 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
                 console.log('Email details fetched:', data);
                 setEmail(data);
                 setError(null);
-                
-                // Display a message if the email is in Trash
-                if (data.labels.includes('TRASH')) {
-                    toast.error('This email is in Trash');
-                }
             } catch (err) {
                 console.error('Error in email detail page:', err);
                 const errorMessage = err instanceof Error ? err.message : 'Failed to fetch email';
@@ -90,7 +85,7 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
 
     return (
         <div className="p-6 bg-white rounded-2xl shadow-lg border border-gray-300">
-            <Toaster position="top-right" />
+            <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
             <button className="text-blue-600 text-sm mb-4" onClick={() => router.back()}>← Back to Emails</button>
             <EmailContent email={email} onLabelsUpdated={handleLabelsUpdated} />
         </div>
