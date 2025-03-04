@@ -310,7 +310,7 @@ export default function EmailsPage() {
                 </p>
 
                 {/* Email list */}
-                <div className="space-y-4">
+                <div>
                     {filteredEmails.length === 0 ? (
                         <div className="bg-white rounded-2xl shadow-md p-8 text-center">
                             <h3 className="text-lg font-medium text-gray-900">No emails found</h3>

@@ -27,7 +27,10 @@ export function SearchInput({ value, onChange, placeholder = 'Search...', classN
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="block w-full rounded-lg border border-gray-200 bg-white pl-10 pr-3 py-2 text-sm placeholder:text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="block w-full rounded-md border border-gray-300 bg-white pl-10 pr-3 py-2.5 text-sm shadow-sm
+                  placeholder:text-gray-500 
+                  focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500
+                  transition-colors duration-150"
         placeholder={placeholder}
       />
     </div>

@@ -137,9 +137,14 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
   };
 
   // Create the container div element
-  const containerClasses = `border-b border-gray-200 p-4 hover:bg-gray-50 ${
-    !email.is_read ? 'bg-blue-50' : ''
-  } ${isDeleted ? 'border-red-200 bg-red-50' : ''}`;
+  const containerClasses = `
+    ${!email.is_read 
+      ? 'border-l-4 border-l-indigo-500 bg-white font-medium' 
+      : 'border-l-4 border-l-transparent bg-gray-50 font-normal'}
+    border border-gray-200 rounded-md mb-2 p-4 
+    hover:shadow-md hover:border-indigo-200 transition-all duration-150
+    ${isDeleted ? 'border-red-200 bg-red-50' : ''}
+  `;
   
   const emailContent = (
     <div 
@@ -147,7 +152,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
       onClick={onClick}
     >
       <div className="flex justify-between items-start mb-2">
-        <div className="font-medium text-gray-900 truncate mr-2" style={{ maxWidth: 'calc(100% - 100px)' }}>
+        <div className={`text-gray-900 truncate mr-2 ${!email.is_read ? 'font-semibold' : ''}`} style={{ maxWidth: 'calc(100% - 100px)' }}>
           {email.subject || '(No Subject)'}
         </div>
         <div className="text-sm text-gray-500 whitespace-nowrap">
@@ -156,14 +161,14 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
       </div>
       
       <div className="flex justify-between items-center mb-2">
-        <div className="text-sm text-gray-600 truncate mr-2" style={{ maxWidth: 'calc(100% - 140px)' }}>
+        <div className={`text-sm truncate mr-2 ${!email.is_read ? 'text-gray-700' : 'text-gray-600'}`} style={{ maxWidth: 'calc(100% - 140px)' }}>
           {email.from_email}
         </div>
         
         <div className="flex space-x-2">
           <button
             onClick={handleArchive}
-            className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded"
+            className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
             title="Archive"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -173,7 +178,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
           
           <button
             onClick={handleTrash}
-            className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded"
+            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
             title="Move to trash"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -190,7 +195,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
         ) : null}
       </div>
       
-      <div className="text-sm text-gray-500 line-clamp-2">
+      <div className={`text-sm line-clamp-2 ${!email.is_read ? 'text-gray-700' : 'text-gray-500'}`}>
         {email.snippet}
       </div>
     </div>
