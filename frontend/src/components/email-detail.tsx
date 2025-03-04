@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getEmailById, type Email } from '@/lib/api';
 import { isAuthenticated, handleAuthError } from '@/lib/auth';
 import { EmailContent } from './email-content';
@@ -13,9 +13,35 @@ interface EmailDetailProps {
 
 export default function EmailDetail({ emailId }: EmailDetailProps) {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [email, setEmail] = useState<Email | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Get any filter parameters that we need to preserve
+    const backToEmailsUrl = constructBackUrl(searchParams);
+
+    function constructBackUrl(params: URLSearchParams): string {
+        // Start with base URL
+        let url = '/emails';
+        
+        // Check if we have any params to add
+        const category = params.get('category');
+        const status = params.get('status');
+        const label = params.get('label');
+        
+        const queryParams = [];
+        if (category) queryParams.push(`category=${category}`);
+        if (status) queryParams.push(`status=${status}`);
+        if (label) queryParams.push(`label=${label}`);
+        
+        // Add query params if any exist
+        if (queryParams.length > 0) {
+            url += `?${queryParams.join('&')}`;
+        }
+        
+        return url;
+    }
 
     useEffect(() => {
         const fetchEmail = async () => {
@@ -71,7 +97,12 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
     if (error) {
         return (
             <div className="p-6 bg-white rounded-2xl shadow-lg border border-gray-300">
-                <button className="text-blue-600 text-sm mb-4" onClick={() => router.back()}>← Back to Emails</button>
+                <button 
+                    className="text-blue-600 text-sm mb-4" 
+                    onClick={() => router.push(backToEmailsUrl)}
+                >
+                    ← Back to Emails
+                </button>
                 <div className="text-center">
                     <h2 className="text-xl font-bold text-gray-900 mb-2">Error</h2>
                     <p className="text-gray-600">{error}</p>
@@ -83,7 +114,12 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
     if (!email) {
         return (
             <div className="p-6 bg-white rounded-2xl shadow-lg border border-gray-300">
-                <button className="text-blue-600 text-sm mb-4" onClick={() => router.back()}>← Back to Emails</button>
+                <button 
+                    className="text-blue-600 text-sm mb-4" 
+                    onClick={() => router.push(backToEmailsUrl)}
+                >
+                    ← Back to Emails
+                </button>
                 <div className="text-center">
                     <h2 className="text-xl font-bold text-gray-900 mb-2">Email not found</h2>
                     <p className="text-gray-600">The requested email could not be found.</p>
@@ -95,7 +131,12 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
     return (
         <div className="p-6 bg-white rounded-2xl shadow-lg border border-gray-300">
             <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
-            <button className="text-blue-600 text-sm mb-4" onClick={() => router.back()}>← Back to Emails</button>
+            <button 
+                className="text-blue-600 text-sm mb-4" 
+                onClick={() => router.push(backToEmailsUrl)}
+            >
+                ← Back to Emails
+            </button>
             <EmailContent email={email} onLabelsUpdated={handleLabelsUpdated} />
         </div>
     );

@@ -21,6 +21,7 @@ export default function EmailsPage() {
     const [totalEmails, setTotalEmails] = useState(0);
     const [initialLoadComplete, setInitialLoadComplete] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [scrollRestored, setScrollRestored] = useState(false);
     
     // Get category from URL parameters
     const categoryParam = searchParams.get('category');
@@ -196,6 +197,52 @@ export default function EmailsPage() {
         }
     };
 
+    // Save scroll position when navigating away
+    const saveScrollPosition = useCallback(() => {
+        const scrollY = window.scrollY;
+        sessionStorage.setItem('emailListScrollPosition', scrollY.toString());
+        console.log('Saved scroll position:', scrollY);
+    }, []);
+    
+    // Restore scroll position
+    const restoreScrollPosition = useCallback(() => {
+        const savedPosition = sessionStorage.getItem('emailListScrollPosition');
+        if (savedPosition && !scrollRestored) {
+            const position = parseInt(savedPosition, 10);
+            console.log('Restoring scroll position to:', position);
+            window.scrollTo(0, position);
+            setScrollRestored(true);
+        }
+    }, [scrollRestored]);
+
+    // Effect to restore scroll position when returning to this page
+    useEffect(() => {
+        if (initialLoadComplete && !scrollRestored) {
+            restoreScrollPosition();
+        }
+    }, [initialLoadComplete, restoreScrollPosition, scrollRestored]);
+    
+    // Set up event handlers for saving scroll position on navigation
+    useEffect(() => {
+        // Add click event listener to email cards to save position
+        const handleEmailCardClick = () => {
+            saveScrollPosition();
+        };
+        
+        // Find all email card links and attach event listeners
+        const emailCards = document.querySelectorAll('[data-email-card]');
+        emailCards.forEach(card => {
+            card.addEventListener('click', handleEmailCardClick);
+        });
+        
+        return () => {
+            // Clean up event listeners
+            emailCards.forEach(card => {
+                card.removeEventListener('click', handleEmailCardClick);
+            });
+        };
+    }, [emails, saveScrollPosition]);
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -278,7 +325,11 @@ export default function EmailsPage() {
                                     key={email.id}
                                     email={email}
                                     onLabelsUpdated={handleLabelsUpdated}
-                                    onClick={() => router.push(`/emails/${email.id}`)}
+                                    onClick={() => {
+                                        saveScrollPosition();
+                                        router.push(`/emails/${email.id}`);
+                                    }}
+                                    data-email-card
                                 />
                             ))}
                             

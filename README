@@ -1,7 +1,5 @@
 ToDo:
 
-- Feature: I want EA: All Emails to show all emails and not filtered by category.
-- Bug: Some emails like "USPS Daily Digest" are not displayed properly in EA
 - Feature: I want category updates to be on the EA: Email List page vs. clicking the email to do the work
 - Feature: I want to remove the "Sync Email" button and have it sync automatically. I want to see a timer until the next sync at the bottom left of the page in real time and small font. 
    - Should show last sync time and countdown to next sync time.
@@ -22,6 +20,29 @@ ToDo:
 Fixed:
 - Bug: View in Gmail link is missing when you click on an email in EA
 - Bug: Sync is working but when I delete emails in EA it is not deleting from Gmail, unless there is a change in the gmail history items for example: a new email is received in Gmail, then EA's update is synced.
+- Feature: I want EA: All Emails to show all emails and not filtered by category.
+
+
+emails table
+      Column      |           Type           | Collation | Nullable | Default 
+------------------+--------------------------+-----------+----------+---------
+ id               | uuid                     |           | not null | 
+ user_id          | uuid                     |           | not null | 
+ gmail_id         | character varying        |           | not null | 
+ thread_id        | character varying        |           | not null | 
+ subject          | character varying        |           |          | 
+ from_email       | character varying        |           |          | 
+ received_at      | timestamp with time zone |           |          | 
+ snippet          | character varying        |           |          | 
+ labels           | character varying[]      |           |          | 
+ is_read          | boolean                  |           |          | 
+ is_processed     | boolean                  |           |          | 
+ importance_score | integer                  |           |          | 
+ category         | character varying        |           |          | 
+ raw_data         | json                     |           |          | 
+ created_at       | timestamp with time zone |           |          | now()
+Indexes:
+
 
 # Email Agent Project Setup Guide
 
