@@ -143,6 +143,8 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
         const updatedEmail = {
           ...email,
           labels: response.labels || email.labels,
+          // Update the category if returned from the API
+          category: response.category || email.category
         };
         
         // Call onLabelsUpdated to update the parent component

@@ -169,12 +169,29 @@ export default function EmailsPage() {
 
     // Add a handler for labels updated
     const handleLabelsUpdated = (updatedEmail: Email) => {
-        // Update the emails list with the updated email
-        setEmails(prevEmails => 
-            prevEmails.map(email => 
-                email.id === updatedEmail.id ? updatedEmail : email
-            )
+        // Check if the email should be removed from the current view based on category/status filter
+        const shouldRemoveFromCurrentView = (
+            // If we're viewing a specific category and the email category has changed
+            (categoryParam && updatedEmail.category !== categoryParam) ||
+            // If we're viewing archived emails and the email is no longer archived
+            (categoryParam === 'archive' && updatedEmail.labels.includes('INBOX')) ||
+            // If we're viewing by label and the email no longer has that label
+            (labelParam && !updatedEmail.labels.includes(labelParam))
         );
+
+        if (shouldRemoveFromCurrentView) {
+            // Remove the email from the current view
+            setEmails(prevEmails => prevEmails.filter(email => email.id !== updatedEmail.id));
+            // Update total count
+            setTotalEmails(prev => Math.max(0, prev - 1));
+        } else {
+            // Update the email in the list
+            setEmails(prevEmails => 
+                prevEmails.map(email => 
+                    email.id === updatedEmail.id ? updatedEmail : email
+                )
+            );
+        }
     };
 
     if (loading) {

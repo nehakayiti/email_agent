@@ -460,12 +460,14 @@ export async function archiveEmail(emailId: string): Promise<{
   status: string; 
   message: string;
   labels?: string[];
+  category?: string;
 }> {
   try {
     const response = await fetchWithAuth<{ 
       status: string; 
       message: string;
       labels?: string[];
+      category?: string;
     }>(`/emails/${emailId}/archive`, {
       method: 'POST',
     });

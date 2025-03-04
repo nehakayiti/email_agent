@@ -1,7 +1,20 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { HomeIcon, InboxIcon, TagIcon, ChartBarIcon, ArrowPathIcon, TrashIcon, EnvelopeIcon, EnvelopeOpenIcon } from '@heroicons/react/24/outline';
+import { 
+  HomeIcon, 
+  InboxIcon, 
+  TagIcon, 
+  ChartBarIcon, 
+  ArrowPathIcon, 
+  TrashIcon, 
+  EnvelopeIcon, 
+  EnvelopeOpenIcon,
+  StarIcon,
+  UserGroupIcon,
+  BellAlertIcon,
+  MegaphoneIcon
+} from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { getEmails, type Email, triggerEmailSync } from '@/lib/api';
@@ -16,13 +29,26 @@ type NavItem = {
 };
 
 const baseNavigation: NavItem[] = [
+  // Main Views
   { name: 'Dashboard', href: '/', icon: HomeIcon, type: 'link' },
   { name: 'All Emails', href: '/emails', icon: InboxIcon, type: 'link' },
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon, type: 'link' },
+  
+  // Email Status
   { type: 'divider', name: 'Status' },
   { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link' },
   { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link' },
-  { name: 'Important', href: '/emails?label=IMPORTANT', icon: TagIcon, type: 'link' },
+  
+  // Email Categories
+  { type: 'divider', name: 'Categories' },
+  { name: 'Primary', href: '/emails?category=primary', icon: InboxIcon, type: 'link' },
+  { name: 'Important', href: '/emails?label=IMPORTANT', icon: StarIcon, type: 'link' },
+  { name: 'Social', href: '/emails?category=social', icon: UserGroupIcon, type: 'link' },
+  { name: 'Promotional', href: '/emails?category=promotional', icon: MegaphoneIcon, type: 'link' },
+  { name: 'Updates', href: '/emails?category=updates', icon: BellAlertIcon, type: 'link' },
+  
+  // Storage Locations
+  { type: 'divider', name: 'Storage' },
   { name: 'Archive', href: '/emails?category=archive', icon: ArrowPathIcon, type: 'link' },
   { name: 'Trash', href: '/emails/deleted', icon: TrashIcon, type: 'link' },
 ];
@@ -146,15 +172,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   // Create navigation items with base items and categories
   const navigation: NavItem[] = [
     ...baseNavigation,
-    // Add a divider for categories if there are any
-    ...(categories.length > 0 ? [{ type: 'divider' as const, name: 'Categories' }] : []),
-    // Add the categories
-    ...categories.map(category => ({
-      name: category.charAt(0).toUpperCase() + category.slice(1),
-      href: `/emails?category=${category.toLowerCase()}`,
-      icon: TagIcon,
-      type: 'category' as const
-    }))
+    // We'll only add dynamic categories that aren't already in our predefined list
+    ...(categories.length > 0 
+      ? categories
+          .filter(category => !['primary', 'important', 'social', 'promotional', 'updates', 'archive', 'trash'].includes(category.toLowerCase()))
+          .map(category => ({
+            name: category.charAt(0).toUpperCase() + category.slice(1),
+            href: `/emails?category=${category.toLowerCase()}`,
+            icon: TagIcon,
+            type: 'category' as const
+          }))
+      : [])
   ];
 
   return (

@@ -927,7 +927,9 @@ async def archive_email(
         if 'INBOX' in current_labels:
             current_labels.remove('INBOX')
             email.labels = list(current_labels)
-            logger.info(f"[API] Removed INBOX label from email {email_id}")
+            # Update the category to 'archive' since INBOX label is removed
+            email.category = 'archive'
+            logger.info(f"[API] Removed INBOX label from email {email_id} and set category to 'archive'")
         else:
             logger.info(f"[API] Email {email_id} is already archived (no INBOX label)")
             return {"status": "success", "message": "Email is already archived", "labels": email.labels}
@@ -952,7 +954,8 @@ async def archive_email(
         return {
             "status": "success",
             "message": "Email archived successfully",
-            "labels": email.labels
+            "labels": email.labels,
+            "category": email.category
         }
     except Exception as e:
         db.rollback()
