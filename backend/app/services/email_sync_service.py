@@ -167,13 +167,15 @@ def categorize_email_from_labels(labels: List[str]) -> str:
         labels: List of Gmail labels
         
     Returns:
-        Category name (primary, social, promotions, updates, forums, personal, trash)
+        Category name (primary, social, promotions, updates, forums, personal, important, archive, trash)
     """
     if not labels:
         return 'primary'
     
     if 'TRASH' in labels:
         return 'trash'
+    elif 'IMPORTANT' in labels:
+        return 'important'
     elif 'CATEGORY_PROMOTIONS' in labels:
         return 'promotions'
     elif 'CATEGORY_SOCIAL' in labels:
@@ -184,6 +186,9 @@ def categorize_email_from_labels(labels: List[str]) -> str:
         return 'forums'
     elif 'CATEGORY_PERSONAL' in labels:
         return 'personal'
+    elif 'INBOX' not in labels:
+        # If email doesn't have INBOX label, it's archived
+        return 'archive'
     else:
         return 'primary'
 

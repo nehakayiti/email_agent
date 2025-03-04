@@ -110,6 +110,9 @@ export interface EmailsParams {
     limit?: number;
     page?: number;
     status?: 'read' | 'unread';
+    label?: string;
+    showAll?: boolean;
+    read_status?: boolean;
 }
 
 export async function getEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
@@ -133,6 +136,18 @@ export async function getEmails(params: EmailsParams = {}): Promise<EmailsRespon
     
     if (params.status) {
         queryParams.append('status', params.status);
+    }
+    
+    if (params.read_status !== undefined) {
+        queryParams.append('read_status', params.read_status.toString());
+    }
+    
+    if (params.label) {
+        queryParams.append('label', params.label);
+    }
+    
+    if (params.showAll) {
+        queryParams.append('show_all', 'true');
     }
     
     const queryString = queryParams.toString();

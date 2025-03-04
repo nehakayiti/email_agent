@@ -117,7 +117,11 @@ def categorize_email(email_data: Dict[str, Any]) -> str:
     """
     labels = email_data.get('labels', [])
     
-    if 'CATEGORY_PROMOTIONS' in labels:
+    if 'TRASH' in labels:
+        return 'trash'
+    elif 'IMPORTANT' in labels:
+        return 'important'
+    elif 'CATEGORY_PROMOTIONS' in labels:
         return 'promotional'
     elif 'CATEGORY_SOCIAL' in labels:
         return 'social'
@@ -125,6 +129,11 @@ def categorize_email(email_data: Dict[str, Any]) -> str:
         return 'updates'
     elif 'CATEGORY_FORUMS' in labels:
         return 'forums'
+    elif 'CATEGORY_PERSONAL' in labels:
+        return 'personal'
+    elif 'INBOX' not in labels:
+        # If email doesn't have INBOX label, it's archived
+        return 'archive'
     else:
         return 'primary'
 

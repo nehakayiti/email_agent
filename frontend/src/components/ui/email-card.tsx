@@ -17,6 +17,8 @@ function getPrimaryDisplayLabel(labels: string[]): string | null {
     'CATEGORY_SOCIAL',
     'CATEGORY_PROMOTIONS',
     'CATEGORY_FORUMS',
+    'IMPORTANT',
+    'ARCHIVE',
     'TRASH'
   ];
   

@@ -353,6 +353,7 @@ async def get_emails(
     date_from: datetime = None,
     date_to: datetime = None,
     update_read_status: bool = False,
+    show_all: bool = False,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -373,6 +374,7 @@ async def get_emails(
     - date_from: Filter emails received after this date
     - date_to: Filter emails received before this date
     - update_read_status: Whether to mark returned emails as read
+    - show_all: Whether to include all emails (including Trash and Archive)
     
     Returns paginated results with metadata
     """
@@ -387,7 +389,11 @@ async def get_emails(
     query_obj = db.query(Email).filter(Email.user_id == current_user.id)
     
     # Don't show emails in trash by default unless explicitly asked for trash category
-    if category and category.lower() == 'trash':
+    # or show_all is true
+    if show_all:
+        # Include all emails when show_all is true
+        pass
+    elif category and category.lower() == 'trash':
         query_obj = query_obj.filter(Email.labels.contains(['TRASH']))
     else:
         query_obj = query_obj.filter(~Email.labels.contains(['TRASH']))

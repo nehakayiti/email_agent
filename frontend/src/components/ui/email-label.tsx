@@ -13,6 +13,8 @@ export function getDisplayLabel(label: string): string {
     'INBOX': 'Inbox',
     'UNREAD': 'Unread',
     'TRASH': 'Trash',
+    'IMPORTANT': 'Important',
+    'ARCHIVE': 'Archive',
     'CATEGORY_UPDATES': 'Updates',
     'CATEGORY_SOCIAL': 'Social',
     'CATEGORY_PROMOTIONS': 'Promotions',
@@ -35,6 +37,10 @@ export function getLabelStyle(label: string): string {
       return 'bg-yellow-100 text-yellow-700';
     case 'TRASH':
       return 'bg-red-100 text-red-700';
+    case 'IMPORTANT':
+      return 'bg-amber-100 text-amber-700';
+    case 'ARCHIVE':
+      return 'bg-gray-100 text-gray-700';
     case 'CATEGORY_UPDATES':
     case 'UPDATES':
       return 'bg-purple-100 text-purple-700';

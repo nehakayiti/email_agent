@@ -20,6 +20,8 @@ function decodeBase64Url(str: string): string {
 function normalizeCategory(cat: string | undefined): string {
     if (!cat) return 'primary';
     if (cat.toLowerCase() === 'promotional') return 'promotions';
+    if (cat.toLowerCase() === 'important') return 'important';
+    if (cat.toLowerCase() === 'archive') return 'archive';
     return cat.toLowerCase(); 
   }
 
@@ -74,6 +76,8 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
     'Updates',
     'Forums',
     'Personal',
+    'Important',
+    'Archive',
     'Trash'
   ];
 

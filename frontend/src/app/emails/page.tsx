@@ -26,6 +26,8 @@ export default function EmailsPage() {
     const categoryParam = searchParams.get('category');
     // Get status from URL parameters
     const statusParam = searchParams.get('status');
+    // Get label from URL parameters
+    const labelParam = searchParams.get('label');
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
@@ -52,14 +54,26 @@ export default function EmailsPage() {
                 limit: 20,
             };
             
+            // If no specific filters are applied, show all emails
+            const isAllEmailsView = !categoryParam && !statusParam && !labelParam;
+            
+            if (isAllEmailsView) {
+                params.showAll = true;
+            }
+            
             if (categoryParam) {
                 params.category = categoryParam;
             }
 
             if (statusParam) {
                 if (statusParam === 'read' || statusParam === 'unread') {
-                    params.status = statusParam;
+                    // Convert status string to boolean read_status
+                    params.read_status = statusParam === 'read';
                 }
+            }
+            
+            if (labelParam) {
+                params.label = labelParam;
             }
             
             const response = await getEmails(params);
@@ -95,7 +109,7 @@ export default function EmailsPage() {
             setLoading(false);
             setLoadingMore(false);
         }
-    }, [categoryParam, statusParam, router]);
+    }, [categoryParam, statusParam, labelParam, router]);
 
     // Initial data load
     useEffect(() => {
@@ -104,7 +118,7 @@ export default function EmailsPage() {
         setHasMore(true);
         setInitialLoadComplete(false);
         fetchEmails(1, true);
-    }, [fetchEmails, categoryParam, statusParam]);
+    }, [fetchEmails, categoryParam, statusParam, labelParam]);
 
     // Listen for email sync completion event
     useEffect(() => {
