@@ -46,6 +46,7 @@ const baseNavigation: NavItem[] = [
   { name: 'Social', href: '/emails?category=social', icon: UserGroupIcon, type: 'link' },
   { name: 'Promotional', href: '/emails?category=promotional', icon: MegaphoneIcon, type: 'link' },
   { name: 'Updates', href: '/emails?category=updates', icon: BellAlertIcon, type: 'link' },
+  { name: 'Personal', href: '/emails?category=personal', icon: TagIcon, type: 'link' },
   
   // Storage Locations
   { type: 'divider', name: 'Storage' },
@@ -175,7 +176,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     // We'll only add dynamic categories that aren't already in our predefined list
     ...(categories.length > 0 
       ? categories
-          .filter(category => !['primary', 'important', 'social', 'promotional', 'updates', 'archive', 'trash'].includes(category.toLowerCase()))
+          .filter(category => !['primary', 'important', 'social', 'promotional', 'updates', 'archive', 'trash', 'personal'].includes(category.toLowerCase()))
           .map(category => ({
             name: category.charAt(0).toUpperCase() + category.slice(1),
             href: `/emails?category=${category.toLowerCase()}`,
@@ -195,11 +196,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <span className="text-lg font-semibold text-gray-900">EmailAgent</span>
           </Link>
         </div>
-        <nav className="mt-6 px-3">
+        <nav className="mt-5 px-3">
           {navigation.map((item) => {
             if (item.type === 'divider') {
               return (
-                <div key={item.name} className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                <div key={item.name} className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                   {item.name}
                 </div>
               );
@@ -216,14 +217,14 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               <Link
                 key={item.name}
                 href={item.href}
-                className={`group flex items-center px-3 py-2 my-1 text-sm font-medium rounded-lg ${
+                className={`group flex items-center px-2.5 py-2 my-0.5 text-sm font-medium rounded-lg ${
                   isActive
                     ? 'bg-indigo-50 text-indigo-600'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
               >
                 <item.icon
-                  className={`mr-3 h-6 w-6 flex-shrink-0 ${
+                  className={`mr-2.5 h-5 w-5 flex-shrink-0 ${
                     isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
                   }`}
                   aria-hidden="true"

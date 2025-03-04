@@ -54,11 +54,13 @@ export default function EmailsPage() {
                 limit: 20,
             };
             
-            // If no specific filters are applied, show all emails
+            // If no specific filters are applied, show all emails EXCEPT trash
             const isAllEmailsView = !categoryParam && !statusParam && !labelParam;
             
             if (isAllEmailsView) {
-                params.showAll = true;
+                // Instead of setting showAll=true which includes trash,
+                // we don't set any parameter which will use the backend's default
+                // behavior of excluding trash emails
             }
             
             if (categoryParam) {
