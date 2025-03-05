@@ -1,6 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-import { Email, archiveEmail, deleteEmail } from '@/lib/api';
+import { Email, archiveEmail, deleteEmail, updateEmailLabels } from '@/lib/api';
 import { formatRelativeTime } from '@/utils/date-utils';
 import { EmailLabel, mapLabelsToComponents } from '@/components/ui/email-label';
 import { toast } from 'react-hot-toast';
@@ -136,6 +136,90 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     }
   };
 
+  // Handle mark as read action
+  const handleMarkAsRead = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Skip if already read
+    if (email.is_read) {
+      return;
+    }
+    
+    try {
+      const toastId = showLoadingToast('Marking as read...');
+      
+      const response = await updateEmailLabels(email.id, [], ['UNREAD']);
+      
+      toast.dismiss(toastId);
+      
+      if (response.status === 'success') {
+        showSuccessToast('Email marked as read');
+        
+        // Update the email object with new read status
+        const updatedEmail = {
+          ...email,
+          is_read: true,
+          labels: response.labels || email.labels,
+        };
+        
+        // Call onLabelsUpdated to update the parent component
+        if (onLabelsUpdated) {
+          onLabelsUpdated(updatedEmail);
+        }
+      } else {
+        showErrorToast(response.message || 'Failed to mark email as read');
+      }
+    } catch (error) {
+      dismissAllToasts();
+      const errorMessage = error instanceof Error ? error.message : 'Error marking email as read';
+      showErrorToast(errorMessage);
+      console.error('Error marking email as read:', error);
+    }
+  };
+
+  // Handle mark as unread action
+  const handleMarkAsUnread = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Skip if already unread
+    if (!email.is_read) {
+      return;
+    }
+    
+    try {
+      const toastId = showLoadingToast('Marking as unread...');
+      
+      const response = await updateEmailLabels(email.id, ['UNREAD'], []);
+      
+      toast.dismiss(toastId);
+      
+      if (response.status === 'success') {
+        showSuccessToast('Email marked as unread');
+        
+        // Update the email object with new read status
+        const updatedEmail = {
+          ...email,
+          is_read: false,
+          labels: response.labels || email.labels,
+        };
+        
+        // Call onLabelsUpdated to update the parent component
+        if (onLabelsUpdated) {
+          onLabelsUpdated(updatedEmail);
+        }
+      } else {
+        showErrorToast(response.message || 'Failed to mark email as unread');
+      }
+    } catch (error) {
+      dismissAllToasts();
+      const errorMessage = error instanceof Error ? error.message : 'Error marking email as unread';
+      showErrorToast(errorMessage);
+      console.error('Error marking email as unread:', error);
+    }
+  };
+
   // Create the container div element
   const containerClasses = `
     ${!email.is_read 
@@ -166,6 +250,29 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
         </div>
         
         <div className="flex space-x-2">
+          {/* Mark as Read/Unread button */}
+          {email.is_read ? (
+            <button
+              onClick={handleMarkAsUnread}
+              className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+              title="Mark as unread"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={handleMarkAsRead}
+              className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
+              title="Mark as read"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19h18M3 14h18M3 9h18M3 4h18" />
+              </svg>
+            </button>
+          )}
+          
           <button
             onClick={handleArchive}
             className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
