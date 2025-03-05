@@ -3,6 +3,7 @@ import React from 'react';
 interface EmailLabelProps {
   label: string;
   className?: string;
+  variant?: 'default' | 'compact';
 }
 
 /**
@@ -13,7 +14,7 @@ export function getDisplayLabel(label: string): string {
     'INBOX': 'Inbox',
     'UNREAD': 'Unread',
     'TRASH': 'Trash',
-    'IMPORTANT': 'Important',
+    'IMPORTANT': '★',
     'ARCHIVE': 'Archive',
     'CATEGORY_UPDATES': 'Updates',
     'CATEGORY_SOCIAL': 'Social',
@@ -32,44 +33,56 @@ export function getLabelStyle(label: string): string {
   // Define different background and text colors for different labels
   switch (label.toUpperCase()) {
     case 'INBOX':
-      return 'bg-blue-100 text-blue-700';
+      return 'bg-blue-100 text-blue-800 border border-blue-200';
     case 'UNREAD':
-      return 'bg-yellow-100 text-yellow-700';
+      return 'bg-yellow-100 text-yellow-800 border border-yellow-200';
     case 'TRASH':
-      return 'bg-red-100 text-red-700';
+      return 'bg-red-100 text-red-800 border border-red-200';
     case 'IMPORTANT':
-      return 'bg-amber-100 text-amber-700';
+      return 'bg-amber-100 text-amber-800 border border-amber-200';
     case 'ARCHIVE':
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-gray-100 text-gray-800 border border-gray-200';
     case 'CATEGORY_UPDATES':
-    case 'UPDATES':
-      return 'bg-purple-100 text-purple-700';
+      return 'bg-purple-100 text-purple-800 border border-purple-200';
     case 'CATEGORY_SOCIAL':
-    case 'SOCIAL':
-      return 'bg-green-100 text-green-700';
+      return 'bg-green-100 text-green-800 border border-green-200';
     case 'CATEGORY_PROMOTIONS':
-    case 'PROMOTIONS':
-      return 'bg-orange-100 text-orange-700';
+      return 'bg-orange-100 text-orange-800 border border-orange-200';
     case 'CATEGORY_PERSONAL':
-    case 'PERSONAL':
-      return 'bg-indigo-100 text-indigo-700';
+      return 'bg-indigo-100 text-indigo-800 border border-indigo-200';
     case 'CATEGORY_FORUMS':
-    case 'FORUMS':
-      return 'bg-teal-100 text-teal-700';
+      return 'bg-teal-100 text-teal-800 border border-teal-200';
+    case 'PRIMARY':
+      return 'bg-blue-100 text-blue-800 border border-blue-200';
     default:
-      return 'bg-gray-100 text-gray-700';
+      return 'bg-gray-100 text-gray-800 border border-gray-200';
   }
 }
 
 /**
  * Email label component that displays a user-friendly label with appropriate styling
  */
-export function EmailLabel({ label, className = '' }: EmailLabelProps) {
+export function EmailLabel({ label, className = '', variant = 'default' }: EmailLabelProps) {
   const displayLabel = getDisplayLabel(label);
   const style = getLabelStyle(label);
+  const isImportant = label.toUpperCase() === 'IMPORTANT';
+  
+  // For important label, show just the star
+  if (isImportant) {
+    return (
+      <span className={`inline-flex items-center text-amber-500 ${className}`} title="Important">
+        {displayLabel}
+      </span>
+    );
+  }
+  
+  // For compact variant, use smaller padding
+  const baseClasses = variant === 'compact' 
+    ? 'px-2 py-0.5 text-xs font-medium rounded-full'
+    : 'px-2.5 py-0.5 text-xs font-medium rounded-full';
   
   return (
-    <span className={`px-2 py-0.5 rounded-md text-xs ${style} ${className}`}>
+    <span className={`${baseClasses} ${style} ${className}`}>
       {displayLabel}
     </span>
   );
@@ -78,15 +91,35 @@ export function EmailLabel({ label, className = '' }: EmailLabelProps) {
 /**
  * Filters and maps raw Gmail labels to display-friendly EmailLabel components
  */
-export function mapLabelsToComponents(labels: string[], showSystem = false): React.ReactNode[] {
+export function mapLabelsToComponents(
+  labels: string[], 
+  options: { 
+    showSystem?: boolean;
+    variant?: 'default' | 'compact';
+  } = {}
+): React.ReactNode[] {
+  const { showSystem = false, variant = 'default' } = options;
+  
   if (!labels || labels.length === 0) return [];
   
-  // System labels that shouldn't be displayed by default
+  // System labels that shouldn't be displayed
   const systemLabels = ['EA_NEEDS_LABEL_UPDATE', 'SENT', 'DRAFT'];
   
-  return labels
-    .filter(label => showSystem || !systemLabels.includes(label))
+  // Important label should always be first if present
+  const sortedLabels = [...labels].sort((a, b) => {
+    if (a === 'IMPORTANT') return -1;
+    if (b === 'IMPORTANT') return 1;
+    return 0;
+  });
+  
+  return sortedLabels
+    .filter(label => {
+      if (!showSystem && systemLabels.includes(label)) return false;
+      // Don't show category labels here since they're handled separately
+      if (label.startsWith('CATEGORY_') || label === 'PRIMARY') return false;
+      return true;
+    })
     .map(label => (
-      <EmailLabel key={label} label={label} />
+      <EmailLabel key={label} label={label} variant={variant} />
     ));
 } 

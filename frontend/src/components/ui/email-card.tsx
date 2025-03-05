@@ -37,6 +37,33 @@ function getPrimaryDisplayLabel(labels: string[]): string | null {
   return null;
 }
 
+// Get category display info
+function getCategoryDisplayInfo(category: string): { label: string; color: string } | null {
+  const categoryMap: Record<string, { label: string; color: string }> = {
+    'CATEGORY_PERSONAL': { label: 'Personal', color: 'bg-indigo-100 text-indigo-800 border border-indigo-200' },
+    'CATEGORY_UPDATES': { label: 'Updates', color: 'bg-purple-100 text-purple-800 border border-purple-200' },
+    'CATEGORY_SOCIAL': { label: 'Social', color: 'bg-green-100 text-green-800 border border-green-200' },
+    'CATEGORY_PROMOTIONS': { label: 'Promotions', color: 'bg-orange-100 text-orange-800 border border-orange-200' },
+    'CATEGORY_FORUMS': { label: 'Forums', color: 'bg-teal-100 text-teal-800 border border-teal-200' },
+    'PRIMARY': { label: 'Primary', color: 'bg-blue-100 text-blue-800 border border-blue-200' },
+  };
+
+  return categoryMap[category] || null;
+}
+
+// Separate labels into categories and regular labels
+function separateLabels(labels: string[]): { categories: string[]; regularLabels: string[] } {
+  const categories = labels.filter(label => label.startsWith('CATEGORY_') || label === 'PRIMARY');
+  const regularLabels = labels.filter(label => 
+    !label.startsWith('CATEGORY_') && 
+    !label.startsWith('EA_') && 
+    label !== 'PRIMARY' &&
+    !['SENT', 'DRAFT'].includes(label)
+  );
+  
+  return { categories, regularLabels };
+}
+
 interface EmailCardProps {
   email: Email;
   onClick?: () => void;
@@ -49,9 +76,12 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
   const filteredLabels = React.useMemo(() => {
     if (!email.labels || email.labels.length === 0) return [];
     
-    // Filter out system labels
+    // Filter out system labels and category labels (we'll show categories separately)
     const systemLabels = ['EA_NEEDS_LABEL_UPDATE', 'SENT', 'DRAFT'];
-    const visibleLabels = email.labels.filter(label => !systemLabels.includes(label));
+    const visibleLabels = email.labels.filter(label => 
+      !systemLabels.includes(label) && 
+      !label.startsWith('CATEGORY_')
+    );
     
     // If this email has TRASH label, don't display INBOX label
     if (visibleLabels.includes('TRASH')) {
@@ -60,6 +90,22 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     
     return visibleLabels;
   }, [email.labels]);
+
+  // Get category display info
+  const categoryInfo = React.useMemo(() => {
+    const categoryMap: Record<string, { label: string; color: string }> = {
+      'primary': { label: 'Primary', color: 'bg-blue-50 text-blue-700' },
+      'social': { label: 'Social', color: 'bg-purple-50 text-purple-700' },
+      'promotions': { label: 'Promo', color: 'bg-green-50 text-green-700' },
+      'updates': { label: 'Updates', color: 'bg-yellow-50 text-yellow-700' },
+      'forums': { label: 'Forums', color: 'bg-orange-50 text-orange-700' },
+      'personal': { label: 'Personal', color: 'bg-pink-50 text-pink-700' },
+      'archive': { label: 'Archive', color: 'bg-gray-50 text-gray-700' },
+      'trash': { label: 'Trash', color: 'bg-red-50 text-red-700' },
+    };
+
+    return categoryMap[email.category?.toLowerCase()] || { label: 'Other', color: 'bg-gray-50 text-gray-700' };
+  }, [email.category]);
 
   // Handle archive action
   const handleArchive = async (e: React.MouseEvent) => {
@@ -295,11 +341,30 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
         </div>
       </div>
       
-      {/* Display all labels */}
-      <div className="flex flex-wrap gap-1 mb-2">
-        {filteredLabels.length > 0 ? (
-          mapLabelsToComponents(filteredLabels)
-        ) : null}
+      {/* Display labels */}
+      <div className="flex justify-between items-center gap-2 mb-2">
+        {/* Left side - Labels */}
+        <div className="flex flex-wrap items-center gap-1 min-w-0">
+          {mapLabelsToComponents(separateLabels(email.labels || []).regularLabels, { variant: 'compact' })}
+        </div>
+        
+        {/* Right side - Categories */}
+        <div className="flex flex-wrap items-center gap-1 ml-auto">
+          {separateLabels(email.labels || []).categories.map(category => {
+            const categoryInfo = getCategoryDisplayInfo(category);
+            if (categoryInfo) {
+              return (
+                <span 
+                  key={category}
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${categoryInfo.color}`}
+                >
+                  {categoryInfo.label}
+                </span>
+              );
+            }
+            return null;
+          })}
+        </div>
       </div>
       
       <div className={`text-sm line-clamp-2 ${!email.is_read ? 'text-gray-700' : 'text-gray-500'}`}>
