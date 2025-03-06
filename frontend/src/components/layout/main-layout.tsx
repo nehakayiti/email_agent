@@ -40,7 +40,8 @@ const baseNavigation: NavItem[] = [
   { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link' },
   
   // Email Categories
-  { type: 'divider', name: 'Categories' },
+  { type: 'divider', name: 'CATEGORIES' },
+  { name: 'Manage Categories', href: '/categories', icon: TagIcon, type: 'link' },
   { name: 'Primary', href: '/emails?category=primary', icon: InboxIcon, type: 'link' },
   { name: 'Important', href: '/emails?label=IMPORTANT', icon: StarIcon, type: 'link' },
   { name: 'Social', href: '/emails?category=social', icon: UserGroupIcon, type: 'link' },
@@ -98,7 +99,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     // Only fetch categories if we're on a protected route
     // and we haven't encountered an auth error yet
-    if (!isAuthError && !pathname.includes('/auth')) {
+    if (!isAuthError && pathname && !pathname.includes('/auth')) {
       fetchCategories();
     }
   }, [fetchCategories, isAuthError, pathname]);
@@ -209,7 +210,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             if (!item.href || !item.icon) return null;
 
             const isActive = pathname === item.href || 
-              (pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
+              (pathname && item.href && pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
                 new URLSearchParams(item.href.split('?')[1]).get('category') === 
                 new URLSearchParams(pathname.split('?')[1]).get('category'));
             

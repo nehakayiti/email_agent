@@ -342,16 +342,16 @@ async def stop_push_notifications(
 async def get_emails(
     page: int = 1,
     limit: int = 20,
-    folder: str = None,
-    important: bool = None,
-    read_status: bool = None,
+    folder: Optional[str] = None,
+    important: Optional[bool] = None,
+    read_status: Optional[bool] = None,
     sort_by: str = "received_at",
     sort_order: str = "desc",
-    query: str = None,
-    label: str = None,
-    category: str = None,
-    date_from: datetime = None,
-    date_to: datetime = None,
+    query: Optional[str] = None,
+    label: Optional[str] = None,
+    category: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     update_read_status: bool = False,
     show_all: bool = False,
     db: Session = Depends(get_db),
@@ -371,8 +371,8 @@ async def get_emails(
     - query: Search query for subject and snippet
     - label: Filter by specific label
     - category: Filter emails by category
-    - date_from: Filter emails received after this date
-    - date_to: Filter emails received before this date
+    - date_from: Filter emails received after this date (ISO format: YYYY-MM-DD)
+    - date_to: Filter emails received before this date (ISO format: YYYY-MM-DD)
     - update_read_status: Whether to mark returned emails as read
     - show_all: Whether to include all emails (including Trash and Archive)
     
@@ -384,9 +384,32 @@ async def get_emails(
     
     if page <= 0:
         page = 1
+        
+    # Parse date parameters if provided
+    parsed_date_from = None
+    parsed_date_to = None
+    
+    if date_from:
+        try:
+            parsed_date_from = datetime.fromisoformat(date_from.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid date_from format: {date_from}")
+    
+    if date_to:
+        try:
+            parsed_date_to = datetime.fromisoformat(date_to.replace('Z', '+00:00'))
+        except (ValueError, TypeError):
+            logger.warning(f"Invalid date_to format: {date_to}")
     
     # Build the query
     query_obj = db.query(Email).filter(Email.user_id == current_user.id)
+    
+    # Apply date filters if parsed successfully
+    if parsed_date_from:
+        query_obj = query_obj.filter(Email.received_at >= parsed_date_from)
+    
+    if parsed_date_to:
+        query_obj = query_obj.filter(Email.received_at <= parsed_date_to)
     
     # Don't show emails in trash by default unless explicitly asked for trash category
     # or show_all is true
@@ -419,12 +442,6 @@ async def get_emails(
     
     if category:
         query_obj = query_obj.filter(Email.category == category)
-    
-    if date_from:
-        query_obj = query_obj.filter(Email.received_at >= date_from)
-    
-    if date_to:
-        query_obj = query_obj.filter(Email.received_at <= date_to)
     
     # Get total count for pagination metadata
     total_count = query_obj.count()

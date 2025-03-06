@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import logging
 from sqlalchemy.orm import Session
@@ -6,6 +6,8 @@ from ..models.email import Email
 from ..models.user import User
 from email.utils import parsedate_to_datetime
 import dateutil.parser
+from ..utils.email_categorizer import determine_category
+from uuid import UUID
 
 logger = logging.getLogger(__name__)
 
@@ -63,8 +65,8 @@ def process_and_store_emails(
             else:
                 logger.info(f"[PROCESSOR] Email {gmail_id} is new, creating")
                 # Create new email
-                category = categorize_email(email_data)
-                importance = calculate_importance(email_data)
+                category = categorize_email(email_data, db, user.id)
+                importance = calculate_importance(email_data, db, user.id)
                 
                 logger.info(f"[PROCESSOR] Categorized as '{category}' with importance {importance}")
                 
@@ -105,62 +107,140 @@ def process_and_store_emails(
         
     return processed_emails
 
-def categorize_email(email_data: Dict[str, Any]) -> str:
+def categorize_email(
+    email_data: Dict[str, Any], 
+    db: Session = None, 
+    user_id: Optional[UUID] = None
+) -> str:
     """
-    Categorize email based on Gmail labels and content
+    Categorize email based on Gmail labels, subject content, and sender.
+    
+    This function uses an intelligent categorization system that considers:
+    1. Gmail's built-in labels
+    2. Subject line keyword matching
+    3. Sender domain analysis
+    
+    The categorization is extensible and can be improved over time by:
+    - Adding/updating keywords in email_categories.py
+    - Improving the matching algorithms
+    - Adding user feedback to adjust categorization
+    
+    When database session is provided, it uses dynamic categorization rules
+    from the database that can be customized per user.
     
     Args:
-        email_data: Email data dictionary
+        email_data: Email data dictionary containing subject, labels, etc.
+        db: Optional database session for dynamic rules
+        user_id: Optional user ID for personalized rules
         
     Returns:
         Category string (promotional, social, primary, etc.)
     """
     labels = email_data.get('labels', [])
+    subject = email_data.get('subject', '')
+    from_email = email_data.get('from_email', '')
     
-    if 'TRASH' in labels:
-        return 'trash'
-    elif 'IMPORTANT' in labels:
-        return 'important'
-    elif 'CATEGORY_PROMOTIONS' in labels:
-        return 'promotional'
-    elif 'CATEGORY_SOCIAL' in labels:
-        return 'social'
-    elif 'CATEGORY_UPDATES' in labels:
-        return 'updates'
-    elif 'CATEGORY_FORUMS' in labels:
-        return 'forums'
-    elif 'CATEGORY_PERSONAL' in labels:
-        return 'personal'
-    elif 'INBOX' not in labels:
-        # If email doesn't have INBOX label, it's archived
-        return 'archive'
-    else:
-        return 'primary'
+    gmail_id = email_data.get('gmail_id', 'unknown')
+    
+    logger.info(f"[CATEGORIZER] Categorizing email {gmail_id} with subject '{subject}'")
+    
+    # Use the enhanced categorization system
+    category = determine_category(labels, subject, from_email, db, user_id)
+    
+    logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as '{category}'")
+    return category
 
-def calculate_importance(email_data: Dict[str, Any]) -> int:
+def calculate_importance(
+    email_data: Dict[str, Any],
+    db: Session = None,
+    user_id: Optional[UUID] = None
+) -> int:
     """
     Calculate importance score (0-100) based on various factors
     
+    Factors considered:
+    - Gmail labels (IMPORTANT, etc.)
+    - Email category
+    - Read status
+    - Important keywords in subject
+    - Sender domain/address
+    
     Args:
         email_data: Email data dictionary
+        db: Optional database session for dynamic rules
+        user_id: Optional user ID for personalized importance rules
         
     Returns:
         Importance score integer
     """
     score = 50  # Base score
     
-    # Adjust based on labels
-    if 'IMPORTANT' in email_data.get('labels', []):
+    subject = email_data.get('subject', '')
+    from_email = email_data.get('from_email', '')
+    labels = email_data.get('labels', [])
+    gmail_id = email_data.get('gmail_id', 'unknown')
+    
+    logger.info(f"[IMPORTANCE] Calculating importance for email {gmail_id}")
+    
+    # Adjust based on Gmail labels
+    if 'IMPORTANT' in labels:
         score += 20
-    if 'CATEGORY_PROMOTIONS' in email_data.get('labels', []):
-        score -= 20
+        logger.debug(f"[IMPORTANCE] +20 for IMPORTANT label -> {score}")
         
+    # Category-based adjustments
+    category = email_data.get('category', categorize_email(email_data, db, user_id))
+    
+    category_adjustments = {
+        'important': 25,
+        'personal': 20,
+        'primary': 10,
+        'newsletters': 5,  # Newsletters have moderate importance
+        'updates': 0,
+        'forums': -5,
+        'social': -10,
+        'promotional': -20,
+        'trash': -40,
+        'archive': -15
+    }
+    
+    if category in category_adjustments:
+        adjustment = category_adjustments[category]
+        score += adjustment
+        logger.debug(f"[IMPORTANCE] {adjustment} for category '{category}' -> {score}")
+    
+    # Important keywords in subject (emergency, urgent, etc.)
+    important_keywords = [
+        "urgent", "important", "attention", "priority", "critical", 
+        "required", "action", "deadline", "immediately", "asap",
+        "emergency", "alert", "security", "password", "unauthorized"
+    ]
+    
+    if subject:
+        subject_lower = subject.lower()
+        for keyword in important_keywords:
+            if keyword in subject_lower:
+                score += 15
+                logger.debug(f"[IMPORTANCE] +15 for important keyword '{keyword}' -> {score}")
+                break  # Only apply once for important keywords
+    
     # Adjust based on read status
     if not email_data.get('is_read', True):
         score += 10
-        
+        logger.debug(f"[IMPORTANCE] +10 for unread status -> {score}")
+    
+    # Sender importance (simple heuristic for demo)
+    important_domains = ["boss", "ceo", "manager", "director", "hr", "payroll", "finance"]
+    if from_email:
+        for domain in important_domains:
+            if domain in from_email.lower():
+                score += 15
+                logger.debug(f"[IMPORTANCE] +15 for important sender with '{domain}' -> {score}")
+                break
+    
     # Ensure score stays within bounds
-    return max(0, min(100, score))
+    final_score = max(0, min(100, score))
+    logger.info(f"[IMPORTANCE] Final score for email {gmail_id}: {final_score}")
+    return final_score
 
 def parse_date(date_str: str) -> datetime:
     """
@@ -188,4 +268,120 @@ def parse_date(date_str: str) -> datetime:
         except Exception as e2:
             logger.error(f"[PROCESSOR] Failed to parse date '{date_str}': {str(e2)}")
             # Last resort fallback
-            return datetime.now(timezone.utc) 
+            return datetime.now(timezone.utc)
+
+def reprocess_emails(
+    db: Session,
+    user_id: UUID,
+    filter_criteria: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """
+    Reprocess existing emails with updated categorization rules.
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        filter_criteria: Optional filter criteria to limit which emails are reprocessed
+        
+    Returns:
+        Dictionary with processing statistics
+    """
+    query = db.query(Email).filter(Email.user_id == user_id)
+    
+    # Apply filters if provided
+    if filter_criteria:
+        if 'categories' in filter_criteria:
+            query = query.filter(Email.category.in_(filter_criteria['categories']))
+        if 'date_from' in filter_criteria:
+            query = query.filter(Email.received_at >= filter_criteria['date_from'])
+        if 'date_to' in filter_criteria:
+            query = query.filter(Email.received_at <= filter_criteria['date_to'])
+        if 'search' in filter_criteria:
+            search_term = f"%{filter_criteria['search']}%"
+            query = query.filter(
+                (Email.subject.ilike(search_term)) | 
+                (Email.from_email.ilike(search_term)) |
+                (Email.snippet.ilike(search_term))
+            )
+    
+    # Count total emails to process
+    total_emails = query.count()
+    
+    if total_emails == 0:
+        return {
+            "total": 0,
+            "processed": 0,
+            "category_changes": {},
+            "importance_changes": 0
+        }
+    
+    logger.info(f"[REPROCESSOR] Reprocessing {total_emails} emails for user {user_id}")
+    
+    # Process in reasonable sized batches
+    batch_size = 100
+    processed_count = 0
+    category_changes = {}  # Track how many emails changed categories
+    importance_changes = 0  # Track how many emails had importance changes
+    
+    # Get user for the logging
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise ValueError(f"User with ID {user_id} not found")
+    
+    for offset in range(0, total_emails, batch_size):
+        batch = query.limit(batch_size).offset(offset).all()
+        
+        for email in batch:
+            # Create email_data dict from email model
+            email_data = {
+                'gmail_id': email.gmail_id,
+                'subject': email.subject,
+                'from_email': email.from_email,
+                'labels': email.labels,
+                'is_read': email.is_read,
+                'snippet': email.snippet
+            }
+            
+            # Store original values
+            original_category = email.category
+            original_importance = email.importance_score
+            
+            # Recategorize and recalculate importance
+            new_category = categorize_email(email_data, db, user_id)
+            new_importance = calculate_importance(email_data, db, user_id)
+            
+            # Track changes
+            if new_category != original_category:
+                email.category = new_category
+                
+                # Update category change counts
+                change_key = f"{original_category} -> {new_category}"
+                category_changes[change_key] = category_changes.get(change_key, 0) + 1
+                
+                logger.info(f"[REPROCESSOR] Email {email.gmail_id} category changed: {original_category} -> {new_category}")
+            
+            if new_importance != original_importance:
+                email.importance_score = new_importance
+                importance_changes += 1
+                
+                logger.info(f"[REPROCESSOR] Email {email.gmail_id} importance changed: {original_importance} -> {new_importance}")
+            
+            processed_count += 1
+            
+            # Log progress every 100 emails
+            if processed_count % 100 == 0:
+                logger.info(f"[REPROCESSOR] Processed {processed_count}/{total_emails} emails")
+        
+        # Commit each batch
+        db.commit()
+    
+    logger.info(f"[REPROCESSOR] Completed reprocessing {processed_count} emails for user {user_id}")
+    logger.info(f"[REPROCESSOR] Category changes: {category_changes}")
+    logger.info(f"[REPROCESSOR] Importance changes: {importance_changes}")
+    
+    return {
+        "total": total_emails,
+        "processed": processed_count,
+        "category_changes": category_changes,
+        "importance_changes": importance_changes
+    } 

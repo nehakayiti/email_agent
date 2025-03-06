@@ -496,4 +496,66 @@ export async function deleteEmail(emailId: string): Promise<{
     console.error('Error deleting email:', error);
     throw error;
   }
+}
+
+// Category management API functions
+export interface Category {
+  id: number;
+  name: string;
+  display_name: string;
+  description: string | null;
+  priority: number;
+  is_system: boolean;
+  keyword_count: number;
+  sender_rule_count: number;
+}
+
+interface CategoriesResponse {
+  data: Category[];
+}
+
+export async function getCategoriesApi(): Promise<CategoriesResponse> {
+  const data = await fetchWithAuth<Category[]>('/email-management/categories');
+  return { data };
+}
+
+export async function initializeCategories(): Promise<any> {
+  return fetchWithAuth('/email-management/initialize-categories', {
+    method: 'POST'
+  });
+}
+
+export async function addKeyword(categoryName: string, keyword: string): Promise<any> {
+  return fetchWithAuth('/email-management/keywords', {
+    method: 'POST',
+    body: JSON.stringify({
+      category_name: categoryName,
+      keyword
+    })
+  });
+}
+
+export async function addSenderRule(categoryName: string, pattern: string, isDomain: boolean = true): Promise<any> {
+  return fetchWithAuth('/email-management/sender-rules', {
+    method: 'POST',
+    body: JSON.stringify({
+      category_name: categoryName,
+      pattern,
+      is_domain: isDomain
+    })
+  });
+}
+
+export interface CreateCategoryRequest {
+  name: string;
+  display_name: string;
+  description?: string;
+  priority?: number;
+}
+
+export async function createCategory(data: CreateCategoryRequest): Promise<Category> {
+  return fetchWithAuth('/email-management/categories', {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
 } 

@@ -1,16 +1,15 @@
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import get_settings
-# Import routers directly rather than through __init__.py to avoid circular imports
-from .routers.auth import router as auth_router
-from .routers.emails import router as emails_router
-from .routers.analytics import router as analytics_router
+# Import routers from __init__.py
+from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router
 from .db import engine, Base
 # Import models to ensure they're registered with SQLAlchemy
 from .models.user import User
 from .models.email import Email
 from .models.email_sync import EmailSync
+from .models.email_category import EmailCategory, CategoryKeyword, SenderRule
 
 # Configure logging before anything else
 logging.basicConfig(
@@ -86,17 +85,10 @@ async def root():
     }
 
 # Include routers with explicit prefixes and tags
-app.include_router(
-    auth_router,
-    prefix="/auth",
-    tags=["auth"]
-)
-
-app.include_router(
-    emails_router,
-    prefix="/emails",
-    tags=["emails"]
-)
+app.include_router(auth_router, prefix="/auth", tags=["auth"])
+app.include_router(users_router, prefix="/users", tags=["users"])
+app.include_router(emails_router, prefix="/emails", tags=["emails"])
+app.include_router(email_management_router)
 
 # Add analytics router with explicit prefix and tags
 app.include_router(
