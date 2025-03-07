@@ -8,11 +8,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from ..models.email_category import EmailCategory, CategoryKeyword, SenderRule
 from ..models.user import User
-from ..constants.email_categories import (
-    CATEGORY_KEYWORDS,
-    SENDER_DOMAINS,
-    CATEGORY_PRIORITY
-)
 from datetime import datetime
 import json
 
@@ -29,67 +24,81 @@ def initialize_system_categories(db: Session) -> List[EmailCategory]:
     Returns:
         List of created category instances
     """
+    # Default category priorities - if needed, can be moved to a database configuration
+    default_priorities = {
+        "important": 1,
+        "personal": 2,
+        "primary": 3,
+        "newsletters": 4,
+        "updates": 5,
+        "forums": 6,
+        "social": 7,
+        "promotional": 8,
+        "trash": 9,
+        "archive": 10
+    }
+    
     # Define system categories with display names
     system_categories = [
         {
             "name": "important",
             "display_name": "Important",
             "description": "High-priority and time-sensitive emails",
-            "priority": CATEGORY_PRIORITY.get("important", 1)
+            "priority": default_priorities.get("important", 1)
         },
         {
             "name": "personal",
             "display_name": "Personal",
             "description": "Emails from personal contacts",
-            "priority": CATEGORY_PRIORITY.get("personal", 2)
+            "priority": default_priorities.get("personal", 2)
         },
         {
             "name": "primary",
             "display_name": "Primary",
             "description": "Default primary inbox emails",
-            "priority": CATEGORY_PRIORITY.get("primary", 3)
+            "priority": default_priorities.get("primary", 3)
         },
         {
             "name": "newsletters",
             "display_name": "Newsletters",
             "description": "News, periodicals, and subscription digests",
-            "priority": CATEGORY_PRIORITY.get("newsletters", 4)
+            "priority": default_priorities.get("newsletters", 4)
         },
         {
             "name": "updates",
             "display_name": "Updates",
             "description": "Updates and notifications from services",
-            "priority": CATEGORY_PRIORITY.get("updates", 5)
+            "priority": default_priorities.get("updates", 5)
         },
         {
             "name": "forums",
             "display_name": "Forums",
             "description": "Forum posts and discussions",
-            "priority": CATEGORY_PRIORITY.get("forums", 6)
+            "priority": default_priorities.get("forums", 6)
         },
         {
             "name": "social",
             "display_name": "Social",
             "description": "Messages from social networks",
-            "priority": CATEGORY_PRIORITY.get("social", 7)
+            "priority": default_priorities.get("social", 7)
         },
         {
             "name": "promotional",
             "display_name": "Promotional",
             "description": "Promotions, marketing, and deals",
-            "priority": CATEGORY_PRIORITY.get("promotional", 8)
+            "priority": default_priorities.get("promotional", 8)
         },
         {
             "name": "trash",
             "display_name": "Trash",
             "description": "Emails in trash",
-            "priority": CATEGORY_PRIORITY.get("trash", 9)
+            "priority": default_priorities.get("trash", 9)
         },
         {
             "name": "archive",
             "display_name": "Archive",
             "description": "Archived emails",
-            "priority": CATEGORY_PRIORITY.get("archive", 10)
+            "priority": default_priorities.get("archive", 10)
         }
     ]
     
@@ -132,7 +141,7 @@ def initialize_system_categories(db: Session) -> List[EmailCategory]:
 
 def populate_system_keywords(db: Session) -> int:
     """
-    Populate the database with default system keywords for categories.
+    Populate the database with default system keywords.
     
     Args:
         db: Database session
@@ -148,20 +157,61 @@ def populate_system_keywords(db: Session) -> int:
     
     keywords_count = 0
     
+    # Default keywords by category - if needed, can be moved to a database table in the future
+    default_keywords = {
+        "promotional": [
+            "offer", "discount", "sale", "promo", "deal", "save", "subscription", 
+            "limited time", "hurry", "expires", "coupon", "% off", "promotion",
+            "special", "clearance", "membership", "renew", "trial", "upgrade",
+            "buy now", "new arrival", "exclusive", "free shipping"
+        ],
+        "social": [
+            "invitation", "invite", "join", "connection", "follow", "friend", "like",
+            "network", "social", "connect", "group", "community", "shared", "comment",
+            "birthday", "anniversary", "celebrate", "event", "party", "meetup"
+        ],
+        "updates": [
+            "update", "notification", "alert", "status", "confirm", "confirmation",
+            "receipt", "statement", "bill", "invoice", "purchase", "shipping", "tracking",
+            "delivery", "payment", "security", "verification", "verify", "confirm"
+        ],
+        "forums": [
+            "forum", "thread", "topic", "discussion", "post", "reply", "digest", "community",
+            "newsletter", "bulletin", "board", "mailing list", "subscribe", "unsubscribe"
+        ],
+        "important": [
+            "urgent", "important", "attention", "priority", "critical", "required",
+            "action", "deadline", "expiration", "immediate", "asap", "now", "approval",
+            "password", "security", "alert", "warning", "notice", "tax", "legal"
+        ],
+        "personal": [
+            "hello", "hey", "hi", "private", "confidential", "personal", "family", 
+            "friend", "fyi", "introduction", "meeting", "appointment", "coffee", 
+            "lunch", "dinner", "call"
+        ],
+        "newsletters": [
+            "newsletter", "digest", "weekly", "daily", "monthly", "edition", "issue",
+            "bulletin", "report", "roundup", "update", "news", "briefing", "summary",
+            "today's", "this week", "this month", "breaking", "latest", "trending",
+            "insights", "analysis", "exclusive", "featuring", "spotlight"
+        ]
+    }
+    
+    # Delete existing system keywords (with no user_id)
+    for category_name in category_map.keys():
+        db.query(CategoryKeyword).filter(
+            and_(
+                CategoryKeyword.category_id == category_map[category_name],
+                CategoryKeyword.user_id == None
+            )
+        ).delete()
+    
     # Add keywords for each category
-    for category_name, keywords in CATEGORY_KEYWORDS.items():
-        if category_name in category_map:
-            category_id = category_map[category_name]
+    for category_name, category_id in category_map.items():
+        # Check if we have default keywords for this category
+        if category_name.lower() in default_keywords:
+            keywords = default_keywords[category_name.lower()]
             
-            # Delete existing system keywords for this category (with no user_id)
-            db.query(CategoryKeyword).filter(
-                and_(
-                    CategoryKeyword.category_id == category_id,
-                    CategoryKeyword.user_id == None
-                )
-            ).delete()
-            
-            # Add new keywords
             for keyword in keywords:
                 db.add(CategoryKeyword(
                     category_id=category_id,
@@ -194,6 +244,25 @@ def populate_system_sender_rules(db: Session) -> int:
     
     rules_count = 0
     
+    # Default sender domains by category - if needed, can be moved to a database table in the future
+    default_sender_domains = {
+        "social": [
+            "facebook.com", "twitter.com", "instagram.com", "linkedin.com", "pinterest.com"
+        ],
+        "promotional": [
+            "marketing", "newsletter", "noreply", "promotions", "info"
+        ],
+        "updates": [
+            "accounts", "notifications", "no-reply", "donotreply", "alerts"
+        ],
+        "newsletters": [
+            "nytimes.com", "barrons.com", "wsj.com", "theinformation.com", "hbr.org",
+            "marketwatch.com", "economist.com", "bloomberg.com", "morningbrew.com",
+            "substack.com", "medium.com", "wired.com", "techcrunch.com",
+            "washingtonpost.com", "ft.com", "cnn.com", "forbes.com", "reuters.com"
+        ]
+    }
+    
     # Delete existing system sender rules (with no user_id)
     for category_name in category_map.keys():
         db.query(SenderRule).filter(
@@ -204,20 +273,22 @@ def populate_system_sender_rules(db: Session) -> int:
         ).delete()
     
     # Add sender domain rules
-    for domain, category_name in SENDER_DOMAINS.items():
-        if category_name in category_map:
-            category_id = category_map[category_name]
+    for category_name, category_id in category_map.items():
+        # Check if we have default domains for this category
+        if category_name.lower() in default_sender_domains:
+            domains = default_sender_domains[category_name.lower()]
             
-            is_domain = "." in domain  # Simple heuristic to detect if it's a domain
-            
-            db.add(SenderRule(
-                category_id=category_id,
-                pattern=domain,
-                is_domain=is_domain,
-                weight=1,
-                user_id=None  # System-wide rule
-            ))
-            rules_count += 1
+            for domain in domains:
+                is_domain = "." in domain  # Simple heuristic to detect if it's a domain
+                
+                db.add(SenderRule(
+                    category_id=category_id,
+                    pattern=domain,
+                    is_domain=is_domain,
+                    weight=1,
+                    user_id=None  # System-wide rule
+                ))
+                rules_count += 1
     
     db.commit()
     logger.info(f"Added {rules_count} system sender rules")

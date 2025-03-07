@@ -4,9 +4,10 @@ import logging
 from sqlalchemy.orm import Session
 from ..models.email import Email
 from ..models.user import User
+from ..models.email_category import EmailCategory
 from email.utils import parsedate_to_datetime
 import dateutil.parser
-from ..utils.email_categorizer import determine_category
+from ..utils.email_categorizer import determine_category, categorize_email as categorize_email_function
 from uuid import UUID
 
 logger = logging.getLogger(__name__)
@@ -109,7 +110,7 @@ def process_and_store_emails(
 
 def categorize_email(
     email_data: Dict[str, Any], 
-    db: Session = None, 
+    db: Session, 
     user_id: Optional[UUID] = None
 ) -> str:
     """
@@ -120,22 +121,20 @@ def categorize_email(
     2. Subject line keyword matching
     3. Sender domain analysis
     
-    The categorization is extensible and can be improved over time by:
-    - Adding/updating keywords in email_categories.py
-    - Improving the matching algorithms
-    - Adding user feedback to adjust categorization
-    
-    When database session is provided, it uses dynamic categorization rules
-    from the database that can be customized per user.
+    The categorization is database-driven and can be customized through 
+    the categories management interface.
     
     Args:
         email_data: Email data dictionary containing subject, labels, etc.
-        db: Optional database session for dynamic rules
+        db: Database session for fetching category rules (required)
         user_id: Optional user ID for personalized rules
         
     Returns:
-        Category string (promotional, social, primary, etc.)
+        Category string
     """
+    if db is None:
+        raise ValueError("Database session is required for email categorization")
+        
     labels = email_data.get('labels', [])
     subject = email_data.get('subject', '')
     from_email = email_data.get('from_email', '')
@@ -144,15 +143,15 @@ def categorize_email(
     
     logger.info(f"[CATEGORIZER] Categorizing email {gmail_id} with subject '{subject}'")
     
-    # Use the enhanced categorization system
-    category = determine_category(labels, subject, from_email, db, user_id)
+    # Use the categorization function from email_categorizer
+    category = categorize_email_function(email_data, db, user_id)
     
     logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as '{category}'")
     return category
 
 def calculate_importance(
     email_data: Dict[str, Any],
-    db: Session = None,
+    db: Session,
     user_id: Optional[UUID] = None
 ) -> int:
     """
@@ -167,12 +166,15 @@ def calculate_importance(
     
     Args:
         email_data: Email data dictionary
-        db: Optional database session for dynamic rules
+        db: Database session for fetching category priorities
         user_id: Optional user ID for personalized importance rules
         
     Returns:
         Importance score integer
     """
+    if db is None:
+        raise ValueError("Database session is required for importance calculation")
+        
     score = 50  # Base score
     
     subject = email_data.get('subject', '')
@@ -190,23 +192,19 @@ def calculate_importance(
     # Category-based adjustments
     category = email_data.get('category', categorize_email(email_data, db, user_id))
     
-    category_adjustments = {
-        'important': 25,
-        'personal': 20,
-        'primary': 10,
-        'newsletters': 5,  # Newsletters have moderate importance
-        'updates': 0,
-        'forums': -5,
-        'social': -10,
-        'promotional': -20,
-        'trash': -40,
-        'archive': -15
-    }
+    # Fetch category priorities from the database
+    # Get priorities for all categories
+    categories = db.query(EmailCategory).all()
+    category_priorities = {cat.name.lower(): cat.priority for cat in categories}
     
-    if category in category_adjustments:
-        adjustment = category_adjustments[category]
+    # Default adjustments based on priority (lower priority number = higher importance)
+    # We'll convert the priority (1-10) to an importance adjustment (-20 to +25)
+    if category and category.lower() in category_priorities:
+        priority = category_priorities[category.lower()]
+        # Inverse mapping: priority 1 (highest) = +25, priority 10 (lowest) = -20
+        adjustment = 30 - (5 * priority)
         score += adjustment
-        logger.debug(f"[IMPORTANCE] {adjustment} for category '{category}' -> {score}")
+        logger.debug(f"[IMPORTANCE] {adjustment} for category '{category}' (priority {priority}) -> {score}")
     
     # Important keywords in subject (emergency, urgent, etc.)
     important_keywords = [
@@ -215,32 +213,23 @@ def calculate_importance(
         "emergency", "alert", "security", "password", "unauthorized"
     ]
     
-    if subject:
-        subject_lower = subject.lower()
-        for keyword in important_keywords:
-            if keyword in subject_lower:
-                score += 15
-                logger.debug(f"[IMPORTANCE] +15 for important keyword '{keyword}' -> {score}")
-                break  # Only apply once for important keywords
+    # Check for important keywords in subject
+    for keyword in important_keywords:
+        if keyword.lower() in subject.lower():
+            score += 15
+            logger.debug(f"[IMPORTANCE] +15 for important keyword '{keyword}' in subject -> {score}")
+            break  # Only apply once even if multiple keywords match
     
     # Adjust based on read status
     if not email_data.get('is_read', True):
-        score += 10
-        logger.debug(f"[IMPORTANCE] +10 for unread status -> {score}")
+        score += 5
+        logger.debug(f"[IMPORTANCE] +5 for unread status -> {score}")
     
-    # Sender importance (simple heuristic for demo)
-    important_domains = ["boss", "ceo", "manager", "director", "hr", "payroll", "finance"]
-    if from_email:
-        for domain in important_domains:
-            if domain in from_email.lower():
-                score += 15
-                logger.debug(f"[IMPORTANCE] +15 for important sender with '{domain}' -> {score}")
-                break
+    # Cap the score between 0 and 100
+    score = max(0, min(100, score))
     
-    # Ensure score stays within bounds
-    final_score = max(0, min(100, score))
-    logger.info(f"[IMPORTANCE] Final score for email {gmail_id}: {final_score}")
-    return final_score
+    logger.info(f"[IMPORTANCE] Final score for email {gmail_id}: {score}")
+    return score
 
 def parse_date(date_str: str) -> datetime:
     """

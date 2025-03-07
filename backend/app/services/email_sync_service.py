@@ -11,6 +11,7 @@ import logging
 import time
 from uuid import UUID
 from ..services import email_operations_service
+from ..utils.email_categorizer import categorize_email
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
                 email.labels = list(current_labels)
             
             # Recategorize the email based on its current labels
-            email.category = categorize_email_from_labels(email.labels)
+            email.category = categorize_email_from_labels(email.labels, db, user.id)
             logger.info(f"[GMAIL→EA] Recategorized email as {email.category} after trash removal: {email_desc}")
     
     if updated_count > 0:
@@ -159,38 +160,28 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         
     return updated_count
 
-def categorize_email_from_labels(labels: List[str]) -> str:
+def categorize_email_from_labels(labels: List[str], db: Session, user_id: Optional[UUID] = None) -> str:
     """
-    Determine category based on Gmail labels
+    Determine category based on Gmail labels using the database-driven categorization system
     
     Args:
         labels: List of Gmail labels
+        db: Database session for fetching category rules
+        user_id: Optional user ID for personalized rules
         
     Returns:
-        Category name (primary, social, promotions, updates, forums, personal, important, archive, trash)
+        Category name from the database
     """
-    if not labels:
-        return 'primary'
+    # Create minimal email data for categorization
+    email_data = {
+        'labels': labels,
+        'subject': '',  # No subject information available
+        'from_email': '',  # No sender information available
+        'gmail_id': 'label_only'  # Identifier for logging
+    }
     
-    if 'TRASH' in labels:
-        return 'trash'
-    elif 'IMPORTANT' in labels:
-        return 'important'
-    elif 'CATEGORY_PROMOTIONS' in labels:
-        return 'promotions'
-    elif 'CATEGORY_SOCIAL' in labels:
-        return 'social'
-    elif 'CATEGORY_UPDATES' in labels:
-        return 'updates'
-    elif 'CATEGORY_FORUMS' in labels:
-        return 'forums'
-    elif 'CATEGORY_PERSONAL' in labels:
-        return 'personal'
-    elif 'INBOX' not in labels:
-        # If email doesn't have INBOX label, it's archived
-        return 'archive'
-    else:
-        return 'primary'
+    # Use the database-driven categorization
+    return categorize_email(email_data, db, user_id)
 
 def process_pending_category_updates(db: Session, user: User) -> int:
     """
@@ -214,16 +205,24 @@ def process_pending_category_updates(db: Session, user: User) -> int:
     if not pending_emails:
         return 0
     
-    # Map categories to Gmail labels with special handling for trash
-    category_to_label = {
-        "primary": None,  # No specific label for primary
-        "social": "CATEGORY_SOCIAL",
-        "promotions": "CATEGORY_PROMOTIONS",
-        "updates": "CATEGORY_UPDATES",
-        "forums": "CATEGORY_FORUMS",
-        "personal": "CATEGORY_PERSONAL",
-        "trash": "TRASH"  # Add trash mapping
-    }
+    # Get all categories from the database
+    from ..models.email_category import EmailCategory
+    categories = db.query(EmailCategory).all()
+    
+    # Dynamically build the mapping from categories to Gmail labels
+    category_to_label = {}
+    for category in categories:
+        category_name = category.name.lower()
+        # Special cases
+        if category_name == 'primary':
+            category_to_label[category_name] = None  # No specific label for primary
+        elif category_name == 'trash':
+            category_to_label[category_name] = 'TRASH'
+        elif category_name == 'promotional':
+            category_to_label[category_name] = 'CATEGORY_PROMOTIONS'
+        else:
+            # Standard format for Gmail category labels
+            category_to_label[category_name] = f'CATEGORY_{category_name.upper()}'
     
     # All category labels for removal check
     all_category_labels = [label for label in category_to_label.values() if label]
