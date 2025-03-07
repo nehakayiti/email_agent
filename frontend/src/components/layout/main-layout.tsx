@@ -13,11 +13,13 @@ import {
   StarIcon,
   UserGroupIcon,
   BellAlertIcon,
-  MegaphoneIcon
+  MegaphoneIcon,
+  NewspaperIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { getEmails, type Email, triggerEmailSync } from '@/lib/api';
+import { getEmails, getCategoriesApi, type Email, type Category, triggerEmailSync } from '@/lib/api';
 import { isAuthenticated, handleAuthError } from '@/lib/auth';
 
 // Define types for navigation items
@@ -28,6 +30,7 @@ type NavItem = {
   type?: 'link' | 'divider' | 'category';
 };
 
+// Fixed navigation items that aren't categories
 const baseNavigation: NavItem[] = [
   // Main Views
   { name: 'Dashboard', href: '/', icon: HomeIcon, type: 'link' },
@@ -39,21 +42,9 @@ const baseNavigation: NavItem[] = [
   { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link' },
   { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link' },
   
-  // Email Categories
+  // Category Management Link
   { type: 'divider', name: 'CATEGORIES' },
   { name: 'Manage Categories', href: '/categories', icon: TagIcon, type: 'link' },
-  { name: 'Primary', href: '/emails?category=primary', icon: InboxIcon, type: 'link' },
-  { name: 'Important', href: '/emails?label=IMPORTANT', icon: StarIcon, type: 'link' },
-  { name: 'Social', href: '/emails?category=social', icon: UserGroupIcon, type: 'link' },
-  { name: 'Promotional', href: '/emails?category=promotional', icon: MegaphoneIcon, type: 'link' },
-  { name: 'Newsletters', href: '/emails?category=newsletters', icon: EnvelopeIcon, type: 'link' },
-  { name: 'Updates', href: '/emails?category=updates', icon: BellAlertIcon, type: 'link' },
-  { name: 'Personal', href: '/emails?category=personal', icon: TagIcon, type: 'link' },
-  
-  // Storage Locations
-  { type: 'divider', name: 'Storage' },
-  { name: 'Archive', href: '/emails?category=archive', icon: ArrowPathIcon, type: 'link' },
-  { name: 'Trash', href: '/emails/deleted', icon: TrashIcon, type: 'link' },
 ];
 
 // Custom event name for email sync completion
@@ -62,48 +53,33 @@ export const EMAIL_SYNC_COMPLETED_EVENT = 'emailSyncCompleted';
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [categories, setCategories] = useState<string[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncMessage, setSyncMessage] = useState('');
+  const [categories, setCategories] = useState<Category[]>([]);
   const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
+  const [syncMessage, setSyncMessage] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
-  const [greeting] = useState(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
-  });
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
 
-  const fetchCategories = useCallback(async () => {
-    // Skip API calls if we're not authenticated
+  useEffect(() => {
     if (!isAuthenticated()) {
-      setIsAuthError(true);
+      handleAuthError();
       return;
     }
 
-    try {
-      const response = await getEmails();
-      const uniqueCategories = [...new Set(response.emails.map(email => email.category).filter(Boolean))];
-      setCategories(uniqueCategories.sort()); // Sort categories alphabetically
-    } catch (error) {
-      console.error('Error fetching categories:', error);
-      // Check if it's an auth error
-      if (error instanceof Error && 
-          (error.message.includes('No authentication token found') || 
-           error.message.includes('Authentication failed'))) {
-        setIsAuthError(true);
-        handleAuthError();
+    // Fetch categories directly from the API
+    async function fetchCategories() {
+      try {
+        const response = await getCategoriesApi();
+        // Sort categories by priority (lower number = higher priority)
+        const sortedCategories = response.data.sort((a, b) => a.priority - b.priority);
+        setCategories(sortedCategories);
+      } catch (error) {
+        console.error('Error fetching categories:', error);
       }
     }
+    
+    fetchCategories();
   }, []);
-
-  useEffect(() => {
-    // Only fetch categories if we're on a protected route
-    // and we haven't encountered an auth error yet
-    if (!isAuthError && pathname && !pathname.includes('/auth')) {
-      fetchCategories();
-    }
-  }, [fetchCategories, isAuthError, pathname]);
 
   const handleSync = async () => {
     if (isSyncing || !isAuthenticated()) return;
@@ -172,20 +148,58 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
   };
 
-  // Create navigation items with base items and categories
+  // Create mapping of icons that can be used for categories
+  const getCategoryIcon = (categoryName: string) => {
+    const iconMap: Record<string, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
+      'primary': InboxIcon,
+      'important': StarIcon,
+      'social': UserGroupIcon,
+      'promotional': MegaphoneIcon,
+      'updates': BellAlertIcon,
+      'personal': TagIcon,
+      'newsletters': NewspaperIcon,
+      'forums': ChatBubbleLeftRightIcon,
+      'archive': ArrowPathIcon,
+      'trash': TrashIcon
+    };
+
+    return iconMap[categoryName.toLowerCase()] || TagIcon; // Default to TagIcon
+  };
+
+  // Create storage section with Archive and Trash
+  const storageCategories = categories.filter(cat => 
+    cat.name.toLowerCase() === 'archive' || cat.name.toLowerCase() === 'trash'
+  );
+
+  // Create regular categories (excluding storage categories)
+  const regularCategories = categories.filter(cat => 
+    cat.name.toLowerCase() !== 'archive' && cat.name.toLowerCase() !== 'trash'
+  );
+
+  // Create navigation items with base items and categories from database
   const navigation: NavItem[] = [
     ...baseNavigation,
-    // We'll only add dynamic categories that aren't already in our predefined list
-    ...(categories.length > 0 
-      ? categories
-          .filter(category => !['primary', 'important', 'social', 'promotional', 'updates', 'archive', 'trash', 'personal', 'newsletters'].includes(category.toLowerCase()))
-          .map(category => ({
-            name: category.charAt(0).toUpperCase() + category.slice(1),
-            href: `/emails?category=${category.toLowerCase()}`,
-            icon: TagIcon,
-            type: 'category' as const
-          }))
-      : [])
+    
+    // Add all regular categories (sorted by priority)
+    ...regularCategories.map(category => ({
+      name: category.display_name,
+      href: `/emails?category=${category.name.toLowerCase()}`,
+      icon: getCategoryIcon(category.name),
+      type: 'category' as const
+    })),
+    
+    // Add Storage divider if we have storage categories
+    ...(storageCategories.length > 0 ? [{ type: 'divider' as const, name: 'Storage' }] : []),
+    
+    // Add storage categories
+    ...storageCategories.map(category => ({
+      name: category.display_name,
+      href: category.name.toLowerCase() === 'trash' 
+        ? '/emails/deleted' 
+        : `/emails?category=${category.name.toLowerCase()}`,
+      icon: getCategoryIcon(category.name),
+      type: 'category' as const
+    }))
   ];
 
   return (
@@ -244,7 +258,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         <header className="bg-white shadow-sm">
           <div className="flex h-16 items-center justify-between px-6">
             <h2 className="text-lg font-medium text-gray-900">
-              {greeting}, Sunny!
+              {/* greeting }, Sunny! */}
             </h2>
             
             <div className="flex items-center space-x-3">
