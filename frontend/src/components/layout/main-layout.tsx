@@ -46,6 +46,7 @@ const baseNavigation: NavItem[] = [
   { name: 'Important', href: '/emails?label=IMPORTANT', icon: StarIcon, type: 'link' },
   { name: 'Social', href: '/emails?category=social', icon: UserGroupIcon, type: 'link' },
   { name: 'Promotional', href: '/emails?category=promotional', icon: MegaphoneIcon, type: 'link' },
+  { name: 'Newsletters', href: '/emails?category=newsletters', icon: EnvelopeIcon, type: 'link' },
   { name: 'Updates', href: '/emails?category=updates', icon: BellAlertIcon, type: 'link' },
   { name: 'Personal', href: '/emails?category=personal', icon: TagIcon, type: 'link' },
   
