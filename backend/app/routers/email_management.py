@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime, date
+from uuid import UUID
+from sqlalchemy import or_, and_
 from ..db import get_db
 from ..models.user import User
 from ..dependencies import get_current_user
@@ -19,7 +21,7 @@ from ..services.category_service import (
     add_user_keyword,
     add_user_sender_rule
 )
-from ..models.email_category import EmailCategory
+from ..models.email_category import EmailCategory, CategoryKeyword, SenderRule
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +73,22 @@ class CreateCategoryRequest(BaseModel):
     display_name: str
     description: Optional[str] = None
     priority: int = 50
+
+class KeywordItem(BaseModel):
+    """Category keyword item"""
+    id: int
+    keyword: str
+    is_regex: bool
+    weight: int
+    user_id: Optional[UUID] = None
+    
+class SenderRuleItem(BaseModel):
+    """Sender rule item"""
+    id: int
+    pattern: str
+    is_domain: bool
+    weight: int
+    user_id: Optional[UUID] = None
 
 @router.post("/reprocess", response_model=ReprocessResponse)
 async def reprocess_user_emails(
@@ -295,4 +313,86 @@ async def create_category(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error creating category: {str(e)}"
+        )
+
+@router.get("/categories/{category_name}/keywords", response_model=List[KeywordItem])
+async def get_category_keywords(
+    category_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all keywords for a specific category.
+    
+    Returns both system keywords and user-specific keywords for the category.
+    """
+    try:
+        # Find the category
+        category = db.query(EmailCategory).filter(EmailCategory.name == category_name).first()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category '{category_name}' not found"
+            )
+        
+        # Get keywords for this category (system + user-specific)
+        keywords = db.query(CategoryKeyword).filter(
+            and_(
+                CategoryKeyword.category_id == category.id,
+                or_(
+                    CategoryKeyword.user_id == None,
+                    CategoryKeyword.user_id == current_user.id
+                )
+            )
+        ).all()
+        
+        return keywords
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching category keywords: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching category keywords: {str(e)}"
+        )
+
+@router.get("/categories/{category_name}/sender-rules", response_model=List[SenderRuleItem])
+async def get_category_sender_rules(
+    category_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Get all sender rules for a specific category.
+    
+    Returns both system sender rules and user-specific sender rules for the category.
+    """
+    try:
+        # Find the category
+        category = db.query(EmailCategory).filter(EmailCategory.name == category_name).first()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category '{category_name}' not found"
+            )
+        
+        # Get sender rules for this category (system + user-specific)
+        sender_rules = db.query(SenderRule).filter(
+            and_(
+                SenderRule.category_id == category.id,
+                or_(
+                    SenderRule.user_id == None,
+                    SenderRule.user_id == current_user.id
+                )
+            )
+        ).all()
+        
+        return sender_rules
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching category sender rules: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error fetching category sender rules: {str(e)}"
         ) 

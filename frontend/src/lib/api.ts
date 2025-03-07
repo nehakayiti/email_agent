@@ -510,6 +510,22 @@ export interface Category {
   sender_rule_count: number;
 }
 
+export interface CategoryKeyword {
+  id: number;
+  keyword: string;
+  is_regex: boolean;
+  weight: number;
+  user_id: string | null;
+}
+
+export interface SenderRule {
+  id: number;
+  pattern: string;
+  is_domain: boolean;
+  weight: number;
+  user_id: string | null;
+}
+
 interface CategoriesResponse {
   data: Category[];
 }
@@ -523,6 +539,14 @@ export async function initializeCategories(): Promise<any> {
   return fetchWithAuth('/email-management/initialize-categories', {
     method: 'POST'
   });
+}
+
+export async function getCategoryKeywords(categoryName: string): Promise<CategoryKeyword[]> {
+  return fetchWithAuth<CategoryKeyword[]>(`/email-management/categories/${categoryName}/keywords`);
+}
+
+export async function getCategorySenderRules(categoryName: string): Promise<SenderRule[]> {
+  return fetchWithAuth<SenderRule[]>(`/email-management/categories/${categoryName}/sender-rules`);
 }
 
 export async function addKeyword(categoryName: string, keyword: string): Promise<any> {
@@ -543,6 +567,13 @@ export async function addSenderRule(categoryName: string, pattern: string, isDom
       pattern,
       is_domain: isDomain
     })
+  });
+}
+
+export async function reprocessAllEmails(): Promise<any> {
+  return fetchWithAuth('/email-management/reprocess', {
+    method: 'POST',
+    body: JSON.stringify({})
   });
 }
 
