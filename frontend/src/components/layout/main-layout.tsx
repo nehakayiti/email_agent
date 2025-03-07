@@ -178,7 +178,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     // We'll only add dynamic categories that aren't already in our predefined list
     ...(categories.length > 0 
       ? categories
-          .filter(category => !['primary', 'important', 'social', 'promotional', 'updates', 'archive', 'trash', 'personal'].includes(category.toLowerCase()))
+          .filter(category => !['primary', 'important', 'social', 'promotional', 'updates', 'archive', 'trash', 'personal', 'newsletters'].includes(category.toLowerCase()))
           .map(category => ({
             name: category.charAt(0).toUpperCase() + category.slice(1),
             href: `/emails?category=${category.toLowerCase()}`,
