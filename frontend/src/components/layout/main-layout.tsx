@@ -59,6 +59,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [syncMessage, setSyncMessage] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [categoriesRefreshTrigger, setCategoriesRefreshTrigger] = useState(0);
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -79,6 +80,22 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     }
     
     fetchCategories();
+  }, [categoriesRefreshTrigger]);
+
+  // Listen for email sync completion event to refresh categories
+  useEffect(() => {
+    const handleSyncCompleted = () => {
+      // Refresh categories when emails are synced
+      setCategoriesRefreshTrigger(prev => prev + 1);
+    };
+
+    // Add event listener
+    window.addEventListener(EMAIL_SYNC_COMPLETED_EVENT, handleSyncCompleted);
+
+    // Clean up
+    return () => {
+      window.removeEventListener(EMAIL_SYNC_COMPLETED_EVENT, handleSyncCompleted);
+    };
   }, []);
 
   const handleSync = async () => {

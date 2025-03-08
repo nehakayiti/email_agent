@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime, date
 from uuid import UUID
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from ..db import get_db
 from ..models.user import User
+from ..models.email import Email
 from ..dependencies import get_current_user
 from ..services.email_processor import reprocess_emails
 from ..services.category_service import (
@@ -395,4 +396,66 @@ async def get_category_sender_rules(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error fetching category sender rules: {str(e)}"
+        )
+
+@router.delete("/categories/{category_name}")
+async def delete_category(
+    category_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a category.
+    
+    Only non-system categories can be deleted. System categories are protected.
+    When a category is deleted, all associated keywords and sender rules are also deleted.
+    """
+    try:
+        # Find the category
+        category = db.query(EmailCategory).filter(EmailCategory.name == category_name).first()
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Category '{category_name}' not found"
+            )
+        
+        # Prevent deletion of system categories
+        if category.is_system:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"System category '{category_name}' cannot be deleted"
+            )
+        
+        # Delete the category (cascade will handle associated keywords and sender rules)
+        db.delete(category)
+        
+        # We need to update any emails that were in this category to a default category
+        # Find the primary category or use another system category as fallback
+        default_category = db.query(EmailCategory).filter(
+            EmailCategory.name == "primary"
+        ).first() or db.query(EmailCategory).filter(
+            EmailCategory.is_system == True
+        ).order_by(EmailCategory.priority).first()
+        
+        if default_category:
+            # Update emails in the deleted category to the default category
+            db.query(Email).filter(
+                Email.user_id == current_user.id,
+                Email.category == category_name
+            ).update({
+                'category': default_category.name,
+                'labels': func.array_append(Email.labels, 'EA_NEEDS_LABEL_UPDATE')
+            })
+        
+        db.commit()
+        
+        return {"success": True, "message": f"Category '{category_name}' deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting category: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting category: {str(e)}"
         ) 

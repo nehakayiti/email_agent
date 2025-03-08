@@ -6,12 +6,34 @@ based on their content, subject, and metadata, using database-stored rules.
 """
 import re
 import logging
-from typing import Dict, Any, Set, List, Tuple, Optional
+from typing import Dict, Any, Set, List, Tuple, Optional, Union, Pattern
 from sqlalchemy.orm import Session
 from uuid import UUID
 from ..services.category_service import get_categorization_rules
+from functools import lru_cache
 
 logger = logging.getLogger(__name__)
+
+# LRU cache for compiled regex patterns to improve performance
+@lru_cache(maxsize=100)
+def compile_regex(pattern: str, is_case_sensitive: bool = False) -> Pattern:
+    """
+    Compile and cache regex patterns to avoid recompilation.
+    
+    Args:
+        pattern: The regex pattern to compile
+        is_case_sensitive: Whether the pattern should be case sensitive
+        
+    Returns:
+        Compiled regex pattern
+    """
+    try:
+        flags = 0 if is_case_sensitive else re.IGNORECASE
+        return re.compile(pattern, flags)
+    except re.error as e:
+        logger.warning(f"Invalid regex pattern '{pattern}': {str(e)}")
+        # Return a pattern that won't match anything as a fallback
+        return re.compile(r'$^')
 
 class DynamicEmailCategorizer:
     """
@@ -47,9 +69,15 @@ class DynamicEmailCategorizer:
             for cat_id, details in self.rules["categories"].items()
         }
         
+        # Sort categories by priority for faster processing
+        self.sorted_categories = sorted(
+            [(cat_id, details) for cat_id, details in self.rules["categories"].items()],
+            key=lambda x: x[1]["priority"]
+        )
+        
         logger.info(f"Initialized dynamic categorizer with {len(self.rules['categories'])} categories, "
-                   f"{sum(len(kws) for kws in self.rules['keywords'].values())} keywords, and "
-                   f"{sum(len(srs) for srs in self.rules['senders'].values())} sender rules")
+                   f"{sum(len(kws) for kws in self.rules.get('keywords', {}).values())} keywords, and "
+                   f"{sum(len(srs) for srs in self.rules.get('senders', {}).values())} sender rules")
     
     def _compile_regex_patterns(self):
         """Pre-compile regex patterns for better performance"""
@@ -59,11 +87,8 @@ class DynamicEmailCategorizer:
             self.compiled_regexes[cat_id] = []
             for kw_data in keywords:
                 if kw_data.get("is_regex", False):
-                    try:
-                        pattern = re.compile(kw_data["keyword"], re.IGNORECASE)
-                        self.compiled_regexes[cat_id].append(pattern)
-                    except re.error:
-                        logger.warning(f"Invalid regex pattern: {kw_data['keyword']}")
+                    pattern = compile_regex(kw_data["keyword"])
+                    self.compiled_regexes[cat_id].append((pattern, kw_data.get("weight", 1)))
     
     def get_subject_category_matches(self, subject: str) -> List[Tuple[str, int, str]]:
         """
@@ -82,28 +107,31 @@ class DynamicEmailCategorizer:
         subject = subject.lower()
         matches = []
         
-        # Check each category's keywords
-        for cat_id, keywords in self.rules.get("keywords", {}).items():
+        # Process categories in priority order
+        for cat_id, details in self.sorted_categories:
             category_name = self.category_id_to_name.get(cat_id)
             if not category_name:
                 continue
                 
             priority = self.category_priorities.get(category_name, 50)
             
-            # Check non-regex keywords
+            # Check non-regex keywords first (faster)
+            keywords = self.rules.get("keywords", {}).get(cat_id, [])
             for kw_data in keywords:
                 if not kw_data.get("is_regex", False):
                     keyword = kw_data["keyword"].lower()
                     weight = kw_data.get("weight", 1)
                     
                     if keyword in subject:
-                        matches.append((category_name, priority - weight, f'subject_keyword:{keyword}'))
+                        match_priority = priority - weight  # Lower value = higher priority
+                        matches.append((category_name, match_priority, f'subject_keyword:{keyword}'))
             
-            # Check regex patterns
-            for pattern in self.compiled_regexes.get(cat_id, []):
+            # Check regex patterns (slower, but more powerful)
+            for pattern, weight in self.compiled_regexes.get(cat_id, []):
                 if pattern.search(subject):
+                    match_priority = priority - weight
                     matches.append(
-                        (category_name, priority - 1, f'subject_regex:{pattern.pattern}')
+                        (category_name, match_priority, f'subject_regex:{pattern.pattern}')
                     )
         
         return matches
@@ -122,32 +150,44 @@ class DynamicEmailCategorizer:
             return []
         
         matches = []
-        local_part, domain = from_email.lower().split('@', 1)
+        try:
+            local_part, domain = from_email.lower().split('@', 1)
+        except ValueError:
+            logger.warning(f"Invalid email format: {from_email}")
+            return []
         
-        # Check each category's sender rules
-        for cat_id, sender_rules in self.rules.get("senders", {}).items():
+        # Process categories in priority order
+        for cat_id, details in self.sorted_categories:
             category_name = self.category_id_to_name.get(cat_id)
             if not category_name:
                 continue
                 
             priority = self.category_priorities.get(category_name, 50)
             
+            # Check sender rules
+            sender_rules = self.rules.get("senders", {}).get(cat_id, [])
             for rule in sender_rules:
                 pattern = rule["pattern"].lower()
                 weight = rule.get("weight", 1)
                 is_domain = rule.get("is_domain", True)
                 
                 if is_domain:
-                    # Domain matching (exact or subdomain)
-                    if domain == pattern or domain.endswith('.' + pattern):
+                    # Domain matching (exact or subdomain) - higher priority
+                    if domain == pattern:
+                        # Exact domain match gets extra weight
+                        matches.append(
+                            (category_name, priority - (weight * 1.5), f'sender_domain_exact:{pattern}')
+                        )
+                    elif domain.endswith('.' + pattern):
+                        # Subdomain match
                         matches.append(
                             (category_name, priority - weight, f'sender_domain:{pattern}')
                         )
                 else:
-                    # Substring matching in either part
+                    # Substring matching in either part - lower priority
                     if pattern in local_part or pattern in domain:
                         matches.append(
-                            (category_name, priority - weight, f'sender_substring:{pattern}')
+                            (category_name, priority - (weight * 0.8), f'sender_substring:{pattern}')
                         )
         
         return matches
@@ -173,63 +213,65 @@ class DynamicEmailCategorizer:
         """
         candidate_categories = []
         
-        # First check Gmail labels (highest precedence)
-        if 'TRASH' in gmail_labels:
+        # Check Gmail labels first (highest precedence)
+        if gmail_labels and 'TRASH' in gmail_labels:
             return 'trash'
-        elif 'IMPORTANT' in gmail_labels:
-            # Find the important category ID
+        elif gmail_labels and 'IMPORTANT' in gmail_labels:
+            # Find the important category
             for cat_id, details in self.rules["categories"].items():
-                if details["name"] == "important":
-                    candidate_categories.append((details["name"], details["priority"] - 1, 'gmail_label'))
+                if details["name"].lower() == "important":
+                    candidate_categories.append((details["name"], details["priority"] - 2, 'gmail_label_important'))
                     break
         
         # Check Gmail category labels - map these to our database categories
-        gmail_label_to_categories = {}
+        if gmail_labels:
+            gmail_label_to_categories = {}
+            
+            # Dynamically build the mapping based on database categories
+            for cat_id, details in self.rules["categories"].items():
+                category_name = details["name"].lower()
+                gmail_category = f'CATEGORY_{category_name.upper()}'
+                gmail_label_to_categories[gmail_category] = (category_name, details["priority"])
+            
+            # Handle special cases that might have different naming
+            special_mappings = {
+                'CATEGORY_PROMOTIONS': 'promotional',
+                'CATEGORY_UPDATES': 'updates'
+            }
+            
+            for label, mapped_name in special_mappings.items():
+                if label not in gmail_label_to_categories:
+                    # Check if we have this category in the database
+                    for cat_id, details in self.rules["categories"].items():
+                        if details["name"].lower() == mapped_name:
+                            gmail_label_to_categories[label] = (mapped_name, details["priority"])
+                            break
+            
+            # Apply Gmail category labels
+            for label in gmail_labels:
+                if label in gmail_label_to_categories:
+                    category_name, priority = gmail_label_to_categories[label]
+                    # Gmail categories have high precedence
+                    candidate_categories.append((category_name, priority - 1, f'gmail_category:{label}'))
         
-        # Dynamically build the mapping based on database categories
-        for cat_id, details in self.rules["categories"].items():
-            category_name = details["name"].lower()
-            gmail_category = f'CATEGORY_{category_name.upper()}'
-            gmail_label_to_categories[gmail_category] = category_name
-        
-        # Handle special cases that might have different naming
-        special_mappings = {
-            'CATEGORY_PROMOTIONS': 'promotional',
-            'CATEGORY_UPDATES': 'updates'
-        }
-        
-        for label, mapped_name in special_mappings.items():
-            if label not in gmail_label_to_categories:
-                # Check if we have this category in the database
-                for cat_id, details in self.rules["categories"].items():
-                    if details["name"].lower() == mapped_name:
-                        gmail_label_to_categories[label] = mapped_name
-                        break
-        
-        # Apply Gmail category labels
-        for label, category_name in gmail_label_to_categories.items():
-            if label in gmail_labels:
-                priority = self.category_priorities.get(category_name, 50)
-                candidate_categories.append((category_name, priority, 'gmail_category'))
-        
-        # Check subject keywords
+        # Check subject keywords and sender patterns in parallel for better performance
         subject_matches = self.get_subject_category_matches(subject)
-        candidate_categories.extend(subject_matches)
-        
-        # Check sender patterns
         sender_matches = self.get_sender_category_matches(from_email)
+        
+        # Combine all matches
+        candidate_categories.extend(subject_matches)
         candidate_categories.extend(sender_matches)
         
-        # Default to primary if no matches
+        # If no matches, try to find a default category
         if not candidate_categories:
             # Find primary category if it exists
-            for cat_id, details in self.rules["categories"].items():
-                if details["name"] == "primary":
+            for cat_id, details in self.sorted_categories:
+                if details["name"].lower() == "primary":
                     return details["name"]
-            # If no primary category exists, return the first category or a default
-            return next(iter(self.category_id_to_name.values()), "primary")
+            # If no primary category exists, return the first category (highest priority) or a default
+            return self.sorted_categories[0][1]["name"] if self.sorted_categories else "primary"
         
-        # Sort by priority (lower is higher priority) and return the highest priority match
+        # Sort by priority (lower number = higher priority) and return the highest priority match
         candidate_categories.sort(key=lambda x: x[1])
         best_match = candidate_categories[0]
         
@@ -259,9 +301,14 @@ def determine_category(
     Returns:
         Category string
     """
-    # Always use the dynamic categorizer with database rules
-    categorizer = DynamicEmailCategorizer(db, user_id)
-    return categorizer.categorize_email(gmail_labels, subject, from_email)
+    try:
+        # Always use the dynamic categorizer with database rules
+        categorizer = DynamicEmailCategorizer(db, user_id)
+        return categorizer.categorize_email(gmail_labels, subject, from_email)
+    except Exception as e:
+        logger.error(f"Error determining category: {str(e)}", exc_info=True)
+        # Fallback to primary if an error occurs
+        return "primary"
 
 
 def categorize_email(email_data: Dict[str, Any], db: Session, user_id: Optional[UUID] = None) -> str:
@@ -276,8 +323,13 @@ def categorize_email(email_data: Dict[str, Any], db: Session, user_id: Optional[
     Returns:
         Category string
     """
-    gmail_labels = email_data.get('labels', [])
-    subject = email_data.get('subject', '')
-    from_email = email_data.get('from_email', '')
-    
-    return determine_category(gmail_labels, subject, from_email, db, user_id) 
+    try:
+        gmail_labels = email_data.get('labels', [])
+        subject = email_data.get('subject', '')
+        from_email = email_data.get('from_email', '')
+        
+        return determine_category(gmail_labels, subject, from_email, db, user_id)
+    except Exception as e:
+        logger.error(f"Error categorizing email: {str(e)}", exc_info=True)
+        # Fallback to primary if an error occurs
+        return "primary" 

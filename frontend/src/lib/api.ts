@@ -577,6 +577,12 @@ export async function reprocessAllEmails(): Promise<any> {
   });
 }
 
+export async function deleteCategory(categoryName: string): Promise<any> {
+  return fetchWithAuth(`/email-management/categories/${categoryName}`, {
+    method: 'DELETE'
+  });
+}
+
 export interface CreateCategoryRequest {
   name: string;
   display_name: string;

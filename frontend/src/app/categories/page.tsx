@@ -10,11 +10,14 @@ import {
   getCategoryKeywords,
   getCategorySenderRules,
   reprocessAllEmails,
+  deleteCategory,
   type Category,
   type CategoryKeyword,
   type SenderRule,
   type CreateCategoryRequest
 } from '@/lib/api';
+import { TrashIcon } from '@heroicons/react/24/outline';
+import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
 
 // New category form component 
 function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
@@ -152,12 +155,18 @@ export default function CategoriesPage() {
   const [selectedCategoryKeywords, setSelectedCategoryKeywords] = useState<CategoryKeyword[]>([]);
   const [selectedCategorySenderRules, setSelectedCategorySenderRules] = useState<SenderRule[]>([]);
   const [loadingRules, setLoadingRules] = useState(false);
+  const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+  const [creatingTestCategory, setCreatingTestCategory] = useState(false);
 
   useEffect(() => {
     async function fetchCategories() {
       try {
         setLoading(true);
         const response = await getCategoriesApi();
+        console.log('Fetched categories:', response.data);
+        console.log('Non-system categories:', response.data.filter(cat => !cat.is_system));
         setCategories(response.data);
       } catch (err) {
         setError('Failed to load categories');
@@ -259,8 +268,84 @@ export default function CategoriesPage() {
     }
   };
 
+  const handleDeleteCategory = async (category: Category) => {
+    setCategoryToDelete(category);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteCategory = async () => {
+    if (!categoryToDelete) return;
+    
+    try {
+      setDeletingCategory(categoryToDelete.name);
+      await deleteCategory(categoryToDelete.name);
+      setRefreshTrigger(prev => prev + 1); // Trigger a refresh
+      
+      // Dispatch an event to notify the layout that categories have changed
+      // This will refresh the navigation sidebar
+      const event = new CustomEvent(EMAIL_SYNC_COMPLETED_EVENT);
+      window.dispatchEvent(event);
+      
+      alert(`Category "${categoryToDelete.display_name}" deleted successfully`);
+    } catch (err) {
+      console.error('Error deleting category:', err);
+      if (err instanceof Error && err.message.includes('403')) {
+        alert('System categories cannot be deleted');
+      } else {
+        alert('Failed to delete category');
+      }
+    } finally {
+      setDeletingCategory(null);
+      setShowDeleteConfirm(false);
+      setCategoryToDelete(null);
+    }
+  };
+
   const handleCategoryAdded = () => {
     setRefreshTrigger(prev => prev + 1); // Refresh the list
+    
+    // Dispatch an event to notify the layout that categories have changed
+    // This will refresh the navigation sidebar
+    const event = new CustomEvent(EMAIL_SYNC_COMPLETED_EVENT);
+    window.dispatchEvent(event);
+  };
+
+  const createTestCategory = async () => {
+    const timestamp = new Date().getTime();
+    const testName = `test_category_${timestamp}`;
+    const testDisplayName = `Test Category ${timestamp}`;
+    
+    try {
+      setCreatingTestCategory(true);
+      console.log("Creating test category:", { 
+        name: testName, 
+        display_name: testDisplayName,
+        is_system: false // Explicitly log this to confirm
+      });
+      
+      const response = await createCategory({
+        name: testName,
+        display_name: testDisplayName,
+        description: "This is a test category",
+        priority: 10,
+      });
+      
+      console.log("Test category created successfully:", response);
+      
+      // Refresh categories
+      setRefreshTrigger(prev => prev + 1);
+      
+      // Trigger navigation refresh
+      const event = new CustomEvent(EMAIL_SYNC_COMPLETED_EVENT);
+      window.dispatchEvent(event);
+      
+      alert(`Test category "${testDisplayName}" created successfully!\nThis is a custom (non-system) category that should display the delete button.`);
+    } catch (error) {
+      console.error("Error creating test category:", error);
+      alert(`Failed to create test category: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setCreatingTestCategory(false);
+    }
   };
 
   return (
@@ -271,6 +356,13 @@ export default function CategoriesPage() {
           <p className="text-gray-600">Manage your email categories and classification rules</p>
         </div>
         <div className="flex space-x-4">
+          <button 
+            onClick={createTestCategory}
+            disabled={creatingTestCategory}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50"
+          >
+            {creatingTestCategory ? 'Creating...' : 'Create Test Category'}
+          </button>
           <button 
             onClick={handleReprocessEmails}
             disabled={reprocessingEmails}
@@ -311,11 +403,16 @@ export default function CategoriesPage() {
                     key={category.id} 
                     className="bg-white rounded-lg shadow-md p-6 border border-gray-200 hover:shadow-lg transition-shadow"
                   >
-                    <h2 className="text-xl font-semibold mb-2">{category.display_name}</h2>
+                    <h2 className="text-xl font-semibold mb-2">
+                      {category.display_name}
+                      <span className="ml-2 text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">
+                        {category.is_system ? 'System' : 'Custom'}
+                      </span>
+                    </h2>
                     <p className="text-gray-600 mb-4">{category.description || 'No description'}</p>
                     <div className="flex justify-between text-sm text-gray-500">
                       <span>Priority: {category.priority}</span>
-                      <span>{category.is_system ? 'System' : 'Custom'}</span>
+                      <span>ID: {category.id}</span>
                     </div>
                     <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between">
                       <div className="text-sm">
@@ -325,7 +422,7 @@ export default function CategoriesPage() {
                         <span className="font-medium">Sender Rules:</span> {category.sender_rule_count}
                       </div>
                     </div>
-                    <div className="mt-4 flex space-x-2">
+                    <div className="mt-4 flex flex-wrap gap-2">
                       <button 
                         onClick={() => {
                           setSelectedCategory(category);
@@ -350,6 +447,19 @@ export default function CategoriesPage() {
                       >
                         View Rules
                       </button>
+                      
+                      {/* Delete button - only shown for non-system categories */}
+                      {!category.is_system && (
+                        <button 
+                          onClick={() => handleDeleteCategory(category)}
+                          disabled={deletingCategory === category.name}
+                          className="text-sm bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1 rounded flex items-center"
+                          title="Delete Category"
+                        >
+                          <TrashIcon className="h-4 w-4 mr-1" />
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))
@@ -539,8 +649,51 @@ export default function CategoriesPage() {
               </div>
             </div>
           )}
+
+          {/* Delete Confirmation Modal */}
+          {showDeleteConfirm && categoryToDelete && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
+                <h3 className="text-xl font-semibold mb-4">Delete Category</h3>
+                <p className="mb-6">
+                  Are you sure you want to delete the category "{categoryToDelete.display_name}"? 
+                  This will remove all associated keywords and sender rules. 
+                  Emails in this category will be moved to the primary category.
+                </p>
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={() => {
+                      setShowDeleteConfirm(false);
+                      setCategoryToDelete(null);
+                    }}
+                    className="bg-gray-300 hover:bg-gray-400 text-gray-800 font-medium py-2 px-4 rounded"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeleteCategory}
+                    disabled={deletingCategory === categoryToDelete.name}
+                    className="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50"
+                  >
+                    {deletingCategory === categoryToDelete.name ? 'Deleting...' : 'Delete Category'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Debugging section */}
+      <div className="mt-8 border-t pt-8">
+        <h3 className="text-lg font-semibold mb-4">Debug Information</h3>
+        <div className="bg-gray-50 p-4 rounded overflow-auto max-h-96">
+          <h4 className="font-medium mb-2">Categories Raw Data:</h4>
+          <pre className="text-xs text-gray-700">
+            {JSON.stringify(categories, null, 2)}
+          </pre>
+        </div>
+      </div>
     </div>
   );
 } 
