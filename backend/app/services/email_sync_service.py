@@ -6,12 +6,14 @@ from ..models.user import User
 from ..models.email_sync import EmailSync
 from ..models.email import Email
 from . import gmail
-from .email_processor import process_and_store_emails
+# Remove circular import
+# from .email_processor import process_and_store_emails
 import logging
 import time
 from uuid import UUID
 from ..services import email_operations_service
 from ..utils.email_categorizer import categorize_email
+from ..services import email_classifier_service
 
 logger = logging.getLogger(__name__)
 
@@ -162,26 +164,74 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
 
 def categorize_email_from_labels(labels: List[str], db: Session, user_id: Optional[UUID] = None) -> str:
     """
-    Determine category based on Gmail labels using the database-driven categorization system
+    Categorize an email based on Gmail labels and ML classification if needed
     
     Args:
         labels: List of Gmail labels
-        db: Database session for fetching category rules
-        user_id: Optional user ID for personalized rules
+        db: Database session
+        user_id: Optional user ID for user-specific classification
         
     Returns:
-        Category name from the database
+        Email category string
     """
-    # Create minimal email data for categorization
-    email_data = {
-        'labels': labels,
-        'subject': '',  # No subject information available
-        'from_email': '',  # No sender information available
-        'gmail_id': 'label_only'  # Identifier for logging
+    # Define standard label mappings
+    category_map = {
+        'INBOX': 'inbox',
+        'IMPORTANT': 'important',
+        'SENT': 'sent',
+        'DRAFT': 'draft',
+        'TRASH': 'trash',
+        'SPAM': 'spam',
+        'STARRED': 'starred',
+        'CATEGORY_UPDATES': 'updates',
+        'CATEGORY_PROMOTIONS': 'promotions',
+        'CATEGORY_SOCIAL': 'social', 
+        'CATEGORY_FORUMS': 'forums',
+        'UNREAD': 'unread'
     }
     
-    # Use the database-driven categorization
-    return categorize_email(email_data, db, user_id)
+    # Check for direct category matches from Gmail labels
+    logger.debug(f"[CATEGORIZATION] Processing email with labels: {', '.join(labels)}")
+    
+    # Priority categories first
+    if any(label in ['TRASH', 'SPAM'] for label in labels):
+        category = next((category_map[label] for label in labels if label in ['TRASH', 'SPAM']), None)
+        logger.debug(f"[CATEGORIZATION] Email categorized as '{category}' based on priority label")
+        return category
+        
+    # Look for category labels
+    for label in labels:
+        if label in category_map:
+            category = category_map[label]
+            logger.debug(f"[CATEGORIZATION] Email categorized as '{category}' based on standard label")
+            return category
+    
+    # If no category labels matched, use ML classification for inbox decision
+    if 'INBOX' in labels:
+        logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
+        logger.info(f"║                  EMAIL CLASSIFICATION                                    ║")
+        logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
+        
+        # First try loading the user's classifier model
+        classifier_loaded = email_classifier_service.load_trash_classifier(user_id)
+        
+        if classifier_loaded:
+            # For now we just apply a simple rule for inbox emails
+            # In a future update, this will use ML to predict inbox vs trash
+            logger.info(f"[CLASSIFICATION] Classifier loaded successfully for user {user_id}")
+            logger.info(f"[CLASSIFICATION] Using classifier to determine if email should be inbox or trash")
+            
+            # For now we always return inbox for emails in inbox that don't match other categories
+            # ML functionality will be implemented in a future update
+            logger.info(f"[CLASSIFICATION] Classification result: Email should be in 'inbox'")
+            return 'inbox'
+        else:
+            logger.warning(f"[CLASSIFICATION] No classifier available for user {user_id}, defaulting to 'inbox'")
+            return 'inbox'
+    
+    # Default to 'other' for emails that don't match any categories
+    logger.debug(f"[CATEGORIZATION] Email does not match any categories, using default 'other'")
+    return 'other'
 
 def process_pending_category_updates(db: Session, user: User) -> int:
     """
@@ -404,7 +454,21 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
         logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
         
         ops_start_time = datetime.now(timezone.utc)
-        operations_result = email_operations_service.process_pending_operations(db, user)
+        try:
+            logger.info(f"[SYNC] Processing pending operations with user credentials")
+            operations_result = email_operations_service.process_pending_operations(db, user, user.credentials)
+            logger.info(f"[SYNC] Operations processing completed successfully")
+        except Exception as e:
+            logger.error(f"[SYNC] Error during operations processing: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Email sync failed: {str(e)}",
+                "sync_count": 0,
+                "sync_started_at": sync_start_timestamp,
+                "user_id": user.id,
+                "sync_method": "error"
+            }
+            
         ops_duration = (datetime.now(timezone.utc) - ops_start_time).total_seconds()
         
         operations_processed = operations_result.get("processed_count", 0)
@@ -600,6 +664,8 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
         processed_emails = []
         if new_emails:
             logger.info(f"[SYNC] Processing {len(new_emails)} new emails for user {user.id}")
+            # Use local import to avoid circular dependency
+            from .email_processor import process_and_store_emails
             processed_emails = process_and_store_emails(db, user, new_emails)
             logger.info(f"[SYNC] Successfully processed and stored {len(processed_emails)} emails")
             

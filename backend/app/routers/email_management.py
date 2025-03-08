@@ -3,7 +3,7 @@ API routes for email management operations.
 """
 import logging
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime, date
@@ -23,6 +23,10 @@ from ..services.category_service import (
     add_user_sender_rule
 )
 from ..models.email_category import EmailCategory, CategoryKeyword, SenderRule
+from ..models.email_trash_event import EmailTrashEvent
+from ..services.email_classifier_service import (
+    train_trash_classifier, load_trash_classifier, retrain_all_models, bootstrap_training_data
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,106 @@ router = APIRouter(
     tags=["Email Management"],
     responses={404: {"description": "Not found"}},
 )
+
+@router.post("/classifier/train", response_model=Dict[str, Any])
+async def train_classifier(
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Train the Naive Bayes classifier for trash email detection.
+    Training is performed asynchronously in the background.
+    
+    Returns:
+        Dictionary with status
+    """
+    # Start the training in the background
+    background_tasks.add_task(train_trash_classifier, db, user.id, True)
+    
+    return {
+        "status": "training_started",
+        "message": "Classifier training has been started in the background"
+    }
+
+@router.get("/classifier/status", response_model=Dict[str, Any])
+async def get_classifier_status(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get the status of the Naive Bayes classifier.
+    
+    Returns:
+        Dictionary with classifier status
+    """
+    # Try to load the model to check if it exists
+    model_loaded = load_trash_classifier(user.id)
+    
+    # If user-specific model doesn't exist, try the global model
+    if not model_loaded:
+        model_loaded = load_trash_classifier(None)
+    
+    # Get event counts for training data information
+    trash_events_count = db.query(EmailTrashEvent).filter(
+        EmailTrashEvent.user_id == user.id
+    ).count()
+    
+    return {
+        "is_model_available": model_loaded,
+        "trash_events_count": trash_events_count,
+        "recommended_min_events": 10,
+        "message": "Model is ready for use" if model_loaded else "Model needs training"
+    }
+
+@router.post("/classifier/retrain-all", response_model=Dict[str, Any])
+async def admin_retrain_all_models(
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Admin endpoint to retrain all models (global and per-user).
+    Requires admin privileges.
+    
+    Returns:
+        Dictionary with status
+    """
+    # Check if user is admin
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    
+    # Start the retraining in the background
+    background_tasks.add_task(retrain_all_models, db)
+    
+    return {
+        "status": "retraining_started",
+        "message": "All models retraining has been started in the background"
+    }
+
+@router.post("/classifier/bootstrap", response_model=Dict[str, Any])
+async def bootstrap_classifier_data(
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Bootstrap the classifier training data by using existing trash emails.
+    This allows training the model without requiring additional user actions.
+    
+    Returns:
+        Dictionary with status
+    """
+    # Start the bootstrapping in the background
+    background_tasks.add_task(bootstrap_training_data, db, user.id)
+    
+    return {
+        "status": "bootstrapping_started",
+        "message": "Using your existing trash emails to prepare training data. This may take a few minutes."
+    }
 
 class ReprocessFilter(BaseModel):
     """Filter criteria for email reprocessing"""

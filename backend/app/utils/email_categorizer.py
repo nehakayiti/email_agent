@@ -11,8 +11,18 @@ from sqlalchemy.orm import Session
 from uuid import UUID
 from ..services.category_service import get_categorization_rules
 from functools import lru_cache
+from ..models.email_category import EmailCategory, CategoryKeyword, SenderRule
+import json
+
+# Import the Naive Bayes classifier
+from .naive_bayes_classifier import classify_email as nbc_classify_email, record_trash_event
 
 logger = logging.getLogger(__name__)
+
+# Constants for weighted decision making
+ML_CONFIDENCE_THRESHOLD = 0.75  # High confidence threshold for ML
+RULES_CONFIDENCE_THRESHOLD = 0.7  # Threshold for rules-based approach
+ML_RULES_WEIGHT = 0.7  # Weight for ML decision when combining with rules
 
 # LRU cache for compiled regex patterns to improve performance
 @lru_cache(maxsize=100)
@@ -314,6 +324,8 @@ def determine_category(
 def categorize_email(email_data: Dict[str, Any], db: Session, user_id: Optional[UUID] = None) -> str:
     """
     Helper function to categorize an email from standard email data dictionary.
+    This is an enhanced version that combines rule-based categorization with 
+    machine learning for trash detection.
     
     Args:
         email_data: Dictionary containing email data
@@ -327,8 +339,74 @@ def categorize_email(email_data: Dict[str, Any], db: Session, user_id: Optional[
         gmail_labels = email_data.get('labels', [])
         subject = email_data.get('subject', '')
         from_email = email_data.get('from_email', '')
+        gmail_id = email_data.get('gmail_id', 'unknown')
         
-        return determine_category(gmail_labels, subject, from_email, db, user_id)
+        # Fast path: Gmail already marked it as trash
+        if 'TRASH' in gmail_labels:
+            logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as 'trash' based on Gmail TRASH label")
+            return "trash"
+        
+        # First try the rules-based approach
+        rules_category = determine_category(gmail_labels, subject, from_email, db, user_id)
+        
+        # If the rules-based approach determined it's trash, we're done
+        if rules_category == "trash":
+            logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as 'trash' based on rules")
+            
+            # Record the event for ML training if we have an email ID
+            if 'id' in email_data and user_id:
+                record_trash_event(
+                    db=db,
+                    email_id=email_data['id'],
+                    user_id=user_id,
+                    event_type='moved_to_trash',
+                    email_data=email_data,
+                    is_auto_categorized=True,
+                    categorization_source='rules',
+                    confidence_score=RULES_CONFIDENCE_THRESHOLD
+                )
+            
+            return "trash"
+        
+        # Next, try the ML-based approach for trash identification
+        try:
+            ml_category, confidence = nbc_classify_email(email_data)
+            
+            # If ML model predicts trash with high confidence, use it
+            if ml_category == 'trash' and confidence >= ML_CONFIDENCE_THRESHOLD:
+                logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as 'trash' by ML model with confidence {confidence:.2f}")
+                
+                # Record the event for ML training if we have an email ID
+                if 'id' in email_data and user_id:
+                    record_trash_event(
+                        db=db,
+                        email_id=email_data['id'],
+                        user_id=user_id,
+                        event_type='moved_to_trash',
+                        email_data=email_data,
+                        is_auto_categorized=True,
+                        categorization_source='ml',
+                        confidence_score=confidence
+                    )
+                
+                return "trash"
+            
+            # For borderline cases, use weighted decision
+            if ml_category == 'trash' and confidence >= 0.6:
+                # Log for inspection
+                logger.info(f"[CATEGORIZER] Borderline trash case: {gmail_id}, ML confidence: {confidence:.2f}")
+                
+                # Use rules as default in borderline cases
+                return rules_category
+                
+        except Exception as e:
+            logger.error(f"[CATEGORIZER] Error in ML categorization for {gmail_id}: {str(e)}", exc_info=True)
+            # Continue with rules-based categorization on ML error
+        
+        # If we get here, use the rules-based categorization result
+        logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as '{rules_category}' based on rules")
+        return rules_category
+        
     except Exception as e:
         logger.error(f"Error categorizing email: {str(e)}", exc_info=True)
         # Fallback to primary if an error occurs

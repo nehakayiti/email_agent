@@ -526,6 +526,13 @@ export interface SenderRule {
   user_id: string | null;
 }
 
+export interface ClassifierStatus {
+  is_model_available: boolean;
+  trash_events_count: number;
+  recommended_min_events: number;
+  message: string;
+}
+
 interface CategoriesResponse {
   data: Category[];
 }
@@ -577,6 +584,16 @@ export async function reprocessAllEmails(): Promise<any> {
   });
 }
 
+export async function trainTrashClassifier(): Promise<any> {
+  return fetchWithAuth('/email-management/classifier/train', {
+    method: 'POST'
+  });
+}
+
+export async function getTrashClassifierStatus(): Promise<ClassifierStatus> {
+  return fetchWithAuth<ClassifierStatus>('/email-management/classifier/status');
+}
+
 export async function deleteCategory(categoryName: string): Promise<any> {
   return fetchWithAuth(`/email-management/categories/${categoryName}`, {
     method: 'DELETE'
@@ -594,5 +611,11 @@ export async function createCategory(data: CreateCategoryRequest): Promise<Categ
   return fetchWithAuth('/email-management/categories', {
     method: 'POST',
     body: JSON.stringify(data)
+  });
+}
+
+export async function bootstrapTrashClassifier(): Promise<any> {
+  return fetchWithAuth('/email-management/classifier/bootstrap', {
+    method: 'POST'
   });
 } 

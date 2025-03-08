@@ -10,6 +10,7 @@ from ..models.email import Email
 from ..models.user import User
 from ..models.email_operation import EmailOperation, OperationType, OperationStatus
 from . import gmail
+from ..utils.naive_bayes_classifier import record_trash_event
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +124,10 @@ def mark_operation_failed(
     logger.info(f"[OPS] Marked operation {operation.id} as failed: {error_message}")
     return operation
 
-def execute_operation(
+async def execute_operation(
     db: Session,
-    operation: EmailOperation
+    operation: EmailOperation,
+    credentials: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Execute a single email operation by sending it to Gmail
@@ -133,6 +135,7 @@ def execute_operation(
     Args:
         db: Database session
         operation: EmailOperation to execute
+        credentials: User's Gmail API credentials
         
     Returns:
         Dictionary with execution result
@@ -141,7 +144,7 @@ def execute_operation(
         # Mark as processing
         operation.status = OperationStatus.PROCESSING
         operation.retries += 1
-        operation.updated_at = datetime.now(timezone.utc)
+        operation.updated_at = datetime.now()
         db.commit()
         
         # Get the email and user
@@ -151,10 +154,11 @@ def execute_operation(
         if not email or not user:
             error_msg = f"Email or user not found for operation {operation.id}"
             logger.error(f"[OPS] {error_msg}")
-            return mark_operation_failed(db, operation, error_msg)
+            operation = mark_operation_failed(db, operation, error_msg)
+            return {"success": False, "error": error_msg}
         
         # Format a descriptive email identifier for logs
-        email_desc = f"'{email.subject[:40]}...' ({email.gmail_id})"
+        email_desc = f"'{email.subject[:40] if email.subject else 'No subject'}...' ({email.gmail_id})"
         
         logger.info(f"[EA→GMAIL] Processing {operation.operation_type} operation for email: {email_desc}")
         
@@ -162,23 +166,25 @@ def execute_operation(
         if operation.operation_type == OperationType.DELETE:
             # Move to trash
             logger.info(f"[EA→GMAIL] Trashing email: {email_desc}")
-            result = gmail.update_email_labels(
-                user.credentials,
+            result = await gmail.update_email_labels(
+                credentials,
                 email.gmail_id,
                 add_labels=['TRASH'],
                 remove_labels=['INBOX']
             )
             logger.info(f"[EA→GMAIL] ✓ Email moved to trash: {email_desc}")
+            return {"success": True}
             
         elif operation.operation_type == OperationType.ARCHIVE:
             # Archive email (remove from inbox)
             logger.info(f"[EA→GMAIL] Archiving email: {email_desc}")
-            result = gmail.update_email_labels(
-                user.credentials,
+            result = await gmail.update_email_labels(
+                credentials,
                 email.gmail_id,
                 remove_labels=['INBOX']
             )
             logger.info(f"[EA→GMAIL] ✓ Email archived: {email_desc}")
+            return {"success": True}
             
         elif operation.operation_type == OperationType.UPDATE_LABELS:
             # Update labels
@@ -191,70 +197,36 @@ def execute_operation(
                 labels_desc.append(f"adding {add_labels}")
             if remove_labels:
                 labels_desc.append(f"removing {remove_labels}")
+                
+            action_desc = " & ".join(labels_desc)
+            logger.info(f"[EA→GMAIL] Updating email labels ({action_desc}): {email_desc}")
             
-            labels_change = " & ".join(labels_desc)
-            logger.info(f"[EA→GMAIL] Updating labels ({labels_change}): {email_desc}")
-            
-            result = gmail.update_email_labels(
-                user.credentials,
+            result = await gmail.update_email_labels(
+                credentials,
                 email.gmail_id,
                 add_labels=add_labels,
                 remove_labels=remove_labels
             )
-            logger.info(f"[EA→GMAIL] ✓ Labels updated: {email_desc}")
             
-        elif operation.operation_type == OperationType.MARK_READ:
-            # Mark as read (remove UNREAD label)
-            logger.info(f"[EA→GMAIL] Marking as read: {email_desc}")
-            result = gmail.update_email_labels(
-                user.credentials,
-                email.gmail_id,
-                remove_labels=['UNREAD']
-            )
-            logger.info(f"[EA→GMAIL] ✓ Marked as read: {email_desc}")
-            
-        elif operation.operation_type == OperationType.MARK_UNREAD:
-            # Mark as unread (add UNREAD label)
-            logger.info(f"[EA→GMAIL] Marking as unread: {email_desc}")
-            result = gmail.update_email_labels(
-                user.credentials,
-                email.gmail_id,
-                add_labels=['UNREAD']
-            )
-            logger.info(f"[EA→GMAIL] ✓ Marked as unread: {email_desc}")
+            logger.info(f"[EA→GMAIL] ✓ Email labels updated: {email_desc}")
+            return {"success": True}
             
         else:
-            # Unknown operation type
-            error_msg = f"Unknown operation type: {operation.operation_type}"
+            error_msg = f"Unsupported operation type: {operation.operation_type}"
             logger.error(f"[OPS] {error_msg}")
-            return mark_operation_failed(db, operation, error_msg)
-            
-        # If we got here, operation was successful
-        return mark_operation_complete(db, operation)
+            operation = mark_operation_failed(db, operation, error_msg)
+            return {"success": False, "error": error_msg}
             
     except Exception as e:
-        error_msg = str(e)
-        logger.error(
-            f"[EA→GMAIL] ✗ Error executing operation {operation.id}: "
-            f"{error_msg[:100]}{'...' if len(error_msg) > 100 else ''}", 
-            exc_info=True
-        )
-        
-        # Check if we need to retry
-        if "Rate Limit Exceeded" in error_msg or "ServiceUnavailable" in error_msg:
-            operation.status = OperationStatus.RETRYING
-            operation.error_message = error_msg
-            operation.updated_at = datetime.now(timezone.utc)
-            db.commit()
-            logger.info(f"[EA→GMAIL] Operation {operation.id} marked for retry due to rate limit")
-            return {"status": "retrying", "message": error_msg}
-            
-        # Mark as failed for other errors
-        return mark_operation_failed(db, operation, error_msg)
+        error_msg = f"Error executing operation: {str(e)}"
+        logger.error(f"[OPS] {error_msg}", exc_info=True)
+        operation = mark_operation_failed(db, operation, error_msg)
+        return {"success": False, "error": error_msg}
 
 def process_pending_operations(
     db: Session,
     user: User,
+    credentials: Dict[str, Any] = None,
     max_operations: int = 20
 ) -> Dict[str, Any]:
     """
@@ -263,6 +235,7 @@ def process_pending_operations(
     Args:
         db: Database session
         user: User model instance
+        credentials: User's Gmail API credentials
         max_operations: Maximum number of operations to process in one batch
         
     Returns:
@@ -281,7 +254,9 @@ def process_pending_operations(
             "failure_count": 0,
             "retry_count": 0
         }
-        
+    
+    logger.info(f"[OPS] Processing {len(operations)} pending operations for user {user.id}")
+    
     # Process each operation
     results = {
         "success": 0,
@@ -290,14 +265,26 @@ def process_pending_operations(
     }
     
     for operation in operations:
-        result = execute_operation(db, operation)
+        operation_id = operation.id
+        operation_type = operation.operation_type
+        logger.info(f"[OPS] Processing operation {operation_id}: {operation_type}")
         
-        if operation.status == OperationStatus.COMPLETED:
-            results["success"] += 1
-        elif operation.status == OperationStatus.FAILED:
+        try:
+            result = execute_operation(db, operation, credentials)
+            
+            if operation.status == OperationStatus.COMPLETED:
+                results["success"] += 1
+                logger.info(f"[OPS] Operation {operation_id} completed successfully")
+            elif operation.status == OperationStatus.FAILED:
+                results["failure"] += 1
+                logger.info(f"[OPS] Operation {operation_id} failed: {operation.error_message}")
+            elif operation.status == OperationStatus.RETRYING:
+                results["retry"] += 1
+                logger.info(f"[OPS] Operation {operation_id} scheduled for retry")
+        except Exception as e:
+            logger.error(f"[OPS] Error processing operation {operation_id}: {str(e)}")
+            mark_operation_failed(db, operation, str(e))
             results["failure"] += 1
-        elif operation.status == OperationStatus.RETRYING:
-            results["retry"] += 1
     
     # Return summary
     logger.info(
@@ -312,4 +299,80 @@ def process_pending_operations(
         "success_count": results["success"],
         "failure_count": results["failure"],
         "retry_count": results["retry"]
+    }
+
+async def process_operations(
+    db: Session,
+    user: User,
+    credentials: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Process pending email operations and sync them with Gmail
+    
+    Args:
+        db: Database session
+        user: User model instance
+        credentials: User's Gmail API credentials
+        
+    Returns:
+        Dictionary with results
+    """
+    logger.info(f"[OPERATIONS] Processing pending operations for user {user.id}")
+    
+    pending_operations = get_pending_operations(db, user.id)
+    if not pending_operations:
+        logger.info(f"[OPERATIONS] No pending operations for user {user.id}")
+        return {"processed": 0, "succeeded": 0, "failed": 0}
+    
+    logger.info(f"[OPERATIONS] Found {len(pending_operations)} pending operations")
+    
+    success_count = 0
+    failed_count = 0
+    processed_operations = []
+    
+    for operation in pending_operations:
+        try:
+            # Mark as processing
+            operation = update_operation_status(db, operation, OperationStatus.PROCESSING)
+            
+            # Execute the operation
+            result = await execute_operation(db, operation, credentials)
+            
+            if result.get("success", False):
+                # Mark as completed
+                operation = update_operation_status(db, operation, OperationStatus.COMPLETED)
+                success_count += 1
+                processed_operations.append(operation)
+            else:
+                # Mark as failed
+                error_message = result.get("error", "Unknown error")
+                operation = update_operation_status(
+                    db, operation, OperationStatus.FAILED, error_message
+                )
+                failed_count += 1
+        except Exception as e:
+            logger.error(f"[OPERATIONS] Error processing operation {operation.id}: {str(e)}", exc_info=True)
+            # Mark as failed
+            update_operation_status(
+                db, operation, OperationStatus.FAILED, str(e)
+            )
+            failed_count += 1
+    
+    # Record trash events for training data
+    try:
+        # Only record operations that were successful
+        trash_operations = [op for op in processed_operations if op.operation_type == OperationType.DELETE]
+        if trash_operations:
+            from .email_classifier_service import record_trash_operations
+            record_trash_operations(db, trash_operations)
+            logger.info(f"[OPERATIONS] Recorded {len(trash_operations)} trash events for training data")
+    except Exception as e:
+        logger.error(f"[OPERATIONS] Error recording trash events: {str(e)}", exc_info=True)
+    
+    logger.info(f"[OPERATIONS] Processed {len(pending_operations)} operations: {success_count} succeeded, {failed_count} failed")
+    
+    return {
+        "processed": len(pending_operations),
+        "succeeded": success_count,
+        "failed": failed_count
     } 

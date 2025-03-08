@@ -5,6 +5,9 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "AgentMailbox"
     VERSION: str = "0.1.0"
     
+    # Debug setting
+    DEBUG: bool = False
+    
     # Google OAuth Settings
     GOOGLE_CLIENT_ID: str
     GOOGLE_CLIENT_SECRET: str
@@ -12,6 +15,7 @@ class Settings(BaseSettings):
     
     # Frontend Settings
     FRONTEND_URL: str = "http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
     
     # Database Settings
     DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/email_agent_db"

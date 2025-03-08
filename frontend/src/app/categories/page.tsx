@@ -11,12 +11,16 @@ import {
   getCategorySenderRules,
   reprocessAllEmails,
   deleteCategory,
+  trainTrashClassifier,
+  getTrashClassifierStatus,
+  bootstrapTrashClassifier,
   type Category,
   type CategoryKeyword,
   type SenderRule,
-  type CreateCategoryRequest
+  type CreateCategoryRequest,
+  type ClassifierStatus
 } from '@/lib/api';
-import { TrashIcon } from '@heroicons/react/24/outline';
+import { TrashIcon, BeakerIcon } from '@heroicons/react/24/outline';
 import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
 
 // New category form component 
@@ -158,6 +162,10 @@ export default function CategoriesPage() {
   const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+  const [trainingClassifier, setTrainingClassifier] = useState(false);
+  const [classifierStatus, setClassifierStatus] = useState<ClassifierStatus | null>(null);
+  const [loadingClassifierStatus, setLoadingClassifierStatus] = useState(false);
+  const [bootstrappingData, setBootstrappingData] = useState(false);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -177,6 +185,69 @@ export default function CategoriesPage() {
 
     fetchCategories();
   }, [refreshTrigger]);
+
+  useEffect(() => {
+    // Fetch classifier status when the page loads
+    fetchClassifierStatus();
+  }, []);
+
+  const fetchClassifierStatus = async () => {
+    try {
+      setLoadingClassifierStatus(true);
+      const status = await getTrashClassifierStatus();
+      setClassifierStatus(status);
+    } catch (err) {
+      console.error('Error fetching classifier status:', err);
+    } finally {
+      setLoadingClassifierStatus(false);
+    }
+  };
+
+  const handleTrainClassifier = async () => {
+    try {
+      setTrainingClassifier(true);
+      await trainTrashClassifier();
+      alert('Trash classifier training has been started in the background. This may take a few minutes.');
+      
+      // Refresh the status after a delay to give the training process time to start
+      setTimeout(fetchClassifierStatus, 3000);
+    } catch (err) {
+      console.error('Error training classifier:', err);
+      alert('Failed to train classifier');
+    } finally {
+      setTrainingClassifier(false);
+    }
+  };
+
+  const handleBootstrapData = async () => {
+    try {
+      setBootstrappingData(true);
+      await bootstrapTrashClassifier();
+      alert('Successfully prepared training data from your 408+ trash emails. Starting training process now...');
+      
+      // After bootstrapping completes, automatically start the training process
+      try {
+        setTrainingClassifier(true);
+        await trainTrashClassifier();
+        alert('Training has started successfully! This may take a few minutes. The "Train Classifier" button will be enabled once training completes.');
+      } catch (trainingErr) {
+        console.error('Error starting training after bootstrap:', trainingErr);
+        alert('Bootstrap completed successfully, but there was an error starting the training. Please try clicking the Train Classifier button manually.');
+      } finally {
+        setTrainingClassifier(false);
+      }
+      
+      // Refresh the status after a delay to show updated event counts
+      setTimeout(fetchClassifierStatus, 5000);
+      // Then refresh again after a longer time to check if training completed
+      setTimeout(fetchClassifierStatus, 20000);
+    } catch (err) {
+      console.error('Error bootstrapping training data:', err);
+      alert('Failed to prepare training data from trash. Please try again or contact support if the issue persists.');
+    } finally {
+      setBootstrappingData(false);
+    }
+  };
 
   const handleInitializeCategories = async () => {
     try {
@@ -199,11 +270,17 @@ export default function CategoriesPage() {
       
       // Show a more detailed alert with the results
       const message = `
-        Reprocessing completed!
-        Total emails: ${result.total}
-        Processed: ${result.processed}
-        Category changes: ${Object.keys(result.category_changes).length}
-        Importance changes: ${result.importance_changes}
+        ✅ Reprocessing completed!
+        
+        📊 Summary:
+        • Total emails: ${result.total}
+        • Processed: ${result.processed}
+        • Category changes: ${Object.keys(result.category_changes).length}
+        • Emails moved to trash by ML: ${result.ml_classified_as_trash || 0}
+        • Importance changes: ${result.importance_changes}
+        • Duration: ${result.duration_seconds || 0}s
+        
+        The changes have been applied and will sync with Gmail on the next sync cycle.
       `;
       
       alert(message);
@@ -331,6 +408,209 @@ export default function CategoriesPage() {
           >
             {initializingCategories ? 'Initializing...' : 'Initialize Categories'}
           </button>
+        </div>
+      </div>
+
+      {/* New feature banner */}
+      <div className="mb-8 bg-gradient-to-r from-purple-100 to-indigo-100 rounded-lg p-4 border border-purple-200 flex items-center">
+        <div className="bg-purple-600 text-white p-2 rounded-full mr-4">
+          <BeakerIcon className="h-6 w-6" />
+        </div>
+        <div>
+          <h2 className="font-semibold text-purple-800">New Feature: ML-Powered Trash Detection</h2>
+          <p className="text-purple-700 text-sm">
+            Train our machine learning model to automatically identify trash emails based on your preferences.
+            Scroll down to the <span className="font-semibold">Trash Email Classifier</span> section below.
+          </p>
+        </div>
+      </div>
+
+      {/* ML Classifier Status Panel */}
+      <div className="mb-8 bg-white rounded-lg shadow-md p-6 border border-gray-200">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4">
+          <div>
+            <h2 className="text-xl font-semibold flex items-center">
+              <BeakerIcon className="h-6 w-6 mr-2 text-purple-600" />
+              Trash Email Classifier
+            </h2>
+            <p className="text-gray-600 mt-1">
+              Machine learning model to identify trash emails based on content and user behavior
+            </p>
+          </div>
+          <div className="mt-4 md:mt-0 text-center">
+            <button 
+              onClick={handleTrainClassifier}
+              disabled={trainingClassifier || (classifierStatus?.trash_events_count || 0) < 10}
+              className={`
+                py-3 px-6 rounded flex items-center transition-all duration-200 transform hover:scale-105
+                ${(classifierStatus?.trash_events_count || 0) >= 10 
+                  ? 'bg-green-600 hover:bg-green-700 text-white font-medium shadow-md' 
+                  : 'bg-gray-300 text-gray-700 cursor-not-allowed opacity-50'
+                }
+              `}
+            >
+              {trainingClassifier ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Training Model...</span>
+                </>
+              ) : (
+                <>
+                  <BeakerIcon className="h-5 w-5 mr-2" />
+                  <span>{(classifierStatus?.trash_events_count || 0) >= 10 ? 'Train Trash Classifier' : 'Need More Training Data'}</span>
+                </>
+              )}
+            </button>
+            {(classifierStatus?.trash_events_count || 0) < 10 && (
+              <div className="text-xs text-amber-600 mt-2 text-center">
+                Need at least 10 trash events to train
+              </div>
+            )}
+            {(classifierStatus?.trash_events_count || 0) >= 10 && !classifierStatus?.is_model_available && (
+              <div className="text-xs text-green-600 mt-2 text-center">
+                ✓ Ready to train! Click to start training
+              </div>
+            )}
+          </div>
+        </div>
+
+        {loadingClassifierStatus ? (
+          <div className="flex justify-center py-4">
+            <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-purple-500"></div>
+          </div>
+        ) : classifierStatus ? (
+          <>
+            {/* Show bootstrap option if we have insufficient training data but there are likely existing trash emails */}
+            {classifierStatus.trash_events_count < classifierStatus.recommended_min_events && (
+              <div className="mb-4 p-4 bg-yellow-50 rounded border border-yellow-200">
+                <div className="flex items-start">
+                  <div className="bg-yellow-500 text-white p-2 rounded-full mr-3 mt-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-yellow-700">You have 408+ emails in Trash!</h3>
+                    <p className="text-yellow-600 text-sm mt-1">
+                      We can use your existing trash emails for training the classifier instead of waiting to collect more events.
+                    </p>
+                    <button
+                      onClick={handleBootstrapData}
+                      disabled={bootstrappingData}
+                      className="mt-3 bg-yellow-600 hover:bg-yellow-700 text-white font-medium py-2 px-4 rounded flex items-center disabled:opacity-50"
+                    >
+                      {bootstrappingData ? (
+                        <>
+                          <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Processing...
+                        </>
+                      ) : (
+                        'Use Existing Trash Emails'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div className="bg-gray-50 p-4 rounded">
+                <div className="font-medium text-gray-700">Status</div>
+                <div className={`text-lg font-semibold ${classifierStatus.is_model_available ? 'text-green-600' : 'text-amber-600'}`}>
+                  {classifierStatus.is_model_available ? 'Model Active' : 'Not Available'}
+                </div>
+                {classifierStatus.is_model_available && (
+                  <div className="text-sm text-gray-600 mt-1">
+                    ML model will be used during email processing
+                  </div>
+                )}
+              </div>
+              <div className="bg-gray-50 p-4 rounded">
+                <div className="font-medium text-gray-700">Training Data</div>
+                <div className="flex items-center">
+                  <div className="text-lg font-semibold">
+                    {classifierStatus.trash_events_count} / {classifierStatus.recommended_min_events} events
+                  </div>
+                  <div className="ml-2">
+                    {classifierStatus.trash_events_count >= classifierStatus.recommended_min_events ? 
+                      <span className="text-green-500">✓</span> : 
+                      <span className="text-amber-500">⚠️</span>
+                    }
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                  <div className="bg-purple-600 h-2.5 rounded-full" style={{ 
+                    width: `${Math.min(100, (classifierStatus.trash_events_count / classifierStatus.recommended_min_events) * 100)}%` 
+                  }}></div>
+                </div>
+                {classifierStatus.trash_events_count < classifierStatus.recommended_min_events && (
+                  <div className="text-xs text-amber-600 mt-1">
+                    Move more emails to trash to improve training
+                  </div>
+                )}
+              </div>
+              <div className="bg-gray-50 p-4 rounded">
+                <div className="font-medium text-gray-700">Message</div>
+                <div className="text-sm text-gray-600">{classifierStatus.message}</div>
+                <div className="mt-2 text-xs text-blue-600">
+                  Use "Reprocess All Emails" to apply the classifier to your existing emails
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="bg-gray-50 p-4 rounded text-gray-600 mb-4">
+            Unable to fetch classifier status.
+          </div>
+        )}
+
+        {/* Add visible training instructions */}
+        <div className="mt-4 p-4 bg-blue-50 rounded border border-blue-200">
+          <h3 className="text-md font-semibold text-blue-800 mb-2">How to Train Your Classifier</h3>
+          <ol className="list-decimal list-inside text-sm text-blue-700 space-y-1">
+            <li>If you have existing emails in Trash, click the <b>"Use Existing Trash Emails"</b> button (when available)</li>
+            <li>Otherwise, move unwanted emails to <b>Trash</b> (at least 10 emails)</li>
+            <li>Click the <b>Train Trash Classifier</b> button above (it will activate once you have enough data)</li>
+            <li>After training, use <b>Reprocess All Emails</b> to apply the model to your emails</li>
+          </ol>
+          
+          {/* Add a big, prominent button here for clarity */}
+          {classifierStatus && classifierStatus.trash_events_count < classifierStatus.recommended_min_events && (
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={handleBootstrapData}
+                disabled={bootstrappingData}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-6 rounded-lg flex items-center disabled:opacity-50 shadow-md transform transition-transform hover:scale-105"
+              >
+                {bootstrappingData ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Processing Existing Trash...
+                  </>
+                ) : (
+                  <>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Use My 408+ Trash Emails for Training
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+          
+          <p className="text-xs text-blue-600 mt-2">
+            The more emails you move to trash, the better the classifier will become at identifying unwanted emails.
+          </p>
         </div>
       </div>
 

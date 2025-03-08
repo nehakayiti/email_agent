@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from .config import get_settings
+from .config import settings
 # Import routers from __init__.py
 from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router
 from .db import engine, Base
@@ -10,10 +10,12 @@ from .models.user import User
 from .models.email import Email
 from .models.email_sync import EmailSync
 from .models.email_category import EmailCategory, CategoryKeyword, SenderRule
+from .services.email_classifier_service import load_trash_classifier, ensure_models_directory
+from contextlib import asynccontextmanager
 
 # Configure logging before anything else
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG if settings.DEBUG else logging.INFO,
     format='%(levelname)s: %(asctime)s - %(name)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
     force=True  # This will override any existing configuration
@@ -52,15 +54,36 @@ for logger_name in ['app.services.email_sync_service', 'app.services.gmail',
 logger = logging.getLogger(__name__)
 logger.debug("Starting application initialization")
 
-settings = get_settings()
-
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan tasks (startup and shutdown)"""
+    # Startup code
+    logger.debug("Starting application initialization")
+    
+    # Create models directory if it doesn't exist
+    ensure_models_directory()
+    
+    # Try to load the global trash classifier model
+    if load_trash_classifier(None):
+        logger.info("Global trash classifier model loaded successfully and will be used for trash detection")
+    else:
+        logger.info("No trained classifier model found - this is normal for new installations")
+        logger.info("The application will use rules-based classification until a model is trained in the UI")
+    
+    logger.debug("Application initialization complete")
+    yield
+    # Shutdown code
+    logger.debug("Application shutting down")
+
+# Create FastAPI app with lifespan manager
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    debug=True  # Enable debug mode
+    debug=True,  # Enable debug mode
+    lifespan=lifespan,
 )
 
 # Log middleware setup
@@ -69,7 +92,7 @@ logger.debug("Configuring CORS middleware")
 # CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:8000"],
+    allow_origins=settings.CORS_ORIGINS.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
