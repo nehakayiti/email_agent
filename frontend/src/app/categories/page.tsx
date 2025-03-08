@@ -158,7 +158,6 @@ export default function CategoriesPage() {
   const [deletingCategory, setDeletingCategory] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
-  const [creatingTestCategory, setCreatingTestCategory] = useState(false);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -310,44 +309,6 @@ export default function CategoriesPage() {
     window.dispatchEvent(event);
   };
 
-  const createTestCategory = async () => {
-    const timestamp = new Date().getTime();
-    const testName = `test_category_${timestamp}`;
-    const testDisplayName = `Test Category ${timestamp}`;
-    
-    try {
-      setCreatingTestCategory(true);
-      console.log("Creating test category:", { 
-        name: testName, 
-        display_name: testDisplayName,
-        is_system: false // Explicitly log this to confirm
-      });
-      
-      const response = await createCategory({
-        name: testName,
-        display_name: testDisplayName,
-        description: "This is a test category",
-        priority: 10,
-      });
-      
-      console.log("Test category created successfully:", response);
-      
-      // Refresh categories
-      setRefreshTrigger(prev => prev + 1);
-      
-      // Trigger navigation refresh
-      const event = new CustomEvent(EMAIL_SYNC_COMPLETED_EVENT);
-      window.dispatchEvent(event);
-      
-      alert(`Test category "${testDisplayName}" created successfully!\nThis is a custom (non-system) category that should display the delete button.`);
-    } catch (error) {
-      console.error("Error creating test category:", error);
-      alert(`Failed to create test category: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setCreatingTestCategory(false);
-    }
-  };
-
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8 flex justify-between items-center">
@@ -356,13 +317,6 @@ export default function CategoriesPage() {
           <p className="text-gray-600">Manage your email categories and classification rules</p>
         </div>
         <div className="flex space-x-4">
-          <button 
-            onClick={createTestCategory}
-            disabled={creatingTestCategory}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50"
-          >
-            {creatingTestCategory ? 'Creating...' : 'Create Test Category'}
-          </button>
           <button 
             onClick={handleReprocessEmails}
             disabled={reprocessingEmails}
@@ -683,17 +637,6 @@ export default function CategoriesPage() {
           )}
         </div>
       )}
-
-      {/* Debugging section */}
-      <div className="mt-8 border-t pt-8">
-        <h3 className="text-lg font-semibold mb-4">Debug Information</h3>
-        <div className="bg-gray-50 p-4 rounded overflow-auto max-h-96">
-          <h4 className="font-medium mb-2">Categories Raw Data:</h4>
-          <pre className="text-xs text-gray-700">
-            {JSON.stringify(categories, null, 2)}
-          </pre>
-        </div>
-      </div>
     </div>
   );
 } 
