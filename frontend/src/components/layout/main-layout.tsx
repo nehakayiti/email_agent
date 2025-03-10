@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { 
   HomeIcon, 
   InboxIcon, 
@@ -15,12 +17,14 @@ import {
   BellAlertIcon,
   MegaphoneIcon,
   NewspaperIcon,
-  ChatBubbleLeftRightIcon
+  ChatBubbleLeftRightIcon,
+  ArrowRightOnRectangleIcon,
+  Cog6ToothIcon
 } from '@heroicons/react/24/outline';
-import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { getEmails, getCategoriesApi, type Email, type Category, triggerEmailSync } from '@/lib/api';
-import { isAuthenticated, handleAuthError } from '@/lib/auth';
+import { isAuthenticated, handleAuthError, logout } from '@/lib/auth';
+import { triggerEmailSync, Category } from '@/lib/api';
+import { useCategoryContext } from '@/lib/category-context';
+import { toast } from 'react-hot-toast';
 
 // Define types for navigation items
 type NavItem = {
@@ -54,39 +58,26 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
-  const [categories, setCategories] = useState<Category[]>([]);
   const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const [categoriesRefreshTrigger, setCategoriesRefreshTrigger] = useState(0);
+  
+  // Use the CategoryContext instead of fetching categories directly
+  const { categories, refreshCategories } = useCategoryContext();
 
   useEffect(() => {
     if (!isAuthenticated()) {
       handleAuthError();
       return;
     }
-
-    // Fetch categories directly from the API
-    async function fetchCategories() {
-      try {
-        const response = await getCategoriesApi();
-        // Sort categories by priority (lower number = higher priority)
-        const sortedCategories = response.data.sort((a, b) => a.priority - b.priority);
-        setCategories(sortedCategories);
-      } catch (error) {
-        console.error('Error fetching categories:', error);
-      }
-    }
-    
-    fetchCategories();
-  }, [categoriesRefreshTrigger]);
+  }, []);
 
   // Listen for email sync completion event to refresh categories
   useEffect(() => {
     const handleSyncCompleted = () => {
       // Refresh categories when emails are synced
-      setCategoriesRefreshTrigger(prev => prev + 1);
+      refreshCategories();
     };
 
     // Add event listener
@@ -96,7 +87,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     return () => {
       window.removeEventListener(EMAIL_SYNC_COMPLETED_EVENT, handleSyncCompleted);
     };
-  }, []);
+  }, [refreshCategories]);
 
   const handleSync = async () => {
     if (isSyncing || !isAuthenticated()) return;

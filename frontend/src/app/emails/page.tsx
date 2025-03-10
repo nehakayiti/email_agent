@@ -24,11 +24,11 @@ export default function EmailsPage() {
     const [scrollRestored, setScrollRestored] = useState(false);
     
     // Get category from URL parameters
-    const categoryParam = searchParams.get('category');
+    const categoryParam = searchParams?.get('category') ?? null;
     // Get status from URL parameters
-    const statusParam = searchParams.get('status');
+    const statusParam = searchParams?.get('status') ?? null;
     // Get label from URL parameters
-    const labelParam = searchParams.get('label');
+    const labelParam = searchParams?.get('label') ?? null;
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
@@ -66,6 +66,12 @@ export default function EmailsPage() {
             
             if (categoryParam) {
                 params.category = categoryParam;
+                
+                // If specifically filtering for trash, set showAll to true
+                // This ensures we see all trash items including those with category='trash'
+                if (categoryParam.toLowerCase() === 'trash') {
+                    params.showAll = true;
+                }
             }
 
             if (statusParam) {
@@ -179,8 +185,18 @@ export default function EmailsPage() {
             // If we're viewing archived emails and the email is no longer archived
             (categoryParam === 'archive' && updatedEmail.labels.includes('INBOX')) ||
             // If we're viewing by label and the email no longer has that label
-            (labelParam && !updatedEmail.labels.includes(labelParam))
+            (labelParam && !updatedEmail.labels.includes(labelParam)) ||
+            // If we're not viewing trash but the email has been moved to trash
+            (categoryParam !== 'trash' && updatedEmail.labels.includes('TRASH'))
         );
+
+        // Special case: If the email has been moved to trash and we're not in trash view,
+        // remove it from the current view
+        if (updatedEmail.labels.includes('TRASH') && categoryParam !== 'trash') {
+            setEmails(prevEmails => prevEmails.filter(email => email.id !== updatedEmail.id));
+            setTotalEmails(prev => Math.max(0, prev - 1));
+            return;
+        }
 
         if (shouldRemoveFromCurrentView) {
             // Remove the email from the current view

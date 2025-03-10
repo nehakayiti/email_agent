@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, ReadonlyURLSearchParams } from 'next/navigation';
 import { getEmailById, type Email } from '@/lib/api';
 import { isAuthenticated, handleAuthError } from '@/lib/auth';
 import { EmailContent } from './email-content';
@@ -21,19 +21,25 @@ export default function EmailDetail({ emailId }: EmailDetailProps) {
     // Get any filter parameters that we need to preserve
     const backToEmailsUrl = constructBackUrl(searchParams);
 
-    function constructBackUrl(params: URLSearchParams): string {
+    function constructBackUrl(params: URLSearchParams | ReadonlyURLSearchParams | null): string {
         // Start with base URL
         let url = '/emails';
         
         // Check if we have any params to add
-        const category = params.get('category');
-        const status = params.get('status');
-        const label = params.get('label');
+        const category = params?.get('category') ?? null;
+        const status = params?.get('status') ?? null;
+        const label = params?.get('label') ?? null;
         
         const queryParams = [];
         if (category) queryParams.push(`category=${category}`);
         if (status) queryParams.push(`status=${status}`);
         if (label) queryParams.push(`label=${label}`);
+        
+        // If we're in a trash email detail but no category was specified in URL,
+        // and the email has the TRASH label, add the trash category filter
+        if (!category && email?.labels?.includes('TRASH')) {
+            queryParams.push('category=trash');
+        }
         
         // Add query params if any exist
         if (queryParams.length > 0) {

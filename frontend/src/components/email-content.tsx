@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { IframeEmailViewer } from '@/components/ui/iframe-email-viewer';
 import { showSuccessToast, showErrorToast, showLoadingToast, dismissAllToasts } from '@/utils/toast-config';
 import { mapLabelsToComponents } from '@/components/ui/email-label';
+import { useCategoryContext } from '@/lib/category-context';
 
 function decodeBase64Url(str: string): string {
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -53,6 +54,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   const [bodyContent, setBodyContent] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState(() => normalizeCategory(email.category));
   const [updating, setUpdating] = useState(false);
+  const { categories } = useCategoryContext();
 
   const decodedContent = useMemo(() => {
     if (email?.raw_data?.payload) {
@@ -69,17 +71,33 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
     setSelectedCategory(normalizeCategory(email.category));
   }, [email.category]);
 
-  const categoryOptions = [
-    'Primary',
-    'Social',
-    'Promotions',
-    'Updates',
-    'Forums',
-    'Personal',
-    'Important',
-    'Archive',
-    'Trash'
-  ];
+  // Get category options from the CategoryContext
+  const categoryOptions = useMemo(() => {
+    // First, grab categories from context and format for dropdown
+    const contextCategories = categories.map(cat => ({
+      value: cat.name.toLowerCase(),
+      label: cat.display_name
+    }));
+    
+    // Add system categories that might not be in the standard category list
+    const systemCategories = [
+      { value: 'trash', label: 'Trash' },
+      { value: 'archive', label: 'Archive' },
+    ];
+    
+    // Combine and filter out duplicates
+    const allOptions = [...contextCategories];
+    
+    // Add system categories only if they're not already in the list
+    systemCategories.forEach(sysCat => {
+      if (!allOptions.some(opt => opt.value === sysCat.value)) {
+        allOptions.push(sysCat);
+      }
+    });
+    
+    // Sort by label
+    return allOptions.sort((a, b) => a.label.localeCompare(b.label));
+  }, [categories]);
 
   const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newCategory = e.target.value;
@@ -222,9 +240,9 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
             disabled={updating}
             className="bg-gray-100 text-gray-800 rounded px-3 py-1 text-xs font-semibold"
           >
-            {categoryOptions.map((option, index) => (
-              <option key={index} value={option.toLowerCase()}>
-                {option}
+            {categoryOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>

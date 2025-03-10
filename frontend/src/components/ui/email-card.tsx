@@ -5,6 +5,7 @@ import { formatRelativeTime } from '@/utils/date-utils';
 import { EmailLabel, mapLabelsToComponents } from '@/components/ui/email-label';
 import { toast } from 'react-hot-toast';
 import { showSuccessToast, showErrorToast, showLoadingToast, dismissAllToasts } from '@/utils/toast-config';
+import { useCategoryContext } from '@/lib/category-context';
 
 // Filter out system labels and get the primary category label for display
 function getPrimaryDisplayLabel(labels: string[]): string | null {
@@ -38,17 +39,21 @@ function getPrimaryDisplayLabel(labels: string[]): string | null {
 }
 
 // Get category display info
-function getCategoryDisplayInfo(category: string): { label: string; color: string } | null {
-  const categoryMap: Record<string, { label: string; color: string }> = {
-    'CATEGORY_PERSONAL': { label: 'Personal', color: 'bg-indigo-100 text-indigo-800 border border-indigo-200' },
-    'CATEGORY_UPDATES': { label: 'Updates', color: 'bg-purple-100 text-purple-800 border border-purple-200' },
-    'CATEGORY_SOCIAL': { label: 'Social', color: 'bg-green-100 text-green-800 border border-green-200' },
-    'CATEGORY_PROMOTIONS': { label: 'Promotions', color: 'bg-orange-100 text-orange-800 border border-orange-200' },
-    'CATEGORY_FORUMS': { label: 'Forums', color: 'bg-teal-100 text-teal-800 border border-teal-200' },
-    'PRIMARY': { label: 'Primary', color: 'bg-blue-100 text-blue-800 border border-blue-200' },
+function getCategoryDisplayInfo(category: string): { display_name: string; color: string; description: string | null } | null {
+  // This function should be used with the CategoryContext's getCategoryInfo
+  // It remains here for compatibility with existing code, but will delegate to the context
+  
+  // Default category information if needed - we'll use the same format as CategoryContext
+  const defaultCategoryMap: Record<string, { display_name: string; color: string; description: string | null }> = {
+    'CATEGORY_PERSONAL': { display_name: 'Personal', color: 'bg-indigo-100 text-indigo-800 border border-indigo-200', description: null },
+    'CATEGORY_UPDATES': { display_name: 'Updates', color: 'bg-purple-100 text-purple-800 border border-purple-200', description: null },
+    'CATEGORY_SOCIAL': { display_name: 'Social', color: 'bg-green-100 text-green-800 border border-green-200', description: null },
+    'CATEGORY_PROMOTIONS': { display_name: 'Promotions', color: 'bg-orange-100 text-orange-800 border border-orange-200', description: null },
+    'CATEGORY_FORUMS': { display_name: 'Forums', color: 'bg-teal-100 text-teal-800 border border-teal-200', description: null },
+    'PRIMARY': { display_name: 'Primary', color: 'bg-blue-100 text-blue-800 border border-blue-200', description: null },
   };
 
-  return categoryMap[category] || null;
+  return defaultCategoryMap[category] || null;
 }
 
 // Separate labels into categories and regular labels
@@ -72,6 +77,9 @@ interface EmailCardProps {
 }
 
 export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }: EmailCardProps) {
+  // Use the category context
+  const { getCategoryInfo } = useCategoryContext();
+  
   // Filter out system labels
   const filteredLabels = React.useMemo(() => {
     if (!email.labels || email.labels.length === 0) return [];
@@ -93,19 +101,29 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
 
   // Get category display info
   const categoryInfo = React.useMemo(() => {
-    const categoryMap: Record<string, { label: string; color: string }> = {
-      'primary': { label: 'Primary', color: 'bg-blue-50 text-blue-700' },
-      'social': { label: 'Social', color: 'bg-purple-50 text-purple-700' },
-      'promotions': { label: 'Promo', color: 'bg-green-50 text-green-700' },
-      'updates': { label: 'Updates', color: 'bg-yellow-50 text-yellow-700' },
-      'forums': { label: 'Forums', color: 'bg-orange-50 text-orange-700' },
-      'personal': { label: 'Personal', color: 'bg-pink-50 text-pink-700' },
-      'archive': { label: 'Archive', color: 'bg-gray-50 text-gray-700' },
-      'trash': { label: 'Trash', color: 'bg-red-50 text-red-700' },
-    };
-
-    return categoryMap[email.category?.toLowerCase()] || { label: 'Other', color: 'bg-gray-50 text-gray-700' };
-  }, [email.category]);
+    // First check if the email has the TRASH label, and if so, prioritize it
+    if (email.labels && email.labels.includes('TRASH')) {
+      return getCategoryInfo('TRASH') || { display_name: 'Trash', color: 'bg-red-50 text-red-700', description: null };
+    }
+    
+    // If we have a category value from the email, use that
+    if (email.category) {
+      const info = getCategoryInfo(email.category);
+      if (info) return info;
+    }
+    
+    // If no category is found or the lookup failed, check if the email has a category label
+    if (email.labels) {
+      const categoryLabel = email.labels.find(label => label.startsWith('CATEGORY_') || label === 'PRIMARY');
+      if (categoryLabel) {
+        const info = getCategoryInfo(categoryLabel);
+        if (info) return info;
+      }
+    }
+    
+    // Default fallback
+    return getCategoryInfo('PRIMARY') || { display_name: 'Primary', color: 'bg-blue-50 text-blue-700', description: null };
+  }, [email.category, email.labels, getCategoryInfo]);
 
   // Handle archive action
   const handleArchive = async (e: React.MouseEvent) => {
@@ -351,14 +369,14 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
         {/* Right side - Categories */}
         <div className="flex flex-wrap items-center gap-1 ml-auto">
           {separateLabels(email.labels || []).categories.map(category => {
-            const categoryInfo = getCategoryDisplayInfo(category);
+            const categoryInfo = getCategoryInfo(category);
             if (categoryInfo) {
               return (
                 <span 
                   key={category}
                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${categoryInfo.color}`}
                 >
-                  {categoryInfo.label}
+                  {categoryInfo.display_name}
                 </span>
               );
             }
