@@ -284,109 +284,100 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     }
   };
 
-  // Create the container div element
-  const containerClasses = `
-    ${!email.is_read 
-      ? 'border-l-4 border-l-indigo-500 bg-white font-medium' 
-      : 'border-l-4 border-l-transparent bg-gray-50 font-normal'}
-    border border-gray-200 rounded-md mb-2 p-4 
-    hover:shadow-md hover:border-indigo-200 transition-all duration-150
-    ${isDeleted ? 'border-red-200 bg-red-50' : ''}
-  `;
-  
+  // Create the email card content
   const emailContent = (
     <div 
-      className={containerClasses}
+      className={`p-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-all ${!email.is_read ? 'bg-slate-50' : ''}`}
       onClick={onClick}
     >
-      <div className="flex justify-between items-start mb-2">
-        <div className={`text-gray-900 truncate mr-2 ${!email.is_read ? 'font-semibold' : ''}`} style={{ maxWidth: 'calc(100% - 100px)' }}>
-          {email.subject || '(No Subject)'}
-        </div>
-        <div className="text-sm text-gray-500 whitespace-nowrap">
-          {formatRelativeTime(new Date(email.received_at))}
-        </div>
-      </div>
-      
-      <div className="flex justify-between items-center mb-2">
-        <div className={`text-sm truncate mr-2 ${!email.is_read ? 'text-gray-700' : 'text-gray-600'}`} style={{ maxWidth: 'calc(100% - 140px)' }}>
-          {email.from_email}
-        </div>
-        
-        <div className="flex space-x-2">
-          {/* Mark as Read/Unread button */}
-          {email.is_read ? (
-            <button
-              onClick={handleMarkAsUnread}
-              className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-              title="Mark as unread"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={handleMarkAsRead}
-              className="p-1.5 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-              title="Mark as read"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19h18M3 14h18M3 9h18M3 4h18" />
-              </svg>
-            </button>
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 mt-0.5">
+          {!email.is_read && (
+            <div className="h-2 w-2 rounded-full bg-blue-600" title="Unread"></div>
           )}
-          
-          <button
-            onClick={handleArchive}
-            className="p-1.5 text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-            title="Archive"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
-            </svg>
-          </button>
-          
-          <button
-            onClick={handleTrash}
-            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-            title="Move to trash"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
-      </div>
-      
-      {/* Display labels */}
-      <div className="flex justify-between items-center gap-2 mb-2">
-        {/* Left side - Labels */}
-        <div className="flex flex-wrap items-center gap-1 min-w-0">
-          {mapLabelsToComponents(separateLabels(email.labels || []).regularLabels, { variant: 'compact' })}
         </div>
         
-        {/* Right side - Categories */}
-        <div className="flex flex-wrap items-center gap-1 ml-auto">
-          {separateLabels(email.labels || []).categories.map(category => {
-            const categoryInfo = getCategoryInfo(category);
-            if (categoryInfo) {
-              return (
-                <span 
-                  key={category}
-                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${categoryInfo.color}`}
-                >
-                  {categoryInfo.display_name}
-                </span>
-              );
-            }
-            return null;
-          })}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between mb-1">
+            <div className="truncate font-medium text-sm">
+              {email.from_email}
+            </div>
+            <div className="text-xs text-gray-500 whitespace-nowrap ml-2">
+              {formatRelativeTime(new Date(email.received_at))}
+            </div>
+          </div>
+          
+          <div className="flex justify-between items-start">
+            <div className="truncate font-medium text-base mb-1">
+              {email.subject || '(No subject)'}
+            </div>
+          </div>
+          
+          <div className="text-sm text-gray-500 line-clamp-1 mb-2">
+            {email.snippet}
+          </div>
+          
+          <div className="flex flex-wrap gap-2 items-center mt-2">
+            {/* Display category badge prominently */}
+            {categoryInfo && (
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${categoryInfo.color}`}>
+                <span className="mr-1 opacity-70">Category:</span> {categoryInfo.display_name}
+              </span>
+            )}
+            
+            {/* Display other labels */}
+            {mapLabelsToComponents(filteredLabels, { variant: 'compact', showPrefix: true })}
+            
+            {/* Email actions */}
+            <div className="ml-auto flex gap-1">
+              {!isDeleted && !email.labels.includes('TRASH') && (
+                <>
+                  {email.is_read ? (
+                    <button
+                      onClick={handleMarkAsUnread}
+                      className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                      title="Mark as unread"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleMarkAsRead}
+                      className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                      title="Mark as read"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 19v-8.93a2 2 0 01.89-1.664l7-4.666a2 2 0 012.22 0l7 4.666A2 2 0 0121 10.07V19M3 19a2 2 0 002 2h14a2 2 0 002-2M3 19l6.75-4.5M21 19l-6.75-4.5M3 10l6.75 4.5M21 10l-6.75 4.5m0 0l-1.14.76a2 2 0 01-2.22 0l-1.14-.76" />
+                      </svg>
+                    </button>
+                  )}
+                
+                  <button
+                    onClick={handleArchive}
+                    className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                    title="Archive"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
+                    </svg>
+                  </button>
+                  
+                  <button
+                    onClick={handleTrash}
+                    className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                    title="Move to trash"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-      
-      <div className={`text-sm line-clamp-2 ${!email.is_read ? 'text-gray-700' : 'text-gray-500'}`}>
-        {email.snippet}
       </div>
     </div>
   );

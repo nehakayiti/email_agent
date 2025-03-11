@@ -24,6 +24,8 @@ class Email(Base):
         importance_score: Calculated importance (0-100)
         category: Classified category (promotional, social, primary, etc.)
         raw_data: Complete email data for future processing
+        is_dirty: Flag indicating if the email needs to be reprocessed
+        last_reprocessed_at: When the email was last reprocessed
     """
     __tablename__ = "emails"
 
@@ -42,6 +44,8 @@ class Email(Base):
     category = Column(String)
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_dirty = Column(Boolean, default=False)
+    last_reprocessed_at = Column(DateTime(timezone=True), nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="emails")

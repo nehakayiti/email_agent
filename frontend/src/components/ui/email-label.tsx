@@ -7,6 +7,7 @@ interface EmailLabelProps {
   label: string;
   className?: string;
   variant?: 'default' | 'compact';
+  showPrefix?: boolean;
 }
 
 /**
@@ -59,7 +60,7 @@ export function getLabelStyle(label: string): string {
 /**
  * Email label component that displays a user-friendly label with appropriate styling
  */
-export function EmailLabel({ label, className = '', variant = 'default' }: EmailLabelProps) {
+export function EmailLabel({ label, className = '', variant = 'default', showPrefix = true }: EmailLabelProps) {
   const { getCategoryInfo } = useCategoryContext();
   
   // For category labels, get info from the context
@@ -74,6 +75,7 @@ export function EmailLabel({ label, className = '', variant = 'default' }: Email
       
     return (
       <span className={`${baseClasses} ${categoryInfo.color} ${className}`}>
+        {showPrefix && <span className="mr-1 opacity-70">Category:</span>}
         {categoryInfo.display_name}
       </span>
     );
@@ -100,6 +102,7 @@ export function EmailLabel({ label, className = '', variant = 'default' }: Email
   
   return (
     <span className={`${baseClasses} ${style} ${className}`}>
+      {showPrefix && !isImportant && label !== 'INBOX' && <span className="mr-1 opacity-70">Label:</span>}
       {displayLabel}
     </span>
   );
@@ -114,9 +117,10 @@ export function mapLabelsToComponents(
     showSystem?: boolean;
     variant?: 'default' | 'compact';
     includeCategoryLabels?: boolean;
+    showPrefix?: boolean;
   } = {}
 ): React.ReactNode[] {
-  const { showSystem = false, variant = 'default', includeCategoryLabels = false } = options;
+  const { showSystem = false, variant = 'default', includeCategoryLabels = false, showPrefix = true } = options;
   
   if (!labels || labels.length === 0) return [];
   
@@ -138,6 +142,6 @@ export function mapLabelsToComponents(
       return true;
     })
     .map(label => (
-      <EmailLabel key={label} label={label} variant={variant} />
+      <EmailLabel key={label} label={label} variant={variant} showPrefix={showPrefix} />
     ));
 } 

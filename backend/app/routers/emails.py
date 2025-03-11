@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 
 from ..models.email import Email
 from ..models.email_sync import EmailSync
@@ -19,6 +19,7 @@ from ..dependencies import get_current_user
 import logging
 from ..models.email_operation import EmailOperation, OperationType, OperationStatus
 from ..services import email_operations_service
+from ..models.email_trash_event import EmailTrashEvent
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -411,14 +412,29 @@ async def get_emails(
     if parsed_date_to:
         query_obj = query_obj.filter(Email.received_at <= parsed_date_to)
     
+    # Handle trash-related filtering
+    is_trash_view = category and category.lower() == 'trash'
+    
     # Don't show emails in trash by default unless explicitly asked for trash category
     # or show_all is true
     if show_all:
         # Include all emails when show_all is true
         pass
-    elif category and category.lower() == 'trash':
-        query_obj = query_obj.filter(Email.labels.contains(['TRASH']))
+    elif is_trash_view:
+        # Special case for trash view - show emails with either TRASH label or trash category
+        if label and label == 'TRASH':
+            # We want emails that either have the TRASH label OR are categorized as trash
+            query_obj = query_obj.filter(
+                or_(
+                    Email.labels.contains(['TRASH']),
+                    Email.category == 'trash'
+                )
+            )
+        else:
+            # Just filter on TRASH label
+            query_obj = query_obj.filter(Email.labels.contains(['TRASH']))
     else:
+        # For non-trash views, exclude emails with TRASH label
         query_obj = query_obj.filter(~Email.labels.contains(['TRASH']))
     
     if important is not None:
@@ -437,10 +453,12 @@ async def get_emails(
             )
         )
     
-    if label:
+    # Apply label filter except for the special trash case handled above
+    if label and not (is_trash_view and label == 'TRASH'):
         query_obj = query_obj.filter(Email.labels.contains([label]))
     
-    if category:
+    # Apply category filter
+    if category and not is_trash_view:
         query_obj = query_obj.filter(Email.category == category)
     
     # Get total count for pagination metadata
@@ -652,88 +670,88 @@ async def update_labels_endpoint(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Update the labels of an email in Gmail
+    Update email labels and add a flag for the next Gmail sync to apply the changes
     
-    Parameters:
-    - add_labels: List of labels to add
-    - remove_labels: List of labels to remove
+    Args:
+        email_id: UUID of the email to update
+        request: Request with add_labels and remove_labels arrays
+        db: Database session
+        current_user: Current authenticated user
+        
+    Returns:
+        Status message and updated labels
     """
     try:
+        # Get request body
         body = await request.json()
         add_labels = body.get('add_labels', [])
         remove_labels = body.get('remove_labels', [])
         
-        logger.info(f"[API] Updating labels for email {email_id}")
-        logger.info(f"[API] Adding labels: {add_labels}")
-        logger.info(f"[API] Removing labels: {remove_labels}")
+        logger.info(f"[API] Updating labels for email {email_id}: adding {add_labels}, removing {remove_labels}")
         
-        # Validate the request
-        if not add_labels and not remove_labels:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Must provide at least one label to add or remove"
-            )
-        
-        # Get the email from the database
+        # Find the email
         email = db.query(Email).filter(
             Email.id == email_id,
             Email.user_id == current_user.id
         ).first()
         
         if not email:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Email not found"
-            )
+            raise HTTPException(status_code=404, detail="Email not found")
         
-        # Update the email's labels in our database
+        # Get current labels and convert to set for easy manipulation
         current_labels = set(email.labels or [])
         
         # Add new labels
         for label in add_labels:
             current_labels.add(label)
-            logger.debug(f"[API] Added label '{label}' to email {email_id}")
+            logger.info(f"[API] Added label {label} to email {email_id}")
         
         # Remove labels
         for label in remove_labels:
             if label in current_labels:
                 current_labels.remove(label)
-                logger.debug(f"[API] Removed label '{label}' from email {email_id}")
+                logger.info(f"[API] Removed label {label} from email {email_id}")
         
-        # Update the email with the new labels
+        # Update email with new labels
         email.labels = list(current_labels)
         
-        # Create an operation record to track the label change in Gmail
-        operation_data = {
-            "add_labels": add_labels,
-            "remove_labels": remove_labels
-        }
+        # Add a needs_label_update flag - this will be used during sync to apply changes to Gmail
+        current_labels.add("EA_NEEDS_LABEL_UPDATE")
+        email.labels = list(current_labels)
         
-        email_operations_service.create_operation(
-            db=db,
-            user=current_user,
-            email=email,
-            operation_type=OperationType.UPDATE_LABELS,
-            operation_data=operation_data
-        )
+        # Special handling for TRASH label
+        if 'TRASH' in add_labels and email.category != 'trash':
+            # If adding TRASH label, set category to trash
+            email.category = 'trash'
+            logger.info(f"[API] Updated category to 'trash' for email {email_id} because TRASH label was added")
+            
+            # Also remove INBOX label if present
+            if 'INBOX' in current_labels:
+                current_labels.remove('INBOX')
+                email.labels = list(current_labels)
+                logger.info(f"[API] Removed INBOX label from email {email_id} because it's being moved to trash")
         
-        logger.info(f"[API] Created label update operation for email {email_id}")
+        # If removing TRASH label and category is trash, update the category to primary
+        if 'TRASH' in remove_labels and email.category == 'trash':
+            email.category = 'primary'
+            logger.info(f"[API] Updated category from 'trash' to 'primary' for email {email_id} because TRASH label was removed")
         
         db.commit()
         
         return {
             "status": "success",
-            "message": "Labels updated. Will be synced to Gmail.",
+            "message": "Labels updated successfully. Changes will sync to Gmail during next email sync.",
+            "email_id": str(email.id),
             "labels": email.labels
         }
-    except HTTPException as e:
-        # Re-raise HTTP exceptions
+    except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         db.rollback()
         logger.error(f"[API] Error updating labels: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            status_code=500,
             detail=f"Failed to update labels: {str(e)}"
         )
 
@@ -772,29 +790,8 @@ async def update_category_endpoint(
         if not email:
             raise HTTPException(status_code=404, detail="Email not found")
         
-        # Special handling for trash category
-        if category.lower() == 'trash':
-            logger.info(f"[API] Moving email {email_id} to trash category")
-            # Add TRASH label if not already present
-            current_labels = set(email.labels or [])
-            if 'TRASH' not in current_labels:
-                current_labels.add('TRASH')
-            
-            # Remove INBOX label if present
-            if 'INBOX' in current_labels:
-                current_labels.remove('INBOX')
-                logger.info(f"[API] Removed INBOX label from email {email_id} because it's being moved to trash")
-                
-            email.labels = list(current_labels)
-        elif 'TRASH' in (email.labels or []) and category.lower() != 'trash':
-            # If moving out of trash category, remove the TRASH label
-            logger.info(f"[API] Restoring email {email_id} from trash because category changed to '{category}'")
-            current_labels = set(email.labels or [])
-            current_labels.remove('TRASH')
-            email.labels = list(current_labels)
-            
         # Validate the category
-        valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal", "trash"]
+        valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal", "trash", "archive"]
         normalized_category = category.lower()
         
         if normalized_category not in valid_categories:
@@ -811,19 +808,34 @@ async def update_category_endpoint(
         
         # Add a needs_label_update flag if we changed category - this will be used during sync
         if old_category != normalized_category:
-            email.labels = list(set(email.labels or []) | {"EA_NEEDS_LABEL_UPDATE"})
+            current_labels = set(email.labels or [])
+            current_labels.add("EA_NEEDS_LABEL_UPDATE")
+            email.labels = list(current_labels)
         
-        # Special handling for trash category
+        # Special handling for trash category - ensure TRASH label is always present
         if normalized_category == 'trash':
             current_labels = set(email.labels or [])
-            current_labels.add('TRASH')
+            
+            # Add TRASH label if not already present
+            if 'TRASH' not in current_labels:
+                current_labels.add('TRASH')
+                logger.info(f"[API] Added TRASH label to email {email_id}")
+            
+            # Remove INBOX label if present
+            if 'INBOX' in current_labels:
+                current_labels.remove('INBOX')
+                logger.info(f"[API] Removed INBOX label from email {email_id} because it's being moved to trash")
+                
             email.labels = list(current_labels)
-            logger.info(f"[API] Added TRASH label to email {email_id}")
-        elif 'TRASH' in (email.labels or []) and normalized_category != 'trash':
+        
+        # If moving out of trash category, remove the TRASH label
+        elif old_category == 'trash' or 'TRASH' in (email.labels or []):
             current_labels = set(email.labels or [])
-            current_labels.remove('TRASH')
-            email.labels = list(current_labels)
-            logger.info(f"[API] Removed TRASH label from email {email_id}")
+            
+            if 'TRASH' in current_labels:
+                current_labels.remove('TRASH')
+                logger.info(f"[API] Removed TRASH label from email {email_id} because category changed from trash to '{normalized_category}'")
+                email.labels = list(current_labels)
         
         db.commit()
         
@@ -852,17 +864,19 @@ async def delete_email(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Move an email to trash by setting the TRASH label
+    Move an email to trash by adding the TRASH label and setting category to 'trash'
     
     Args:
-        email_id: UUID of the email to delete
+        email_id: UUID of the email to move to trash
         db: Database session
         current_user: Current authenticated user
         
     Returns:
-        Success message
+        Status message and updated email information
     """
     try:
+        logger.info(f"[API] Moving email {email_id} to trash")
+        
         # Find the email
         email = db.query(Email).filter(
             Email.id == email_id,
@@ -872,45 +886,59 @@ async def delete_email(
         if not email:
             raise HTTPException(status_code=404, detail="Email not found")
         
-        # Check if it's already in trash
-        if 'TRASH' in (email.labels or []):
-            logger.info(f"[API] Email {email_id} already in trash")
-            return {"status": "success", "message": "Email is already in trash"}
-        
-        # Add TRASH label
+        # Get current labels and convert to set for easy manipulation
         current_labels = set(email.labels or [])
-        current_labels.add('TRASH')
+        
+        # Add TRASH label if not already present
+        if 'TRASH' not in current_labels:
+            current_labels.add('TRASH')
+        
+        # Remove INBOX label if present
+        if 'INBOX' in current_labels:
+            current_labels.remove('INBOX')
+        
+        # Update email with new labels
         email.labels = list(current_labels)
         
-        # Update category to trash
+        # Set category to trash
         email.category = 'trash'
         
-        # Create operation record to track sync with Gmail
-        operation_data = {
-            "add_labels": ["TRASH"],
-            "remove_labels": ["INBOX"]
-        }
+        # Add a needs_label_update flag - this will be used during sync to apply changes to Gmail
+        current_labels.add("EA_NEEDS_LABEL_UPDATE")
+        email.labels = list(current_labels)
         
-        email_operations_service.create_operation(
-            db=db,
-            user=current_user,
-            email=email,
-            operation_type=OperationType.DELETE,
-            operation_data=operation_data
+        # Record the trash event for potential classifier training
+        trash_event = EmailTrashEvent(
+            user_id=current_user.id,
+            email_id=email.id,
+            from_email=email.from_email,
+            subject=email.subject,
+            category=email.category,
+            labels=email.labels,
+            trashed_at=datetime.utcnow()
         )
-        
-        logger.info(f"[API] Email {email_id} moved to trash and operation created for sync")
+        db.add(trash_event)
+        logger.info(f"[API] Created trash event record for email {email_id}")
         
         db.commit()
         
         return {
             "status": "success",
-            "message": "Email moved to trash. Will be synced to Gmail."
+            "message": "Email moved to trash. Changes will sync to Gmail during next email sync.",
+            "email_id": str(email.id),
+            "labels": email.labels,
+            "category": email.category
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        logger.error(f"[API] Error deleting email: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete email: {str(e)}")
+        logger.error(f"[API] Error moving email to trash: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to move email to trash: {str(e)}"
+        )
 
 @router.post("/{email_id}/archive")
 async def archive_email(
@@ -977,4 +1005,90 @@ async def archive_email(
     except Exception as e:
         db.rollback()
         logger.error(f"[API] Error archiving email: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to archive email: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to archive email: {str(e)}")
+
+@router.post("/fix-trash-consistency")
+async def fix_trash_consistency_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Fix inconsistencies between 'trash' category and 'TRASH' label for the current user's emails
+    
+    This endpoint finds and fixes:
+    1. Emails with category='trash' but missing TRASH label
+    2. Emails with TRASH label but not categorized as 'trash'
+    
+    This ensures all emails are consistently labeled and categorized for trash.
+    """
+    try:
+        logger.info(f"[API] Fixing trash consistency for user {current_user.id}")
+        
+        # Import email operations models only when needed to avoid circular dependencies
+        from ..models.email import Email
+        
+        # Case 1: Emails with category='trash' but missing TRASH label
+        category_trash_no_label = db.query(Email).filter(
+            and_(
+                Email.user_id == current_user.id,
+                Email.category == 'trash',
+                ~Email.labels.contains(['TRASH'])
+            )
+        ).all()
+        
+        logger.info(f"[API] Found {len(category_trash_no_label)} emails with 'trash' category but missing TRASH label")
+        
+        # Fix them
+        for email in category_trash_no_label:
+            current_labels = set(email.labels or [])
+            current_labels.add('TRASH')
+            
+            # Remove INBOX label if present (it's contradictory to being in trash)
+            if 'INBOX' in current_labels:
+                current_labels.remove('INBOX')
+                logger.info(f"[API] Removed INBOX label from trash email {email.id}")
+                
+            email.labels = list(current_labels)
+            logger.info(f"[API] Added TRASH label to email {email.id}")
+        
+        # Case 2: Emails with TRASH label but not categorized as 'trash'
+        label_trash_wrong_category = db.query(Email).filter(
+            and_(
+                Email.user_id == current_user.id,
+                Email.labels.contains(['TRASH']),
+                Email.category != 'trash'
+            )
+        ).all()
+        
+        logger.info(f"[API] Found {len(label_trash_wrong_category)} emails with TRASH label but wrong category")
+        
+        # Fix them
+        for email in label_trash_wrong_category:
+            logger.info(f"[API] Changed category from '{email.category}' to 'trash' for email {email.id}")
+            email.category = 'trash'
+            
+            # Remove INBOX label if present
+            current_labels = set(email.labels or [])
+            if 'INBOX' in current_labels:
+                current_labels.remove('INBOX')
+                email.labels = list(current_labels)
+                logger.info(f"[API] Removed INBOX label from trash email {email.id}")
+        
+        # Commit all changes
+        total_fixed = len(category_trash_no_label) + len(label_trash_wrong_category)
+        if total_fixed > 0:
+            db.commit()
+            logger.info(f"[API] Successfully fixed {total_fixed} emails with trash inconsistencies")
+        
+        return {
+            "status": "success",
+            "message": f"Fixed {total_fixed} emails with trash inconsistencies",
+            "fixed_count": total_fixed
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[API] Error fixing trash consistency: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fix trash consistency: {str(e)}"
+        ) 

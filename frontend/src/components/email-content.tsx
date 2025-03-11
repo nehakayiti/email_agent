@@ -19,14 +19,17 @@ function decodeBase64Url(str: string): string {
 }
 
 function normalizeCategory(cat: string | undefined): string {
-    if (!cat) return 'primary';
-    if (cat.toLowerCase() === 'promotional') return 'promotions';
-    if (cat.toLowerCase() === 'important') return 'important';
-    if (cat.toLowerCase() === 'archive') return 'archive';
-    return cat.toLowerCase(); 
-  }
-
-
+  if (!cat) return 'primary';
+  
+  // Process specific category mappings if needed
+  const lowerCat = cat.toLowerCase();
+  if (lowerCat === 'promotional') return 'promotions';
+  if (lowerCat === 'important') return 'important';
+  
+  // For all others, keep the original case from the API
+  // This ensures consistent display between list and detail views
+  return cat; 
+}
 
 function extractEmailBody(payload: any): string {
   if (payload.body && payload.body.data) {
@@ -52,7 +55,10 @@ interface EmailContentProps {
 
 export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   const [bodyContent, setBodyContent] = useState<string>('');
-  const [selectedCategory, setSelectedCategory] = useState(() => normalizeCategory(email.category));
+  const [selectedCategory, setSelectedCategory] = useState(() => {
+    // Initialize with the exact category from the API without normalization
+    return email.category || 'primary';
+  });
   const [updating, setUpdating] = useState(false);
   const { categories } = useCategoryContext();
 
@@ -68,21 +74,24 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   }, [decodedContent]);
 
   useEffect(() => {
-    setSelectedCategory(normalizeCategory(email.category));
+    // When email.category changes, update selectedCategory with exact value from the API
+    if (email.category) {
+      setSelectedCategory(email.category);
+    }
   }, [email.category]);
 
   // Get category options from the CategoryContext
   const categoryOptions = useMemo(() => {
     // First, grab categories from context and format for dropdown
     const contextCategories = categories.map(cat => ({
-      value: cat.name.toLowerCase(),
+      value: cat.name, // Use exact name from API without toLowerCase()
       label: cat.display_name
     }));
     
     // Add system categories that might not be in the standard category list
     const systemCategories = [
-      { value: 'trash', label: 'Trash' },
-      { value: 'archive', label: 'Archive' },
+      { value: 'TRASH', label: 'Trash' },
+      { value: 'Archive', label: 'Archive' },
     ];
     
     // Combine and filter out duplicates
@@ -101,6 +110,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
 
   const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newCategory = e.target.value;
+    // Set the category exactly as selected from the dropdown
     setSelectedCategory(newCategory);
     
     try {
@@ -108,6 +118,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
       // Show a toast with the loading state that can be dismissed
       const toastId = showLoadingToast('Updating category...');
       
+      // Pass the exact category value to the API
       const response = await updateEmailCategory(email.id, newCategory);
       
       // Always dismiss the loading toast
@@ -116,10 +127,10 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
       if (response.status === 'success') {
         showSuccessToast(response.message || 'Category updated successfully');
         
-        // Update the email object with new category and labels
+        // Update the email object with new category and labels from the API response
         const updatedEmail = {
           ...email,
-          category: response.category,
+          category: response.category, // Use the category exactly as returned from the API
           labels: response.labels,
         };
         

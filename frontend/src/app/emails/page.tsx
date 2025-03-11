@@ -9,6 +9,48 @@ import { EmailCard } from '@/components/ui/email-card';
 import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
 import { toast, Toaster } from 'react-hot-toast';
 
+// Add the API function to fix trash consistency
+const fixTrashConsistency = async () => {
+    try {
+        // Get the authentication token from localStorage
+        const token = localStorage.getItem('token');
+        if (!token) {
+            console.error('Authentication token not found');
+            throw new Error('Authentication token not found');
+        }
+        
+        // Get the API URL from environment variables
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        console.log(`Making API request to ${apiUrl}/emails/fix-trash-consistency`);
+        
+        // Make the request to fix trash consistency
+        const response = await fetch(`${apiUrl}/emails/fix-trash-consistency`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        });
+        
+        // Check if the response is ok
+        if (!response.ok) {
+            // Try to get error details from response
+            const errorData = await response.json().catch(() => null);
+            const errorMessage = errorData?.detail || `API error: ${response.status} ${response.statusText}`;
+            console.error('Error response:', errorMessage);
+            throw new Error(errorMessage);
+        }
+        
+        // Parse the response
+        const data = await response.json();
+        console.log('Fix trash consistency response:', data);
+        return data;
+    } catch (error) {
+        console.error('Error fixing trash consistency:', error);
+        throw error;
+    }
+};
+
 export default function EmailsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -22,6 +64,8 @@ export default function EmailsPage() {
     const [initialLoadComplete, setInitialLoadComplete] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const [scrollRestored, setScrollRestored] = useState(false);
+    const [isFixingTrash, setIsFixingTrash] = useState(false);
+    const [showTrashNotification, setShowTrashNotification] = useState(true);
     
     // Get category from URL parameters
     const categoryParam = searchParams?.get('category') ?? null;
@@ -67,10 +111,14 @@ export default function EmailsPage() {
             if (categoryParam) {
                 params.category = categoryParam;
                 
-                // If specifically filtering for trash, set showAll to true
-                // This ensures we see all trash items including those with category='trash'
+                // Set showAll to true for trash view and also when we SPECIFICALLY
+                // need to get emails with the trash category
                 if (categoryParam.toLowerCase() === 'trash') {
                     params.showAll = true;
+                    
+                    // We also need to add a parameter to ensure we're getting emails
+                    // with either the trash category OR the TRASH label
+                    params.label = 'TRASH';
                 }
             }
 
@@ -81,7 +129,7 @@ export default function EmailsPage() {
                 }
             }
             
-            if (labelParam) {
+            if (labelParam && categoryParam !== 'trash') {
                 params.label = labelParam;
             }
             
@@ -259,6 +307,47 @@ export default function EmailsPage() {
         };
     }, [emails, saveScrollPosition]);
 
+    // Handle the trash consistency fix
+    const handleFixTrashConsistency = async () => {
+        if (isFixingTrash) return;
+        
+        try {
+            setIsFixingTrash(true);
+            const toastId = toast.loading('Fixing trash inconsistencies...');
+            
+            const result = await fixTrashConsistency();
+            
+            toast.dismiss(toastId);
+            
+            if (result.fixed_count > 0) {
+                toast.success(`Fixed ${result.fixed_count} emails with trash inconsistencies. Refreshing...`);
+                
+                // Reset pagination and reload emails
+                setPage(1);
+                setEmails([]);
+                setHasMore(true);
+                setInitialLoadComplete(false);
+                fetchEmails(1, true);
+            } else {
+                toast.success('No inconsistencies found. All emails are correctly labeled.');
+            }
+        } catch (error) {
+            toast.error(`Error fixing trash inconsistencies: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            console.error('Failed to fix trash inconsistencies:', error);
+        } finally {
+            setIsFixingTrash(false);
+        }
+    };
+
+    // Effect to show notification in trash view
+    useEffect(() => {
+        if (categoryParam?.toLowerCase() === 'trash') {
+            setShowTrashNotification(true);
+        } else {
+            setShowTrashNotification(false);
+        }
+    }, [categoryParam]);
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -306,19 +395,67 @@ export default function EmailsPage() {
         <div className="px-4 py-8">
             <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
             <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
+                {/* Show prominent notification in trash view */}
+                {categoryParam?.toLowerCase() === 'trash' && showTrashNotification && (
+                    <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-orange-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                </svg>
+                                <div>
+                                    <p className="text-sm text-orange-800 font-medium">
+                                        Some emails may not appear in this Trash view due to inconsistent labeling.
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex space-x-2">
+                                <button
+                                    onClick={handleFixTrashConsistency}
+                                    disabled={isFixingTrash}
+                                    className="px-3 py-1 bg-orange-500 text-white text-sm font-medium rounded hover:bg-orange-600 transition-colors"
+                                >
+                                    {isFixingTrash ? 'Fixing...' : 'Fix Now'}
+                                </button>
+                                <button
+                                    onClick={() => setShowTrashNotification(false)}
+                                    className="text-orange-500 hover:text-orange-700"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                
                 <div className="flex flex-col mb-6">
                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-4">
                         <h1 className="text-2xl font-bold text-gray-900 mb-4 lg:mb-0 flex-shrink-0">
                             {pageTitle}
                             {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
                         </h1>
+                        
+                        {/* Add trash fix button prominently next to the title if in trash view */}
+                        {categoryParam?.toLowerCase() === 'trash' && (
+                            <button
+                                onClick={handleFixTrashConsistency}
+                                disabled={isFixingTrash}
+                                className={`px-4 py-2 text-sm bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors ${isFixingTrash ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            >
+                                {isFixingTrash ? 'Fixing...' : 'Fix Trash Inconsistencies'}
+                            </button>
+                        )}
                     </div>
-                    <SearchInput 
-                        value={searchTerm} 
-                        onChange={setSearchTerm} 
-                        placeholder="Search emails..." 
-                        className="w-full"
-                    />
+                    <div className="w-full">
+                        <SearchInput 
+                            value={searchTerm} 
+                            onChange={setSearchTerm} 
+                            placeholder="Search emails..." 
+                            className="w-full"
+                        />
+                    </div>
                 </div>
                 
                 <p className="mt-1 text-sm text-gray-600 mb-4">
