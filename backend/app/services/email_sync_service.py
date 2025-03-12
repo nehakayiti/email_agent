@@ -203,27 +203,15 @@ def process_pending_category_updates(db: Session, user: User) -> int:
     if not pending_emails:
         return 0
     
-    # Get all categories from the database
-    from ..models.email_category import EmailCategory
-    categories = db.query(EmailCategory).all()
+    # Simplified mapping from categories to Gmail standard labels
+    # We'll only use Gmail's standard labels that don't require creating custom labels
+    category_to_label = {
+        'trash': 'TRASH',  # Only standard label for trash
+        # We don't map other categories to Gmail labels to avoid intrusive changes
+    }
     
-    # Dynamically build the mapping from categories to Gmail labels
-    category_to_label = {}
-    for category in categories:
-        category_name = category.name.lower()
-        # Special cases
-        if category_name == 'primary':
-            category_to_label[category_name] = None  # No specific label for primary
-        elif category_name == 'trash':
-            category_to_label[category_name] = 'TRASH'
-        elif category_name == 'promotional':
-            category_to_label[category_name] = 'CATEGORY_PROMOTIONS'
-        else:
-            # Standard format for Gmail category labels
-            category_to_label[category_name] = f'CATEGORY_{category_name.upper()}'
-    
-    # All category labels for removal check
-    all_category_labels = [label for label in category_to_label.values() if label]
+    # We'll only remove the INBOX label for archived emails and add TRASH for trash
+    # This is much less intrusive than creating custom CATEGORY_* labels
     
     updated_count = 0
     for email in pending_emails:
@@ -232,17 +220,23 @@ def process_pending_category_updates(db: Session, user: User) -> int:
             current_labels = set(email.labels)
             current_labels.remove("EA_NEEDS_LABEL_UPDATE")
             
-            # Determine which label to add based on the category
+            # Initialize empty lists for labels to add and remove
             add_labels = []
-            if category_to_label.get(email.category):
-                add_labels = [category_to_label[email.category]]
+            remove_labels = []
             
-            # Remove all other category labels
-            remove_labels = [label for label in all_category_labels if label not in add_labels]
+            # Only handle special cases: trash, archive
+            # For all other categories, we won't modify Gmail labels directly
             
-            # Special handling for TRASH category - ensure INBOX is removed
+            # Handle trash category
             if email.category == 'trash':
-                if 'INBOX' not in remove_labels:
+                add_labels.append('TRASH')
+                # Remove from inbox when trashing
+                if 'INBOX' in current_labels:
+                    remove_labels.append('INBOX')
+            
+            # Handle archive - just remove from inbox
+            elif email.category == 'archive':
+                if 'INBOX' in current_labels:
                     remove_labels.append('INBOX')
             
             # If we have labels to add or remove, update in Gmail

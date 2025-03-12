@@ -10,7 +10,7 @@ from .models.user import User
 from .models.email import Email
 from .models.email_sync import EmailSync
 from .models.email_category import EmailCategory, CategoryKeyword, SenderRule
-from .services.email_classifier_service import load_trash_classifier, ensure_models_directory, get_model_path
+from .services.email_classifier_service import load_trash_classifier, ensure_models_directory, get_model_path, find_available_models
 from contextlib import asynccontextmanager
 from .core.logging_config import configure_logging
 
@@ -67,16 +67,22 @@ async def lifespan(app: FastAPI):
     else:
         logger.warning("Failed to create/verify models directory - ML classification may not work")
     
-    # Try to load the global trash classifier model
-    if load_trash_classifier(None):
-        logger.info("Global trash classifier model loaded successfully and will be used for trash detection")
+    # Try to load trash classifier model with fallback logic
+    available_models = find_available_models()
+    
+    if available_models:
+        logger.info(f"Found {len(available_models)} classifier model(s)")
+        if load_trash_classifier(None):
+            logger.info("Trash classifier model loaded successfully")
+        else:
+            logger.warning("Failed to load any classifier model despite finding available models")
     else:
-        logger.info("No trained classifier model found - this is normal for new installations")
+        logger.info("No trained classifier models found - this is normal for new installations")
         logger.info("The application will use rules-based classification until a model is trained")
-        
-        # Log the expected model path for debugging
-        model_path = get_model_path(None)
-        logger.info(f"Expected model path: {model_path} (absolute: {model_path.absolute()})")
+    
+    # Log the expected global model path for debugging
+    model_path = get_model_path(None)
+    logger.info(f"Expected global model path: {model_path}")
     
     logger.debug("Application initialization complete")
     yield

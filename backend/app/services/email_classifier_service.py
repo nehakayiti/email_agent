@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import logging
 from sqlalchemy.orm import Session
 import os
@@ -9,18 +9,27 @@ from ..models.email_operation import EmailOperation, OperationType
 from ..models.email_trash_event import EmailTrashEvent
 from ..utils.naive_bayes_classifier import classifier, train_classifier, record_trash_event
 import time
+import glob
 
 logger = logging.getLogger(__name__)
 
-# Get the absolute path to the project root directory
-PROJECT_ROOT = Path(os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-# Directory to store trained models (absolute path)
-MODELS_DIR = PROJECT_ROOT / "models"
+# Fix the path calculation
+# Get the absolute path to the backend directory
+BACKEND_DIR = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Directory to store trained models (absolute path) - one level up from backend
+MODELS_DIR = BACKEND_DIR.parent / "models"
 
-def ensure_models_directory():
-    """Create models directory if it doesn't exist"""
+logger.info(f"[ML-SERVICE] Models directory is configured at {MODELS_DIR}")
+
+def ensure_models_directory() -> bool:
+    """
+    Create models directory if it doesn't exist
+    
+    Returns:
+        bool: True if directory exists and is writable, False otherwise
+    """
     try:
-        # Make sure the models directory exists
+        logger.info(f"[ML-SERVICE] Ensuring models directory exists at {MODELS_DIR}")
         os.makedirs(MODELS_DIR, exist_ok=True)
         
         # Check if the directory is writable
@@ -30,11 +39,10 @@ def ensure_models_directory():
                 f.write('test')
             os.remove(test_file_path)
             logger.info(f"[ML-SERVICE] Models directory exists and is writable at {MODELS_DIR}")
+            return True
         except Exception as e:
             logger.error(f"[ML-SERVICE] Models directory exists but is not writable: {str(e)}")
             return False
-            
-        return True
     except Exception as e:
         logger.error(f"[ML-SERVICE] Error creating models directory: {str(e)}")
         return False
@@ -49,13 +57,87 @@ def get_model_path(user_id: Optional[UUID] = None) -> Path:
     Returns:
         Path object for the model file
     """
-    ensure_models_directory()
     if user_id:
         logger.debug(f"[ML-SERVICE] Using user-specific model for user {user_id}")
         return MODELS_DIR / f"trash_classifier_{user_id}.pkl"
     else:
         logger.debug(f"[ML-SERVICE] Using global model")
         return MODELS_DIR / "trash_classifier_global.pkl"
+
+def find_available_models() -> List[Path]:
+    """
+    Find all available trained models in the models directory
+    
+    Returns:
+        List of paths to available models, with global model first if it exists
+    """
+    # Ensure directory exists
+    ensure_models_directory()
+    
+    available_models = []
+    
+    # Check for global model first
+    global_model = MODELS_DIR / "trash_classifier_global.pkl"
+    if global_model.exists():
+        available_models.append(global_model)
+        logger.info(f"[ML-SERVICE] Found global model at {global_model}")
+    
+    # Add all user models
+    user_models = [p for p in MODELS_DIR.glob("trash_classifier_*.pkl") 
+                 if p.name != "trash_classifier_global.pkl"]
+    if user_models:
+        available_models.extend(user_models)
+        logger.info(f"[ML-SERVICE] Found {len(user_models)} user-specific models")
+    
+    if not available_models:
+        logger.warning(f"[ML-SERVICE] No models found in {MODELS_DIR}")
+        
+    return available_models
+
+def load_trash_classifier(user_id: Optional[UUID] = None) -> bool:
+    """
+    Load a trained classifier from disk with comprehensive fallback strategy
+    
+    Args:
+        user_id: Optional user ID to load a user-specific model
+        
+    Returns:
+        True if any model was loaded successfully, False otherwise
+    """
+    ensure_models_directory()
+    
+    # Build priority list of models to try
+    models_to_try = []
+    
+    # 1. First try the requested model (user-specific or global)
+    requested_model = get_model_path(user_id)
+    if requested_model.exists():
+        models_to_try.append((requested_model, f"requested model for {'user ' + str(user_id) if user_id else 'global use'}"))
+    
+    # 2. If user-specific was requested, add global as fallback
+    if user_id:
+        global_model = get_model_path(None)
+        if global_model.exists() and global_model != requested_model:
+            models_to_try.append((global_model, "global model as fallback"))
+    
+    # 3. Add any other available models as last resort
+    available_models = find_available_models()
+    for model in available_models:
+        if model not in [m[0] for m in models_to_try]:
+            models_to_try.append((model, "alternative model"))
+    
+    # Try loading models in priority order
+    for model_path, model_type in models_to_try:
+        try:
+            classifier.load_model(str(model_path))
+            logger.info(f"[ML-SERVICE] Successfully loaded {model_type} from {model_path}")
+            return True
+        except Exception as e:
+            logger.warning(f"[ML-SERVICE] Error loading {model_type} from {model_path}: {str(e)}")
+    
+    # If we get here, no model could be loaded
+    logger.error(f"[ML-SERVICE] No usable model found")
+    return False
 
 def train_trash_classifier(
     db: Session, 
@@ -141,48 +223,6 @@ def train_trash_classifier(
             "trained": False,
             "events_count": total_events
         }
-
-def load_trash_classifier(user_id: Optional[UUID] = None) -> bool:
-    """
-    Load a trained classifier from disk
-    
-    Args:
-        user_id: Optional user ID to load a user-specific model
-        
-    Returns:
-        True if the model was loaded successfully, False otherwise
-    """
-    model_path = get_model_path(user_id)
-    
-    if not model_path.exists():
-        logger.warning(f"[ML-SERVICE] No trained model found at {model_path}")
-        
-        # If user model doesn't exist, try loading global model
-        if user_id:
-            logger.info(f"[ML-SERVICE] Attempting to load global model as fallback")
-            global_model_path = get_model_path(None)
-            
-            if not global_model_path.exists():
-                logger.warning(f"[ML-SERVICE] No global model found at {global_model_path}")
-                return False
-                
-            try:
-                classifier.load_model(str(global_model_path))
-                logger.info(f"[ML-SERVICE] Successfully loaded global model as fallback")
-                return True
-            except Exception as e:
-                logger.error(f"[ML-SERVICE] Error loading global model: {str(e)}")
-                return False
-        
-        return False
-        
-    try:
-        classifier.load_model(str(model_path))
-        logger.info(f"[ML-SERVICE] Successfully loaded model for {'user ' + str(user_id) if user_id else 'global model'}")
-        return True
-    except Exception as e:
-        logger.error(f"[ML-SERVICE] Error loading model: {str(e)}")
-        return False
 
 def record_trash_operations(db: Session, operations: List[EmailOperation]) -> None:
     """

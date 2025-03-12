@@ -101,30 +101,25 @@ class LabelsBasedCategorizer:
             logger.info(f"[EMAIL_CAT_LABELS] No labels found")
             return ('unknown', 0.0, 'no_labels')
             
-        # Define standard label mappings dynamically from categories
-        gmail_label_to_categories = {}
-        
-        # Dynamically build the mapping based on database categories
-        for cat_id, details in self.rules["categories"].items():
-            category_name = details["name"].lower()
-            gmail_category = f'CATEGORY_{category_name.upper()}'
-            gmail_label_to_categories[gmail_category] = (category_name, details["priority"])
-        
-        # Handle special cases that might have different naming
-        special_mappings = {
-            'CATEGORY_PROMOTIONS': 'promotional',
-            'CATEGORY_UPDATES': 'updates'
+        # Standard Gmail system labels to our categories mapping
+        # Using only existing Gmail labels, not trying to create new ones
+        gmail_label_to_categories = {
+            # Gmail native categories if they exist
+            'INBOX': ('inbox', 10),
+            'TRASH': ('trash', 5),
+            'SPAM': ('spam', 5),
+            'SENT': ('sent', 5),
+            'DRAFT': ('draft', 5),
+            
+            # Gmail categorization system (we read but don't set these)
+            'CATEGORY_PERSONAL': ('personal', 15),
+            'CATEGORY_SOCIAL': ('social', 15),
+            'CATEGORY_PROMOTIONS': ('promotional', 15),
+            'CATEGORY_UPDATES': ('updates', 15),
+            'CATEGORY_FORUMS': ('forums', 15)
         }
         
-        for label, mapped_name in special_mappings.items():
-            if label not in gmail_label_to_categories:
-                # Check if we have this category in the database
-                for cat_id, details in self.rules["categories"].items():
-                    if details["name"].lower() == mapped_name:
-                        gmail_label_to_categories[label] = (mapped_name, details["priority"])
-                        break
-        
-        # Check for archive (no INBOX label)
+        # Handle special case: archive (no INBOX label)
         if 'INBOX' not in gmail_labels:
             if 'SENT' in gmail_labels or 'DRAFT' in gmail_labels:
                 logger.info(f"[EMAIL_CAT_LABELS] Email is SENT or DRAFT, not archive")
@@ -141,7 +136,7 @@ class LabelsBasedCategorizer:
             if label in gmail_label_to_categories:
                 category_name, priority = gmail_label_to_categories[label]
                 # Gmail categories have high confidence
-                matched_categories.append((category_name, 0.9, f'gmail_category:{label}', priority))
+                matched_categories.append((category_name, 0.9, f'gmail_label:{label}', priority))
                 logger.info(f"[EMAIL_CAT_LABELS] Matched label '{label}' to category '{category_name}'")
         
         if matched_categories:
@@ -428,6 +423,8 @@ class MLBasedCategorizer:
         """Initialize with DB session and optional user ID"""
         self.db = db
         self.user_id = user_id
+        # Get category rules for better feature extraction
+        self.rules = get_categorization_rules(db, user_id)
     
     def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
         """
@@ -450,67 +447,157 @@ class MLBasedCategorizer:
             
             logger.info(f"[EMAIL_CAT_ML] ML prediction: '{ml_category}' with confidence {confidence:.4f}")
             
-            if ml_category == 'trash':
+            if ml_category == 'trash' and confidence > 0:
                 # Extract features that contributed to the classification
-                features_used = extract_ml_classification_features(email_data)
+                features_used = self.extract_classification_features(email_data, 'trash')
                 features_str = ", ".join(features_used)
                 
                 logger.info(f"[EMAIL_CAT_ML] Trash classification features: {features_str}")
                 
                 reason = f"ml_prediction:trash:{features_str}"
                 return ('trash', confidence, reason)
+            elif ml_category != 'unknown' and confidence > 0:
+                # ML model classified as a non-trash category
+                features_used = self.extract_classification_features(email_data, ml_category)
+                features_str = ", ".join(features_used)
+                
+                logger.info(f"[EMAIL_CAT_ML] ML classification as '{ml_category}': {features_str}")
+                reason = f"ml_prediction:{ml_category}:{features_str}"
+                
+                # Only return non-trash categories if confidence is high enough
+                if confidence >= ML_CONFIDENCE_THRESHOLD:
+                    return (ml_category, confidence, reason)
+                else:
+                    # Low confidence, default to unknown
+                    return ('unknown', 0.0, f'ml_low_confidence:{ml_category}:{confidence:.2f}')
             else:
-                # ML model didn't classify as trash
-                logger.info(f"[EMAIL_CAT_ML] Not classified as trash")
-                return ('unknown', 0.0, 'ml_not_trash')
+                # ML model didn't classify with enough confidence
+                logger.info(f"[EMAIL_CAT_ML] Not classified with sufficient confidence")
+                return ('unknown', 0.0, 'ml_insufficient_confidence')
         except Exception as e:
             logger.error(f"[EMAIL_CAT_ML] Error in ML categorization: {str(e)}", exc_info=True)
             return ('unknown', 0.0, f'ml_error:{str(e)}')
+    
+    def extract_classification_features(self, email_data: Dict[str, Any], category: str) -> List[str]:
+        """
+        Extract the key features that likely contributed to the ML classification.
+        Uses database category rules to identify relevant features.
+        
+        Args:
+            email_data: Email data including subject, labels, etc.
+            category: The category predicted by ML
+            
+        Returns:
+            List of feature descriptions that likely contributed to the classification
+        """
+        features = []
+        
+        # Get category ID for this category name
+        category_id = None
+        for cat_id, details in self.rules["categories"].items():
+            if details["name"].lower() == category.lower():
+                category_id = cat_id
+                break
+        
+        # Extract sender domain and check against sender rules
+        from_email = email_data.get('from_email', '')
+        if '@' in from_email:
+            domain = from_email.split('@')[1]
+            
+            # Check if this domain is in the sender rules for this category
+            sender_match = False
+            if category_id:
+                for rule in self.rules.get("senders", {}).get(category_id, []):
+                    pattern = rule["pattern"].lower()
+                    if pattern in domain or (rule.get("is_domain", True) and domain.endswith('.' + pattern)):
+                        sender_match = True
+                        features.append(f"sender:{pattern}")
+            
+            # If no sender rule matches, just add the domain
+            if not sender_match:
+                features.append(f"sender:{domain}")
+        
+        # Check subject against keyword rules
+        subject = email_data.get('subject', '')
+        if subject and category_id:
+            subject_lower = subject.lower()
+            keyword_match = False
+            
+            # Check against database keywords for this category
+            for kw_data in self.rules.get("keywords", {}).get(category_id, []):
+                keyword = kw_data["keyword"].lower()
+                is_regex = kw_data.get("is_regex", False)
+                
+                if is_regex:
+                    pattern = compile_regex(keyword)
+                    if pattern.search(subject_lower):
+                        keyword_match = True
+                        features.append(f"subject_regex:{keyword}")
+                elif keyword in subject_lower:
+                    keyword_match = True
+                    features.append(f"subject:{keyword}")
+            
+            # If no explicit keyword match, try to extract common words
+            if not keyword_match:
+                important_words = extract_important_words(subject, 3)
+                for word in important_words:
+                    features.append(f"subject_word:{word}")
+        
+        # Extract from snippet
+        snippet = email_data.get('snippet', '')
+        if snippet:
+            # Look for common signals in content
+            for signal in ["unsubscribe", "view in browser", "privacy policy", "email preferences"]:
+                if signal in snippet.lower():
+                    features.append(f"content:{signal}")
+            
+            # Extract important words from snippet if no specific signals
+            if not any(f.startswith("content:") for f in features):
+                important_words = extract_important_words(snippet, 3)
+                for word in important_words:
+                    features.append(f"content_word:{word}")
+        
+        # If we couldn't extract specific features, provide a generic explanation
+        if not features:
+            features.append("complex_pattern")
+        
+        return features
 
-def extract_ml_classification_features(email_data: Dict[str, Any]) -> List[str]:
+def extract_important_words(text: str, max_words: int = 3) -> List[str]:
     """
-    Extract the key features that contributed to the ML classification.
+    Extract important words from text, filtering out common stop words.
     
     Args:
-        email_data: Email data including subject, labels, etc.
+        text: The text to analyze
+        max_words: Maximum number of words to return
         
     Returns:
-        List of feature descriptions that contributed to the classification
+        List of important words
     """
-    features = []
+    # Basic list of common English stop words to filter out
+    stop_words = {
+        "a", "an", "the", "and", "or", "but", "if", "because", "as", "what",
+        "when", "where", "how", "all", "any", "both", "each", "few", "more",
+        "most", "other", "some", "such", "no", "nor", "not", "only", "own",
+        "same", "so", "than", "too", "very", "s", "t", "can", "will", "just",
+        "don", "should", "now", "d", "ll", "m", "o", "re", "ve", "y", "ain",
+        "aren", "couldn", "didn", "doesn", "hadn", "hasn", "haven", "isn",
+        "ma", "mightn", "mustn", "needn", "shan", "shouldn", "wasn", "weren",
+        "won", "wouldn", "to", "from", "for", "with", "in", "on", "at"
+    }
     
-    # Extract sender domain
-    from_email = email_data.get('from_email', '')
-    if '@' in from_email:
-        domain = from_email.split('@')[1]
-        features.append(f"sender:{domain}")
+    # Clean and tokenize text
+    words = re.findall(r'\b\w+\b', text.lower())
     
-    # Extract keywords from subject
-    subject = email_data.get('subject', '')
-    if subject:
-        # Common spam/trash keywords
-        trash_keywords = [
-            "offer", "discount", "sale", "promo", "deal", 
-            "limited time", "expires", "coupon", "% off",
-            "unsubscribe", "newsletter", "subscription"
-        ]
-        
-        for keyword in trash_keywords:
-            if keyword.lower() in subject.lower():
-                features.append(f"subject:{keyword}")
+    # Filter out stop words and count word frequencies
+    word_counts = {}
+    for word in words:
+        if word not in stop_words and len(word) > 2:
+            word_counts[word] = word_counts.get(word, 0) + 1
     
-    # Extract from snippet
-    snippet = email_data.get('snippet', '')
-    if snippet:
-        # Look for unsubscribe text
-        if "unsubscribe" in snippet.lower():
-            features.append("content:unsubscribe")
-            
-    # If we couldn't extract specific features, provide a generic explanation
-    if not features:
-        features.append("complex_pattern")
-    
-    return features
+    # Sort by frequency and return top words
+    important_words = sorted(word_counts.items(), key=lambda x: x[1], reverse=True)
+    return [word for word, count in important_words[:max_words]]
 
 class CompositeCategorizer:
     """
