@@ -12,15 +12,28 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# Directory to store trained models (relative to project root)
-MODELS_DIR = Path("backend/models")
+# Get the absolute path to the project root directory
+PROJECT_ROOT = Path(os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+# Directory to store trained models (absolute path)
+MODELS_DIR = PROJECT_ROOT / "models"
 
 def ensure_models_directory():
     """Create models directory if it doesn't exist"""
     try:
-        models_dir = Path("backend/models")
-        os.makedirs(models_dir, exist_ok=True)
-        logger.info(f"[ML-SERVICE] Ensured models directory exists at {models_dir}")
+        # Make sure the models directory exists
+        os.makedirs(MODELS_DIR, exist_ok=True)
+        
+        # Check if the directory is writable
+        test_file_path = MODELS_DIR / ".write_test"
+        try:
+            with open(test_file_path, 'w') as f:
+                f.write('test')
+            os.remove(test_file_path)
+            logger.info(f"[ML-SERVICE] Models directory exists and is writable at {MODELS_DIR}")
+        except Exception as e:
+            logger.error(f"[ML-SERVICE] Models directory exists but is not writable: {str(e)}")
+            return False
+            
         return True
     except Exception as e:
         logger.error(f"[ML-SERVICE] Error creating models directory: {str(e)}")

@@ -122,10 +122,11 @@ def categorize_email(
     """
     Categorize email based on Gmail labels, subject content, and sender.
     
-    This function uses an intelligent categorization system that considers:
+    This function uses a modular categorization system that considers:
     1. Gmail's built-in labels
     2. Subject line keyword matching
     3. Sender domain analysis
+    4. ML-based trash detection
     
     The categorization is database-driven and can be customized through 
     the categories management interface.
@@ -141,15 +142,12 @@ def categorize_email(
     if db is None:
         raise ValueError("Database session is required for email categorization")
         
-    labels = email_data.get('labels', [])
-    subject = email_data.get('subject', '')
-    from_email = email_data.get('from_email', '')
-    
     gmail_id = email_data.get('gmail_id', 'unknown')
+    subject = email_data.get('subject', '')
     
     logger.info(f"[CATEGORIZER] Categorizing email {gmail_id} with subject '{subject}'")
     
-    # Use the categorization function from email_categorizer
+    # Use the categorization function from email_categorizer - now using modular approach
     category = categorize_email_function(email_data, db, user_id)
     
     logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as '{category}'")
@@ -355,11 +353,20 @@ def reprocess_emails(
             # If we have labels, use them to categorize
             if email.labels:
                 try:
-                    # Use the Gmail labels for categorization
-                    labels = json.loads(email.labels) if isinstance(email.labels, str) else email.labels
+                    # Create full email data for better categorization
+                    email_data = {
+                        'id': email.id,
+                        'gmail_id': email.gmail_id,
+                        'labels': json.loads(email.labels) if isinstance(email.labels, str) else email.labels,
+                        'subject': email.subject,
+                        'from_email': email.from_email,
+                        'snippet': email.snippet,
+                        'is_read': email.is_read
+                    }
                     
-                    logger.info(f"[CLASSIFICATION] Classifying email {email.id} with labels: {labels}")
-                    new_category = categorize_email_from_labels(labels, db, user_id)
+                    logger.info(f"[CLASSIFICATION] Classifying email {email.id} using modular categorizer")
+                    # Use the full categorization logic instead of just label-based
+                    new_category = categorize_email(email_data, db, user_id)
                     
                     # Update email category if changed
                     if new_category != old_category:

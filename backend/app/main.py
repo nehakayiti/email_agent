@@ -10,16 +10,14 @@ from .models.user import User
 from .models.email import Email
 from .models.email_sync import EmailSync
 from .models.email_category import EmailCategory, CategoryKeyword, SenderRule
-from .services.email_classifier_service import load_trash_classifier, ensure_models_directory
+from .services.email_classifier_service import load_trash_classifier, ensure_models_directory, get_model_path
 from contextlib import asynccontextmanager
+from .core.logging_config import configure_logging
 
-# Configure logging before anything else
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format='%(levelname)s: %(asctime)s - %(name)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    force=True  # This will override any existing configuration
-)
+# Configure logging at application startup
+configure_logging()
+logger = logging.getLogger(__name__)
+logger.info("Starting Email Agent API")
 
 # Set up more detailed logging for our app modules
 app_logger = logging.getLogger('app')
@@ -64,14 +62,21 @@ async def lifespan(app: FastAPI):
     logger.debug("Starting application initialization")
     
     # Create models directory if it doesn't exist
-    ensure_models_directory()
+    if ensure_models_directory():
+        logger.info("Models directory created/verified successfully")
+    else:
+        logger.warning("Failed to create/verify models directory - ML classification may not work")
     
     # Try to load the global trash classifier model
     if load_trash_classifier(None):
         logger.info("Global trash classifier model loaded successfully and will be used for trash detection")
     else:
         logger.info("No trained classifier model found - this is normal for new installations")
-        logger.info("The application will use rules-based classification until a model is trained in the UI")
+        logger.info("The application will use rules-based classification until a model is trained")
+        
+        # Log the expected model path for debugging
+        model_path = get_model_path(None)
+        logger.info(f"Expected model path: {model_path} (absolute: {model_path.absolute()})")
     
     logger.debug("Application initialization complete")
     yield

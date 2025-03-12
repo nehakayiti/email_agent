@@ -12,9 +12,15 @@ import logging
 import time
 from uuid import UUID
 from ..services import email_operations_service
-from ..utils.email_categorizer import categorize_email
+from ..utils.email_categorizer import categorize_email, categorize_email_from_labels
 from ..services import email_classifier_service
+from ..core.logging_config import configure_logging
 
+# Configure logging if this module is run directly
+if __name__ == "__main__":
+    configure_logging(log_file_name="email_sync.log")
+
+# Get logger
 logger = logging.getLogger(__name__)
 
 # Let's define a local reference to create_gmail_service to ensure it's available
@@ -126,35 +132,45 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         change_desc = " & ".join(label_desc)
         logger.info(f"[GMAIL→EA] Processing label changes ({change_desc}): {email_desc}")
             
-        # Check for Trash label to mark email as trash
-        if 'TRASH' in changes.get('added', []):
-            logger.info(f"[GMAIL→EA] Email moved to Trash: {email_desc}")
-            
-            # Update the email's labels to include TRASH
-            current_labels = set(email.labels or [])
-            current_labels.add('TRASH')
+        # Handle label changes and update our database
+        changed = False
+        current_labels = set(email.labels or [])
+        
+        # Add new labels
+        for label in changes.get('added', []):
+            if label not in current_labels:
+                current_labels.add(label)
+                changed = True
+        
+        # Remove labels
+        for label in changes.get('removed', []):
+            if label in current_labels:
+                current_labels.remove(label)
+                changed = True
+        
+        if changed:
+            # Update the email's labels
             email.labels = list(current_labels)
             
-            # Also update category if needed to reflect trash status
-            if email.category != 'trash':
-                logger.info(f"[GMAIL→EA] Setting category to 'trash' for email (previously {email.category}): {email_desc}")
-                email.category = 'trash'
+            # Create email data dict for categorization
+            email_data = {
+                'id': email.id,
+                'gmail_id': email.gmail_id,
+                'labels': list(current_labels),
+                'subject': email.subject,
+                'from_email': email.from_email,
+                'snippet': email.snippet,
+                'is_read': email.is_read
+            }
+            
+            # Recategorize using our modular categorizer
+            new_category = categorize_email(email_data, db, user.id)
+            
+            if email.category != new_category:
+                logger.info(f"[GMAIL→EA] Recategorized email from '{email.category}' to '{new_category}' after label changes: {email_desc}")
+                email.category = new_category
             
             updated_count += 1
-        
-        # Check if email is being restored from trash
-        if 'TRASH' in changes.get('removed', []):
-            logger.info(f"[GMAIL→EA] Email removed from Trash: {email_desc}")
-            
-            # Remove TRASH from the email's labels
-            current_labels = set(email.labels or [])
-            if 'TRASH' in current_labels:
-                current_labels.remove('TRASH')
-                email.labels = list(current_labels)
-            
-            # Recategorize the email based on its current labels
-            email.category = categorize_email_from_labels(email.labels, db, user.id)
-            logger.info(f"[GMAIL→EA] Recategorized email as {email.category} after trash removal: {email_desc}")
     
     if updated_count > 0:
         db.commit()
@@ -162,76 +178,8 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         
     return updated_count
 
-def categorize_email_from_labels(labels: List[str], db: Session, user_id: Optional[UUID] = None) -> str:
-    """
-    Categorize an email based on Gmail labels and ML classification if needed
-    
-    Args:
-        labels: List of Gmail labels
-        db: Database session
-        user_id: Optional user ID for user-specific classification
-        
-    Returns:
-        Email category string
-    """
-    # Define standard label mappings
-    category_map = {
-        'INBOX': 'inbox',
-        'IMPORTANT': 'important',
-        'SENT': 'sent',
-        'DRAFT': 'draft',
-        'TRASH': 'trash',
-        'SPAM': 'spam',
-        'STARRED': 'starred',
-        'CATEGORY_UPDATES': 'updates',
-        'CATEGORY_PROMOTIONS': 'promotions',
-        'CATEGORY_SOCIAL': 'social', 
-        'CATEGORY_FORUMS': 'forums',
-        'UNREAD': 'unread'
-    }
-    
-    # Check for direct category matches from Gmail labels
-    logger.debug(f"[CATEGORIZATION] Processing email with labels: {', '.join(labels)}")
-    
-    # Priority categories first
-    if any(label in ['TRASH', 'SPAM'] for label in labels):
-        category = next((category_map[label] for label in labels if label in ['TRASH', 'SPAM']), None)
-        logger.debug(f"[CATEGORIZATION] Email categorized as '{category}' based on priority label")
-        return category
-        
-    # Look for category labels
-    for label in labels:
-        if label in category_map:
-            category = category_map[label]
-            logger.debug(f"[CATEGORIZATION] Email categorized as '{category}' based on standard label")
-            return category
-    
-    # If no category labels matched, use ML classification for inbox decision
-    if 'INBOX' in labels:
-        logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
-        logger.info(f"║                  EMAIL CLASSIFICATION                                    ║")
-        logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-        
-        # First try loading the user's classifier model
-        classifier_loaded = email_classifier_service.load_trash_classifier(user_id)
-        
-        if classifier_loaded:
-            # For now we just apply a simple rule for inbox emails
-            # In a future update, this will use ML to predict inbox vs trash
-            logger.info(f"[CLASSIFICATION] Classifier loaded successfully for user {user_id}")
-            logger.info(f"[CLASSIFICATION] Using classifier to determine if email should be inbox or trash")
-            
-            # For now we always return inbox for emails in inbox that don't match other categories
-            # ML functionality will be implemented in a future update
-            logger.info(f"[CLASSIFICATION] Classification result: Email should be in 'inbox'")
-            return 'inbox'
-        else:
-            logger.warning(f"[CLASSIFICATION] No classifier available for user {user_id}, defaulting to 'inbox'")
-            return 'inbox'
-    
-    # Default to 'other' for emails that don't match any categories
-    logger.debug(f"[CATEGORIZATION] Email does not match any categories, using default 'other'")
-    return 'other'
+# Removed old implementation as we're now using the modular categorizer
+# The function is now directly imported from email_categorizer.py
 
 def process_pending_category_updates(db: Session, user: User) -> int:
     """
