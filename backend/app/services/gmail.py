@@ -1,21 +1,56 @@
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from typing import List, Dict, Any, Optional, Tuple
 import logging
 from google.auth.transport.requests import Request
 import time
 import random
+import hashlib
 
 logger = logging.getLogger(__name__)
+
+# Cache for Gmail service instances to reduce credential refreshes
+# Format: {credentials_hash: (service, expiry_time)}
+_service_cache = {}
+# Service cache TTL (in seconds)
+SERVICE_CACHE_TTL = 300  # 5 minutes
+
+def _hash_credentials(credentials_dict: Dict[str, Any]) -> str:
+    """Create a hash of credentials for caching purposes"""
+    # Only use the refresh_token, client_id and client_secret for the hash
+    # since the access token changes after refresh
+    key_parts = [
+        credentials_dict.get('refresh_token', ''),
+        credentials_dict.get('client_id', ''),
+        credentials_dict.get('client_secret', '')
+    ]
+    hash_input = '|'.join(key_parts)
+    return hashlib.md5(hash_input.encode()).hexdigest()
 
 def create_gmail_service(credentials_dict: Dict[str, Any]):
     """
     Create a Gmail API service instance from stored credentials.
     Refreshes the token if needed.
+    Uses caching to reduce credential refreshes.
     """
     try:
+        # Check if we have a cached service for these credentials
+        creds_hash = _hash_credentials(credentials_dict)
+        now = datetime.now(timezone.utc)
+        
+        if creds_hash in _service_cache:
+            service, expiry = _service_cache[creds_hash]
+            if now < expiry:
+                # Cache hit, use cached service
+                logger.debug(f"[GMAIL] Using cached Gmail service")
+                return service
+            else:
+                # Cache expired, remove entry
+                logger.debug(f"[GMAIL] Gmail service cache expired")
+                del _service_cache[creds_hash]
+        
         # Build credentials using the stored token values
         credentials = Credentials(
             token=credentials_dict['token'],
@@ -31,7 +66,14 @@ def create_gmail_service(credentials_dict: Dict[str, Any]):
             credentials.refresh(Request())
             credentials_dict['token'] = credentials.token
         
-        return build('gmail', 'v1', credentials=credentials, cache_discovery=False)
+        service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
+        
+        # Cache the service
+        expiry_time = now + timedelta(seconds=SERVICE_CACHE_TTL)
+        _service_cache[creds_hash] = (service, expiry_time)
+        logger.debug(f"[GMAIL] Created and cached new Gmail service")
+        
+        return service
     except Exception as e:
         logger.error(f"[GMAIL] Error creating Gmail service: {str(e)}", exc_info=True)
         raise

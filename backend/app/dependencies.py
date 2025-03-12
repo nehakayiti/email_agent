@@ -7,7 +7,7 @@ from .db import get_db
 from .models.user import User
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import os
 
 settings = get_settings()
@@ -23,10 +23,31 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 
+# Cache to store authenticated users and reduce redundant DB queries
+# Keys are tokens, values are (user, expiration_time) tuples
+_user_cache = {}
+# Time to keep a user in cache (in seconds)
+USER_CACHE_TTL = 60  # 1 minute
+
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """
     Get the current authenticated user from the JWT token
+    Using caching to reduce redundant authentication calls
     """
+    # Check if token in cache and not expired
+    now = datetime.now(timezone.utc)
+    if token in _user_cache:
+        user, expiration = _user_cache[token]
+        if now < expiration:
+            # Cache hit, use cached user
+            logger.debug(f"Using cached authentication for user: {user.email} (ID: {user.id})")
+            return user
+        else:
+            # Cache expired, remove from cache
+            logger.debug(f"Authentication cache expired for token: {token[:10]}...")
+            del _user_cache[token]
+    
+    # Cache miss or expired, authenticate normally
     logger.debug(f"Authenticating user with token: {token[:10]}...")
     
     credentials_exception = HTTPException(
@@ -55,9 +76,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         
         logger.debug(f"Found user: {user.email} (ID: {user.id})")
         
-        # Update last sign in time
-        user.last_sign_in = datetime.now(timezone.utc)
-        db.commit()
+        # Update last sign in time less frequently to reduce DB writes
+        # Only update if last_sign_in is None or more than 5 minutes old
+        if user.last_sign_in is None or (now - user.last_sign_in) > timedelta(minutes=5):
+            logger.debug(f"Updating last_sign_in for user {user.id}")
+            user.last_sign_in = now
+            db.commit()
         
         # Check if credentials exist and are valid
         if not user.credentials:
@@ -76,6 +100,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail=f"Invalid Gmail credentials: missing {field}. Please re-authenticate with Gmail."
                 )
+        
+        # Add user to cache with expiration time
+        cache_expiration = now + timedelta(seconds=USER_CACHE_TTL)
+        _user_cache[token] = (user, cache_expiration)
         
         return user
         

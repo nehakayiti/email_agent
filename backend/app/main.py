@@ -134,4 +134,34 @@ app.include_router(
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy"} 
+    return {"status": "healthy"}
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Models directory path: {}".format(email_classifier_service.MODELS_DIR))
+    # Create models directory if it doesn't exist
+    if email_classifier_service.ensure_models_directory():
+        logger.info("Models directory created/verified successfully")
+    else:
+        logger.error("Failed to create/verify models directory")
+    
+    # Find available models
+    models = email_classifier_service.find_available_models()
+    logger.info(f"Found {len(models)} classifier model(s)")
+    
+    # Try to load the trash classifier with better error handling
+    try:
+        # Load the global model
+        if email_classifier_service.load_trash_classifier():
+            logger.info("Trash classifier model loaded successfully")
+        else:
+            logger.warning("Failed to load trash classifier model - a minimal default model will be created on first use")
+    except Exception as e:
+        logger.warning(f"Error loading trash classifier model: {str(e)}")
+        logger.info("A minimal default model will be created on first use")
+    
+    # Log expected paths
+    global_model_path = email_classifier_service.get_model_path(None)
+    logger.info(f"Expected global model path: {global_model_path}")
+    
+    logger.debug("Application initialization complete") 

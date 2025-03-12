@@ -135,8 +135,8 @@ class LabelsBasedCategorizer:
         for label in gmail_labels:
             if label in gmail_label_to_categories:
                 category_name, priority = gmail_label_to_categories[label]
-                # Gmail categories have high confidence
-                matched_categories.append((category_name, 0.9, f'gmail_label:{label}', priority))
+                # Gmail categories have high confidence - Change from 0.9 to 1.0
+                matched_categories.append((category_name, 1.0, f'gmail_label:{label}', priority))
                 logger.info(f"[EMAIL_CAT_LABELS] Matched label '{label}' to category '{category_name}'")
         
         if matched_categories:
@@ -149,7 +149,8 @@ class LabelsBasedCategorizer:
         # Default to inbox for emails that have the INBOX label but no other category
         if 'INBOX' in gmail_labels:
             logger.info(f"[EMAIL_CAT_LABELS] Email has INBOX label, defaulting to 'inbox'")
-            return ('inbox', 0.7, 'inbox_label')
+            # Update this confidence from 0.7 to 1.0 as well
+            return ('inbox', 1.0, 'inbox_label')
         
         # Default unknown for everything else
         logger.info(f"[EMAIL_CAT_LABELS] No category matches found")
@@ -443,7 +444,8 @@ class MLBasedCategorizer:
         
         try:
             # Use the Naive Bayes classifier for trash detection
-            ml_category, confidence = nbc_classify_email(email_data)
+            # Pass user_id to ensure the correct model is loaded
+            ml_category, confidence = nbc_classify_email(email_data, self.user_id)
             
             logger.info(f"[EMAIL_CAT_ML] ML prediction: '{ml_category}' with confidence {confidence:.4f}")
             

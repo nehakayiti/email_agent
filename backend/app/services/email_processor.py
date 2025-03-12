@@ -194,7 +194,14 @@ def calculate_importance(
         logger.debug(f"[IMPORTANCE] +20 for IMPORTANT label -> {score}")
         
     # Category-based adjustments
-    category = email_data.get('category', categorize_email(email_data, db, user_id))
+    # Use existing category if available, avoiding duplicate categorization
+    category = email_data.get('category')
+    if not category:
+        # Only call categorize_email if we don't have a category already
+        logger.debug(f"[IMPORTANCE] No category available, categorizing email {gmail_id}")
+        category = categorize_email(email_data, db, user_id)
+        # Store category in email_data to avoid future recategorization
+        email_data['category'] = category
     
     # Fetch category priorities from the database
     # Get priorities for all categories

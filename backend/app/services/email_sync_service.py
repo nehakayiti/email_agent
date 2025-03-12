@@ -37,9 +37,11 @@ def get_or_create_email_sync(db: Session, user: User) -> EmailSync:
     Returns:
         EmailSync model instance
     """
-    # Check if user already has a sync record
-    if user.email_sync:
-        return user.email_sync
+    # Check if user already has a sync record - query directly to avoid detached session issues
+    email_sync = db.query(EmailSync).filter(EmailSync.user_id == user.id).first()
+    
+    if email_sync:
+        return email_sync
     
     # Create new sync record with default values - use UTC time
     email_sync = EmailSync(
@@ -295,14 +297,25 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
     sync_start_timestamp = start_time.isoformat()
     
     try:
+        # Get a fresh user object from the database to ensure it's attached to the session
+        # Instead of trying to refresh the potentially detached user object
+        user_id = user.id
+        user_email = user.email
+        credentials = user.credentials
+        
+        # Query for a fresh user object that's guaranteed to be attached to the session
+        fresh_user = db.query(User).filter(User.id == user_id).first()
+        if not fresh_user:
+            raise ValueError(f"User with ID {user_id} not found in database")
+        
         # Get or create email sync record
-        email_sync = get_or_create_email_sync(db, user)
+        email_sync = get_or_create_email_sync(db, fresh_user)
         
         # Enhanced logging for sync start
         logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
         logger.info(f"║                  STARTING EMAIL SYNC                                     ║")
         logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-        logger.info(f"User: {user.email}")
+        logger.info(f"User: {user_email}")
         logger.info(f"Time: {sync_start_timestamp}")
         logger.info(f"Last sync: {email_sync.last_fetched_at}")
         logger.info(f"History ID: {email_sync.last_history_id}")
@@ -323,7 +336,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             # Get a fresh history ID by fetching the latest message
             try:
                 # Create Gmail service
-                service = gmail_service_creator(user.credentials)
+                service = gmail_service_creator(credentials)
                 
                 # Get the latest message to get its history ID
                 logger.info("[SYNC] Force full sync or no history ID - fetching latest message for new history ID")
@@ -360,7 +373,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                         "deleted_email_count": 0,
                         "label_changes_count": 0,
                         "sync_started_at": start_time.isoformat(),
-                        "user_id": str(user.id),
+                        "user_id": str(user_id),
                         "sync_method": "init_history_id"
                     }
                 else:
@@ -370,7 +383,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                         "message": "No messages found in inbox to obtain history ID",
                         "sync_count": 0,
                         "sync_started_at": start_time.isoformat(),
-                        "user_id": str(user.id),
+                        "user_id": str(user_id),
                         "sync_method": "history_init_failed"
                     }
             except Exception as e:
@@ -380,13 +393,13 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                     "message": f"Failed to get new history ID: {str(e)}",
                     "sync_count": 0,
                     "sync_started_at": start_time.isoformat(),
-                    "user_id": str(user.id),
+                    "user_id": str(user_id),
                     "sync_method": "error"
                 }
         
         # Get the list of already processed email IDs to filter them out
         existing_gmail_ids = db.query(Email.gmail_id).filter(
-            Email.user_id == user.id
+            Email.user_id == user_id
         ).all()
         existing_gmail_ids = [id[0] for id in existing_gmail_ids]
         
@@ -398,7 +411,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
         ops_start_time = datetime.now(timezone.utc)
         try:
             logger.info(f"[SYNC] Processing pending operations with user credentials")
-            operations_result = email_operations_service.process_pending_operations(db, user, user.credentials)
+            operations_result = email_operations_service.process_pending_operations(db, fresh_user, credentials)
             logger.info(f"[SYNC] Operations processing completed successfully")
         except Exception as e:
             logger.error(f"[SYNC] Error during operations processing: {str(e)}")
@@ -407,7 +420,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                 "message": f"Email sync failed: {str(e)}",
                 "sync_count": 0,
                 "sync_started_at": sync_start_timestamp,
-                "user_id": user.id,
+                "user_id": user_id,
                 "sync_method": "error"
             }
             
@@ -442,7 +455,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             sync_start = datetime.now(timezone.utc)
             # Use the sync_gmail_changes function to efficiently fetch changes since last history ID
             new_emails_raw, deleted_ids, label_changes, new_history_id = gmail.sync_gmail_changes(
-                user.credentials,
+                credentials,
                 email_sync.last_history_id
             )
             sync_duration = (datetime.now(timezone.utc) - sync_start).total_seconds()
@@ -506,7 +519,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                     "deleted_email_count": 0,
                     "label_changes_count": 0,
                     "sync_started_at": start_time.isoformat(),
-                    "user_id": str(user.id),
+                    "user_id": str(user_id),
                     "sync_method": "operations_only",
                     "sync_duration_seconds": ops_duration
                 }
@@ -530,10 +543,10 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                 deleted_email_ids = deleted_ids
                 
                 # Process label changes (mark as read/unread, deleted, etc.)
-                label_changes_count = process_label_changes(db, user, label_changes)
+                label_changes_count = process_label_changes(db, fresh_user, label_changes)
                 
                 # Process any pending category updates from our database to Gmail
-                category_updates_count = process_pending_category_updates(db, user)
+                category_updates_count = process_pending_category_updates(db, fresh_user)
                 
                 logger.info(f"[SYNC] Processing summary:")
                 logger.info(f"  - Total emails found: {total_found}")
@@ -568,7 +581,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                         "message": "No changes detected since last sync",
                         "sync_count": 0,
                         "sync_started_at": start_time.isoformat(),
-                        "user_id": str(user.id),
+                        "user_id": str(user_id),
                         "sync_method": "history_no_changes",
                         "debug_info": {
                             "last_history_id": email_sync.last_history_id,
@@ -588,7 +601,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                     "message": f"History ID is invalid or too old, please retry to initialize a new history ID",
                     "sync_count": 0,
                     "sync_started_at": start_time.isoformat(),
-                    "user_id": str(user.id),
+                    "user_id": str(user_id),
                     "sync_method": "history_reset"
                 }
             else:
@@ -598,17 +611,17 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
                     "message": f"History sync error: {error_msg}",
                     "sync_count": 0,
                     "sync_started_at": start_time.isoformat(),
-                    "user_id": str(user.id),
+                    "user_id": str(user_id),
                     "sync_method": "error"
                 }
         
         # Process and store the new emails
         processed_emails = []
         if new_emails:
-            logger.info(f"[SYNC] Processing {len(new_emails)} new emails for user {user.id}")
+            logger.info(f"[SYNC] Processing {len(new_emails)} new emails for user {user_id}")
             # Use local import to avoid circular dependency
             from .email_processor import process_and_store_emails
-            processed_emails = process_and_store_emails(db, user, new_emails)
+            processed_emails = process_and_store_emails(db, fresh_user, new_emails)
             logger.info(f"[SYNC] Successfully processed and stored {len(processed_emails)} emails")
             
             # Log details of the synced emails for debugging
@@ -629,14 +642,14 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             
             # Diagnostic query to check Gmail ID format in database
             db_email_sample = db.query(Email.gmail_id).filter(
-                Email.user_id == user.id
+                Email.user_id == user_id
             ).limit(5).all()
             db_gmail_ids = [email[0] for email in db_email_sample]
             logger.info(f"[SYNC] Database Gmail ID format sample: {db_gmail_ids}")
             
             # Check if any of the deleted emails exist in the database
             found_emails = db.query(Email).filter(
-                Email.user_id == user.id,
+                Email.user_id == user_id,
                 Email.gmail_id.in_(deleted_email_ids[:min(10, len(deleted_email_ids))])
             ).all()
             logger.info(f"[SYNC] Found {len(found_emails)} of the first {min(10, len(deleted_email_ids))} deleted emails in DB")
@@ -648,7 +661,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             for gmail_id in deleted_email_ids:
                 # Find the email in our database
                 email = db.query(Email).filter(
-                    Email.user_id == user.id,
+                    Email.user_id == user_id,
                     Email.gmail_id == gmail_id
                 ).first()
                 
@@ -702,7 +715,7 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             "label_changes_count": label_changes_count,
             "category_updates_processed": category_updates_count,
             "sync_started_at": start_time.isoformat(),
-            "user_id": str(user.id),
+            "user_id": str(user_id),
             "sync_method": "history"
         }
         
@@ -716,6 +729,6 @@ def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool
             "message": f"Email sync failed: {str(e)}",
             "sync_count": 0,
             "sync_started_at": start_time.isoformat(),
-            "user_id": str(user.id) if user else None,
+            "user_id": str(user_id) if user else None,
             "sync_method": "error"
         } 

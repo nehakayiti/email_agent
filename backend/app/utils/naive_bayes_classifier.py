@@ -10,9 +10,17 @@ from email.utils import parseaddr
 from sqlalchemy.orm import Session
 from ..models.email import Email
 from ..models.email_trash_event import EmailTrashEvent
+from datetime import datetime, timezone
 
 # Create a custom formatter for detailed logging
 logger = logging.getLogger(__name__)
+
+# Model cache - store loaded models keyed by user_id (None for global)
+_model_cache = {}
+# Track when models were last loaded
+_model_load_time = {}
+# Cache TTL in seconds (10 minutes)
+_MODEL_CACHE_TTL = 600
 
 class NaiveBayesClassifier:
     """
@@ -425,12 +433,14 @@ def train_classifier(features: List[Dict[str, Any]], labels: List[int], user_id:
     
     return accuracy
 
-def classify_email(email_data: Dict[str, Any]) -> Tuple[str, float]:
+def classify_email(email_data: Dict[str, Any], user_id: Optional[UUID] = None) -> Tuple[str, float]:
     """
-    Convenience function to classify an email using the global classifier.
+    Convenience function to classify an email using the global or user-specific classifier.
+    Ensures the right model is loaded for the current user.
     
     Args:
         email_data: Dictionary containing email data
+        user_id: Optional UUID of the user for loading user-specific model
         
     Returns:
         Tuple of (predicted_class, confidence_score)
@@ -441,6 +451,31 @@ def classify_email(email_data: Dict[str, Any]) -> Tuple[str, float]:
         from_email = email_data.get('from_email', 'unknown')
         
         logger.info(f"[ML-CLASSIFIER] Classifying email: ID={gmail_id}, Subject='{subject}...', From={from_email}")
+        
+        # Check if we need to reload the model
+        user_id_key = str(user_id) if user_id else 'global'
+        now = datetime.now(timezone.utc)
+        
+        if user_id_key not in _model_load_time or (now - _model_load_time[user_id_key]).total_seconds() > _MODEL_CACHE_TTL:
+            # Import here to avoid circular imports
+            from ..services.email_classifier_service import load_trash_classifier
+            
+            # Load the appropriate model for this user
+            if user_id:
+                logger.debug(f"[ML-CLASSIFIER] Loading user-specific model for user {user_id}")
+                model_loaded = load_trash_classifier(user_id)
+                if not model_loaded:
+                    logger.warning(f"[ML-CLASSIFIER] Failed to load user-specific model for {user_id}, defaulting to global model")
+                    load_trash_classifier(None)  # Fall back to global model
+            else:
+                # Use global model
+                logger.debug(f"[ML-CLASSIFIER] No user_id provided, using global model")
+                load_trash_classifier(None)
+                
+            # Update cache time
+            _model_load_time[user_id_key] = now
+        else:
+            logger.debug(f"[ML-CLASSIFIER] Using cached model for {user_id_key}")
         
         if not classifier.is_trained:
             logger.warning(f"[ML-CLASSIFIER] Model not trained yet, returning default classification for {gmail_id}")
