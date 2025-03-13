@@ -533,6 +533,28 @@ export interface ClassifierStatus {
   message: string;
 }
 
+// New model metrics interface
+export interface ModelMetrics {
+  accuracy: number;
+  precision: number;
+  recall: number;
+  f1_score: number;
+  confusion_matrix: {
+    true_positives: number;
+    false_positives: number;
+    true_negatives: number;
+    false_negatives: number;
+  };
+  top_features: Array<{
+    feature: string;
+    importance: number;
+    class: string;
+  }>;
+  training_size: number;
+  test_size: number;
+  training_time: string;
+}
+
 interface CategoriesResponse {
   data: Category[];
 }
@@ -584,14 +606,27 @@ export async function reprocessAllEmails(): Promise<any> {
   });
 }
 
-export async function trainTrashClassifier(): Promise<any> {
+export async function trainTrashClassifier(testSize: number = 0.2): Promise<any> {
   return fetchWithAuth('/email-management/classifier/train', {
-    method: 'POST'
+    method: 'POST',
+    body: JSON.stringify({
+      test_size: testSize
+    })
   });
 }
 
 export async function getTrashClassifierStatus(): Promise<ClassifierStatus> {
   return fetchWithAuth<ClassifierStatus>('/email-management/classifier/status');
+}
+
+// New function to evaluate the model with test data
+export async function evaluateTrashClassifier(): Promise<ModelMetrics> {
+  return fetchWithAuth<ModelMetrics>('/email-management/classifier/evaluate');
+}
+
+// New function to get model metrics
+export async function getClassifierMetrics(): Promise<ModelMetrics> {
+  return fetchWithAuth<ModelMetrics>('/email-management/classifier/metrics');
 }
 
 export async function deleteCategory(categoryName: string): Promise<any> {
@@ -614,8 +649,11 @@ export async function createCategory(data: CreateCategoryRequest): Promise<Categ
   });
 }
 
-export async function bootstrapTrashClassifier(): Promise<any> {
+export async function bootstrapTrashClassifier(testSize: number = 0.2): Promise<any> {
   return fetchWithAuth('/email-management/classifier/bootstrap', {
-    method: 'POST'
+    method: 'POST',
+    body: JSON.stringify({
+      test_size: testSize
+    })
   });
 } 

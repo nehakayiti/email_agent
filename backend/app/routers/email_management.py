@@ -3,7 +3,7 @@ API routes for email management operations.
 """
 import logging
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Body
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from datetime import datetime, date
@@ -39,6 +39,7 @@ router = APIRouter(
 @router.post("/classifier/train", response_model=Dict[str, Any])
 async def train_classifier(
     background_tasks: BackgroundTasks,
+    request: Dict[str, Any] = Body(default={}),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -46,15 +47,22 @@ async def train_classifier(
     Train the Naive Bayes classifier for trash email detection.
     Training is performed asynchronously in the background.
     
+    Args:
+        request: Optional request body with training parameters
+        
     Returns:
         Dictionary with status
     """
+    # Extract test_size from request if provided
+    test_size = request.get('test_size', 0.2)
+    
     # Start the training in the background
-    background_tasks.add_task(train_trash_classifier, db, user.id, True)
+    background_tasks.add_task(train_trash_classifier, db, user.id, True, test_size)
     
     return {
         "status": "training_started",
-        "message": "Classifier training has been started in the background"
+        "message": "Classifier training has been started in the background",
+        "test_size": test_size
     }
 
 @router.get("/classifier/status", response_model=Dict[str, Any])
@@ -118,6 +126,7 @@ async def admin_retrain_all_models(
 @router.post("/classifier/bootstrap", response_model=Dict[str, Any])
 async def bootstrap_classifier_data(
     background_tasks: BackgroundTasks,
+    request: Dict[str, Any] = Body(default={}),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -125,16 +134,85 @@ async def bootstrap_classifier_data(
     Bootstrap the classifier training data by using existing trash emails.
     This allows training the model without requiring additional user actions.
     
+    Args:
+        request: Optional request body with training parameters
+    
     Returns:
         Dictionary with status
     """
+    # Extract test_size from request if provided
+    test_size = request.get('test_size', 0.2)
+    
     # Start the bootstrapping in the background
-    background_tasks.add_task(bootstrap_training_data, db, user.id)
+    result = bootstrap_training_data(db, user.id)
     
     return {
-        "status": "bootstrapping_started",
-        "message": "Using your existing trash emails to prepare training data. This may take a few minutes."
+        "status": "success",
+        "message": "Training data has been bootstrapped from existing trash emails",
+        "events_created": result.get("events_created", 0),
+        "total_events": result.get("total_events", 0),
+        "test_size": test_size
     }
+
+@router.get("/classifier/metrics", response_model=Dict[str, Any])
+async def get_model_metrics(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get performance metrics for the trained classifier model.
+    
+    Returns:
+        Dictionary with model metrics
+    """
+    # Load the model to ensure we have the latest version
+    model_loaded = load_trash_classifier(user.id)
+    
+    if not model_loaded:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No trained model available. Train a model first."
+        )
+        
+    from ..utils.naive_bayes_classifier import classifier
+    
+    # Dummy metrics if real metrics aren't available in the model yet
+    metrics = getattr(classifier, 'evaluation_metrics', None)
+    
+    if not metrics:
+        # If we don't have stored metrics, provide reasonable defaults
+        from ..services.email_classifier_service import evaluate_model
+        metrics = evaluate_model(db, user.id)
+    
+    return metrics
+
+@router.get("/classifier/evaluate", response_model=Dict[str, Any])
+async def evaluate_classifier(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Evaluate the trained classifier model on test data.
+    
+    Returns:
+        Dictionary with evaluation metrics
+    """
+    # Check if model exists
+    model_loaded = load_trash_classifier(user.id)
+    
+    if not model_loaded:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No trained model available. Train a model first."
+        )
+    
+    # Import the evaluation function
+    from ..services.email_classifier_service import evaluate_model
+    
+    # Evaluate the model
+    metrics = evaluate_model(db, user.id)
+    
+    return metrics
 
 class ReprocessFilter(BaseModel):
     """Filter criteria for email reprocessing"""

@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # Constants for weighted decision making
 ML_CONFIDENCE_THRESHOLD = 0.75  # High confidence threshold for ML
+TRASH_CONFIDENCE_THRESHOLD = 0.85  # Higher threshold specifically for trash classification
 RULES_CONFIDENCE_THRESHOLD = 0.7  # Threshold for rules-based approach
 ML_RULES_WEIGHT = 0.7  # Weight for ML decision when combining with rules
 
@@ -449,15 +450,23 @@ class MLBasedCategorizer:
             
             logger.info(f"[EMAIL_CAT_ML] ML prediction: '{ml_category}' with confidence {confidence:.4f}")
             
-            if ml_category == 'trash' and confidence > 0:
+            if ml_category == 'trash':
                 # Extract features that contributed to the classification
                 features_used = self.extract_classification_features(email_data, 'trash')
                 features_str = ", ".join(features_used)
                 
                 logger.info(f"[EMAIL_CAT_ML] Trash classification features: {features_str}")
                 
-                reason = f"ml_prediction:trash:{features_str}"
-                return ('trash', confidence, reason)
+                # Apply stricter confidence threshold for trash classification
+                if confidence >= TRASH_CONFIDENCE_THRESHOLD:
+                    logger.info(f"[EMAIL_CAT_ML] High confidence trash classification ({confidence:.4f} >= {TRASH_CONFIDENCE_THRESHOLD})")
+                    reason = f"ml_prediction:trash:{features_str}"
+                    return ('trash', confidence, reason)
+                else:
+                    logger.info(f"[EMAIL_CAT_ML] Trash classification below threshold ({confidence:.4f} < {TRASH_CONFIDENCE_THRESHOLD})")
+                    reason = f"ml_low_confidence:trash:{confidence:.4f}:{features_str}"
+                    # Return unknown with 0 confidence to allow other categorizers to decide
+                    return ('unknown', 0.0, reason)
             elif ml_category != 'unknown' and confidence > 0:
                 # ML model classified as a non-trash category
                 features_used = self.extract_classification_features(email_data, ml_category)

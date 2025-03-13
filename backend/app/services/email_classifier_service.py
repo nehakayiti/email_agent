@@ -7,7 +7,7 @@ from uuid import UUID
 from ..models.email import Email
 from ..models.email_operation import EmailOperation, OperationType
 from ..models.email_trash_event import EmailTrashEvent
-from ..utils.naive_bayes_classifier import classifier, train_classifier, record_trash_event
+from ..utils.naive_bayes_classifier import classifier, train_classifier, record_trash_event, save_classifier_model
 import time
 import glob
 
@@ -158,7 +158,8 @@ def load_trash_classifier(user_id: Optional[UUID] = None) -> bool:
 def train_trash_classifier(
     db: Session, 
     user_id: Optional[UUID] = None,
-    save_model: bool = True
+    save_model: bool = True,
+    test_size: float = 0.2
 ) -> Dict[str, Any]:
     """
     Train a Naive Bayes classifier for predicting if emails should be moved to trash
@@ -167,6 +168,7 @@ def train_trash_classifier(
         db: Database session
         user_id: Optional user ID to train a user-specific model
         save_model: Whether to save the trained model to disk
+        test_size: Fraction of data to use for testing (0.0 to 1.0)
         
     Returns:
         Dictionary with training results
@@ -177,6 +179,7 @@ def train_trash_classifier(
     
     start_time = time.time()
     logger.info(f"[ML-SERVICE] Starting trash classifier training for {'user ' + str(user_id) if user_id else 'global model'}")
+    logger.info(f"[ML-SERVICE] Using test_size={test_size}")
     
     # Get training data from the database
     query = db.query(EmailTrashEvent)
@@ -209,9 +212,26 @@ def train_trash_classifier(
         })
         labels.append(1 if event.event_type == 'moved_to_trash' else 0)
     
+    # Split data into training and test sets if test_size > 0
+    from sklearn.model_selection import train_test_split
+    train_features, test_features, train_labels, test_labels = None, None, None, None
+    
+    if test_size > 0 and total_events >= 10:  # Only split if we have enough data
+        train_features, test_features, train_labels, test_labels = train_test_split(
+            features, labels, test_size=test_size, random_state=42
+        )
+        training_size = len(train_features)
+        test_size = len(test_features)
+        logger.info(f"[ML-SERVICE] Split data into {training_size} training samples and {test_size} test samples")
+    else:
+        train_features, train_labels = features, labels
+        test_features, test_labels = [], []
+        logger.info(f"[ML-SERVICE] Using all {total_events} samples for training (no test split)")
+    
     # Train the classifier
     try:
-        accuracy = train_classifier(features, labels, user_id)
+        # Train on training set only
+        accuracy = train_classifier(train_features, train_labels, user_id)
         
         # Save the model if requested
         if save_model:
@@ -223,13 +243,26 @@ def train_trash_classifier(
         logger.info(f"[ML-SERVICE] Training completed in {training_time:.2f}s with accuracy: {accuracy:.4f}")
         logger.info(f"[ML-SERVICE] Model is now ready for classification")
         
+        # If we have test data, evaluate on it
+        metrics = None
+        if test_features and test_labels:
+            logger.info(f"[ML-SERVICE] Evaluating model on {len(test_features)} test samples")
+            metrics = evaluate_classifier(test_features, test_labels, user_id)
+            classifier.evaluation_metrics = metrics
+            logger.info(f"[ML-SERVICE] Model evaluation metrics: {metrics}")
+            
+            # If we have metrics, save the model again to store the metrics
+            if save_model:
+                classifier.save_model(str(model_path))
+        
         return {
             "status": "success",
             "message": "Classifier trained successfully",
             "trained": True,
             "events_count": total_events,
             "accuracy": accuracy,
-            "training_time": f"{training_time:.2f}s"
+            "training_time": f"{training_time:.2f}s",
+            "metrics": metrics
         }
     except Exception as e:
         logger.error(f"[ML-SERVICE] Error training classifier: {str(e)}")
@@ -395,3 +428,311 @@ def bootstrap_training_data(db: Session, user_id: UUID) -> Dict[str, Any]:
         "created_events": created_count,
         "total_events": event_count
     } 
+
+def evaluate_model(db: Session, user_id: Optional[UUID] = None) -> Dict[str, Any]:
+    """
+    Evaluate the trained classifier model and return metrics
+    
+    Args:
+        db: Database session
+        user_id: Optional user ID to evaluate a user-specific model
+        
+    Returns:
+        Dictionary with evaluation metrics
+    """
+    logger.info(f"[ML-SERVICE] Evaluating trash classifier for {'user ' + str(user_id) if user_id else 'global model'}")
+    
+    # Load the classifier model
+    model_loaded = load_trash_classifier(user_id)
+    if not model_loaded:
+        logger.error(f"[ML-SERVICE] No model available for evaluation")
+        return {
+            "status": "error",
+            "message": "No trained model available for evaluation"
+        }
+    
+    # Get test data from database - use all available events for evaluation
+    query = db.query(EmailTrashEvent)
+    if user_id:
+        query = query.filter(EmailTrashEvent.user_id == user_id)
+    
+    # Since we're evaluating, we'll use all available data
+    # In a real system, you'd want to keep a separate test set
+    test_events = query.all()
+    
+    if not test_events:
+        logger.error(f"[ML-SERVICE] No test data available for evaluation")
+        return {
+            "status": "error",
+            "message": "No test data available for evaluation"
+        }
+    
+    # Extract features and labels
+    test_features = []
+    test_labels = []
+    
+    for event in test_events:
+        test_features.append({
+            "sender": event.sender_email,
+            "subject": event.subject,
+            "snippet": event.snippet
+        })
+        test_labels.append(1 if event.event_type == 'moved_to_trash' else 0)
+    
+    # If we already have stored metrics, use them
+    if hasattr(classifier, 'evaluation_metrics') and classifier.evaluation_metrics:
+        stored_metrics = classifier.evaluation_metrics
+        logger.info(f"[ML-SERVICE] Using stored evaluation metrics")
+        return stored_metrics
+    
+    # Otherwise, evaluate the model on the test data
+    logger.info(f"[ML-SERVICE] Evaluating model on {len(test_features)} examples")
+    metrics = evaluate_classifier(test_features, test_labels, user_id)
+    
+    # Store metrics in the classifier for future reference
+    classifier.evaluation_metrics = metrics
+    
+    # Save the model with the updated metrics
+    model_path = get_model_path(user_id)
+    classifier.save_model(str(model_path))
+    
+    return metrics
+
+def evaluate_classifier(features: List[Dict[str, Any]], labels: List[int], user_id: Optional[UUID] = None) -> Dict[str, Any]:
+    """
+    Evaluate the classifier on test data and calculate metrics
+    
+    Args:
+        features: List of feature dictionaries
+        labels: List of ground truth labels (1 for trash, 0 for not trash)
+        user_id: Optional user ID for user-specific model
+        
+    Returns:
+        Dictionary with evaluation metrics
+    """
+    from ..utils.naive_bayes_classifier import classify_email as nbc_classify_email
+    
+    # Make predictions on test data
+    predictions = []
+    for feature in features:
+        # Create a single email_data dict as expected by classify_email
+        email_data = {
+            "from_email": feature.get("sender", ""),
+            "subject": feature.get("subject", ""),
+            "snippet": feature.get("snippet", ""),
+            "gmail_id": feature.get("gmail_id", "unknown")
+        }
+        
+        # Call the classifier with the expected parameter format
+        prediction, _ = nbc_classify_email(email_data, user_id)
+        
+        # Convert prediction to binary (1 for trash, 0 for not trash)
+        predictions.append(1 if prediction == "trash" else 0)
+    
+    # Calculate metrics
+    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
+    import numpy as np
+    
+    # Handle edge case where we might not have enough data of each class
+    if len(set(labels)) < 2 or len(set(predictions)) < 2:
+        logger.warning(f"[ML-SERVICE] Not enough class diversity in evaluation data")
+        # Provide reasonable default metrics
+        accuracy = accuracy_score(labels, predictions)
+        precision = 0.0
+        recall = 0.0
+        f1 = 0.0
+        cm = [[0, 0], [0, 0]]
+    else:
+        accuracy = accuracy_score(labels, predictions)
+        precision = precision_score(labels, predictions, zero_division=0)
+        recall = recall_score(labels, predictions, zero_division=0)
+        f1 = f1_score(labels, predictions, zero_division=0)
+        cm = confusion_matrix(labels, predictions).tolist()
+    
+    # Get top features from the model
+    top_features = []
+    try:
+        from ..utils.naive_bayes_classifier import classifier
+        
+        # Extract feature importances from the Naive Bayes model
+        # For NBC, the word likelihoods serve as feature importances
+        word_likelihoods_trash = classifier.word_likelihoods['trash']
+        word_likelihoods_not_trash = classifier.word_likelihoods['not_trash']
+        
+        # Combine all features
+        all_features = {}
+        
+        # Calculate importance as the difference in likelihood between classes
+        for word in classifier.vocabulary:
+            trash_likelihood = word_likelihoods_trash.get(word, 0)
+            not_trash_likelihood = word_likelihoods_not_trash.get(word, 0)
+            
+            if trash_likelihood > not_trash_likelihood:
+                all_features[word] = {
+                    "importance": trash_likelihood / (not_trash_likelihood + 1e-9),
+                    "class": "trash"
+                }
+            else:
+                all_features[word] = {
+                    "importance": not_trash_likelihood / (trash_likelihood + 1e-9),
+                    "class": "not_trash"
+                }
+        
+        # Sort by importance and take top 15
+        sorted_features = sorted(
+            all_features.items(), 
+            key=lambda x: x[1]["importance"], 
+            reverse=True
+        )[:15]
+        
+        top_features = [
+            {
+                "feature": word,
+                "importance": info["importance"],
+                "class": info["class"]
+            }
+            for word, info in sorted_features
+        ]
+    except Exception as e:
+        logger.error(f"[ML-SERVICE] Error extracting top features: {str(e)}")
+    
+    # Compile metrics
+    metrics = {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1,
+        "confusion_matrix": {
+            "true_positives": cm[1][1] if len(cm) > 1 and len(cm[1]) > 1 else 0,
+            "false_positives": cm[0][1] if len(cm) > 0 and len(cm[0]) > 1 else 0,
+            "true_negatives": cm[0][0] if len(cm) > 0 and len(cm[0]) > 0 else 0,
+            "false_negatives": cm[1][0] if len(cm) > 1 and len(cm[1]) > 0 else 0
+        },
+        "top_features": top_features,
+        "training_size": classifier.training_data_size,
+        "test_size": len(features),
+        "training_time": f"{classifier.training_time:.2f}s" if hasattr(classifier, 'training_time') else "unknown"
+    }
+    
+    return metrics 
+
+def train_balanced_trash_classifier(
+    db: Session, 
+    user_id: Optional[UUID] = None,
+    save_model: bool = True,
+    test_size: float = 0.2,
+    max_samples_per_class: int = 500
+) -> Dict[str, Any]:
+    """
+    Train a Naive Bayes classifier with a balanced dataset of trash and non-trash emails
+    explicitly using Gmail labels as the source of truth.
+    
+    Args:
+        db: Database session
+        user_id: Optional user ID to train a user-specific model
+        save_model: Whether to save the trained model to disk
+        test_size: Fraction of data to use for testing (0.0 to 1.0)
+        max_samples_per_class: Maximum number of samples to use per class
+        
+    Returns:
+        Dictionary with training results
+    """
+    logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
+    logger.info(f"║            TRAINING EMAIL CLASSIFIER WITH IMPROVED STRATEGY              ║")
+    logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
+    
+    start_time = time.time()
+    logger.info(f"[ML-SERVICE] Starting improved trash classifier training for {'user ' + str(user_id) if user_id else 'global model'}")
+    
+    # Get emails with TRASH label for trash class
+    trash_query = db.query(Email).filter(Email.labels.contains(['TRASH']))
+    if user_id:
+        trash_query = trash_query.filter(Email.user_id == user_id)
+    trash_emails = trash_query.limit(max_samples_per_class).all()
+    
+    # Get emails in INBOX (without TRASH label) for not_trash class
+    not_trash_query = db.query(Email).filter(
+        Email.labels.contains(['INBOX']),
+        ~Email.labels.contains(['TRASH'])  # Exclude emails with TRASH label
+    )
+    if user_id:
+        not_trash_query = not_trash_query.filter(Email.user_id == user_id)
+    not_trash_emails = not_trash_query.limit(max_samples_per_class).all()
+    
+    logger.info(f"[ML-SERVICE] Collected {len(trash_emails)} trash emails and {len(not_trash_emails)} non-trash emails")
+    
+    if len(trash_emails) < 10 or len(not_trash_emails) < 10:
+        logger.warning(f"[ML-SERVICE] Insufficient training data: only {len(trash_emails)} trash and {len(not_trash_emails)} non-trash emails available (minimum 10 each required)")
+        return {
+            "status": "error",
+            "message": f"Insufficient training data ({len(trash_emails)} trash, {len(not_trash_emails)} non-trash emails)",
+            "trained": False
+        }
+    
+    # Prepare training data
+    features = []
+    labels = []
+    
+    # Process trash emails
+    for email in trash_emails:
+        features.append({
+            "sender": email.from_email,
+            "subject": email.subject,
+            "snippet": email.snippet,
+            "gmail_id": email.gmail_id
+        })
+        labels.append(1)  # 1 for trash
+    
+    # Process non-trash emails
+    for email in not_trash_emails:
+        features.append({
+            "sender": email.from_email,
+            "subject": email.subject,
+            "snippet": email.snippet,
+            "gmail_id": email.gmail_id
+        })
+        labels.append(0)  # 0 for not_trash
+    
+    # Split into training and testing sets
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, labels, test_size=test_size, random_state=42, stratify=labels
+    )
+    
+    logger.info(f"[ML-SERVICE] Split data into {len(X_train)} training and {len(X_test)} testing samples")
+    
+    # Train the classifier
+    from ..utils.naive_bayes_classifier import train_classifier
+    accuracy = train_classifier(X_train, y_train, user_id)
+    
+    logger.info(f"[ML-SERVICE] Classifier trained with training accuracy: {accuracy:.4f}")
+    
+    # Evaluate on test data
+    evaluation_results = evaluate_classifier(X_test, y_test, user_id)
+    
+    # Save the model if requested
+    if save_model:
+        model_path = save_classifier_model(user_id)
+        logger.info(f"[ML-SERVICE] Saved trained model to {model_path}")
+    
+    # Combine all results
+    results = {
+        "status": "success",
+        "training_accuracy": accuracy,
+        "test_accuracy": evaluation_results["accuracy"],
+        "precision": evaluation_results["precision"],
+        "recall": evaluation_results["recall"],
+        "f1_score": evaluation_results["f1_score"],
+        "confusion_matrix": evaluation_results["confusion_matrix"],
+        "training_samples": len(X_train),
+        "testing_samples": len(X_test),
+        "trash_emails": len(trash_emails),
+        "non_trash_emails": len(not_trash_emails),
+        "training_time": time.time() - start_time,
+        "trained": True
+    }
+    
+    logger.info(f"[ML-SERVICE] Training completed in {results['training_time']:.2f}s with test accuracy: {results['test_accuracy']:.4f}")
+    logger.info(f"[ML-SERVICE] Metrics: precision={results['precision']:.4f}, recall={results['recall']:.4f}, f1={results['f1_score']:.4f}")
+    
+    return results 

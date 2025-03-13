@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 # Import routers from __init__.py
-from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router
+from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router, ml_router
 from .db import engine, Base
 # Import models to ensure they're registered with SQLAlchemy
 from .models.user import User
@@ -103,10 +103,11 @@ logger.debug("Configuring CORS middleware")
 # CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS.split(","),
+    allow_origins=["http://localhost:3000"],  # Explicitly allow frontend origin
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 @app.get("/")
@@ -129,6 +130,13 @@ app.include_router(
     analytics_router,
     prefix="/analytics",
     tags=["analytics"]
+)
+
+# Add ML routes for model training and management
+app.include_router(
+    ml_router,
+    prefix="/ml",
+    tags=["machine-learning"]
 )
 
 @app.get("/health")

@@ -415,4 +415,56 @@ def reprocess_emails(
         "reprocessed_count": reprocessed_count,
         "duration": round(duration, 2),
         "category_changes": category_changes
-    } 
+    }
+
+def maybe_train_classifier(db: Session, user_id: UUID) -> Dict[str, Any]:
+    """
+    Train the classifier if needed by checking if a model exists
+    
+    Args:
+        db: Database session
+        user_id: User ID to train model for
+        
+    Returns:
+        Dictionary with training results
+    """
+    # Import here to avoid circular imports
+    from .email_classifier_service import train_balanced_trash_classifier
+    from ..utils.naive_bayes_classifier import load_classifier_model
+    
+    # Check if model exists
+    model_loaded = load_classifier_model(user_id)
+    
+    if not model_loaded:
+        logging.info(f"[PROCESSOR] No classifier model found for user {user_id}, training new model")
+        
+        try:
+            # Train with balanced approach
+            training_results = train_balanced_trash_classifier(
+                db=db,
+                user_id=user_id,
+                save_model=True
+            )
+            
+            if training_results.get("trained", False):
+                training_info = f"Model trained with {training_results.get('training_samples', 0)} samples, " \
+                              f"test accuracy: {training_results.get('test_accuracy', 0):.4f}"
+                logging.info(f"[PROCESSOR] {training_info}")
+                return training_results
+            else:
+                logging.warning(f"[PROCESSOR] Failed to train model: {training_results.get('message', 'Unknown error')}")
+                return training_results
+        except Exception as e:
+            logging.error(f"[PROCESSOR] Error training classifier: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "message": f"Error training classifier: {str(e)}",
+                "trained": False
+            }
+    else:
+        logging.info(f"[PROCESSOR] Classifier model already exists for user {user_id}")
+        return {
+            "status": "success",
+            "message": "Model already exists",
+            "trained": False
+        } 
