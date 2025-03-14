@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..models.email import Email
 from ..models.email_trash_event import EmailTrashEvent
 from datetime import datetime, timezone
+import os
 
 # Create a custom formatter for detailed logging
 logger = logging.getLogger(__name__)
@@ -596,36 +597,39 @@ class NaiveBayesClassifier:
         Args:
             filepath: Path to the saved model
         """
-        with open(filepath, 'rb') as f:
-            model_data = pickle.load(f)
-        
-        self.class_priors = model_data['class_priors']
-        self.word_likelihoods = {
-            'trash': defaultdict(float, model_data['word_likelihoods']['trash']),
-            'not_trash': defaultdict(float, model_data['word_likelihoods']['not_trash'])
-        }
-        self.word_counts = model_data['word_counts']
-        self.vocabulary = model_data['vocabulary']
-        self.sender_domain_counts = {
-            'trash': defaultdict(int, model_data['sender_domain_counts']['trash']),
-            'not_trash': defaultdict(int, model_data['sender_domain_counts']['not_trash'])
-        }
-        self.sender_domain_totals = model_data['sender_domain_totals']
-        self.is_trained = model_data['is_trained']
-        self.training_data_size = model_data['training_data_size']
-        
-        # Load optional fields with defaults
-        self.laplace_smoothing_alpha = model_data.get('laplace_smoothing_alpha', 1.0)
-        self.min_word_length = model_data.get('min_word_length', 3)
-        self.min_word_frequency = model_data.get('min_word_frequency', 2)
-        self.feature_weights = model_data.get('feature_weights', {'text': 0.6, 'subject': 0.2, 'sender_domain': 0.2})
-        self.training_time = model_data.get('training_time', 0.0)
-        self.evaluation_metrics = model_data.get('evaluation_metrics', None)
-        self.document_freq = defaultdict(int, model_data['document_freq'])
-        self.total_documents = model_data['total_documents']
-        self.feature_importance = defaultdict(float, model_data['feature_importance'])
-        
-        logger.info(f"Model loaded from {filepath} with vocabulary size: {len(self.vocabulary)}")
+        try:
+            with open(filepath, 'rb') as f:
+                model_data = pickle.load(f)
+            
+            # Initialize default values if keys are missing
+            self.document_freq = defaultdict(int, model_data.get('document_freq', {}))
+            self.class_freq = defaultdict(int, model_data.get('class_freq', {}))
+            self.feature_freq = defaultdict(lambda: defaultdict(int), 
+                                          model_data.get('feature_freq', {}))
+            self.total_docs = model_data.get('total_docs', 0)
+            self.vocab_size = model_data.get('vocab_size', 0)
+            
+            # Validate loaded data
+            if not all([isinstance(self.document_freq, defaultdict),
+                       isinstance(self.class_freq, defaultdict),
+                       isinstance(self.feature_freq, defaultdict)]):
+                raise ValueError("Invalid model data structure")
+            
+        except (FileNotFoundError, EOFError, pickle.UnpicklingError) as e:
+            logger.warning(f"[ML-CLASSIFIER] Could not load model from {filepath}: {str(e)}")
+            self._initialize_default_model()
+        except Exception as e:
+            logger.error(f"[ML-CLASSIFIER] Unexpected error loading model: {str(e)}")
+            self._initialize_default_model()
+
+    def _initialize_default_model(self) -> None:
+        """Initialize a new model with default values."""
+        self.document_freq = defaultdict(int)
+        self.class_freq = defaultdict(int)
+        self.feature_freq = defaultdict(lambda: defaultdict(int))
+        self.total_docs = 0
+        self.vocab_size = 0
+        logger.info("[ML-CLASSIFIER] Initialized new model with default values")
 
 # Create a global instance for convenience
 classifier = NaiveBayesClassifier()
@@ -914,10 +918,6 @@ def save_classifier_model(user_id: Optional[UUID] = None) -> str:
     Returns:
         Path to the saved model file
     """
-    # Avoid circular import
-    import os
-    from pathlib import Path
-    
     # Get the backend directory path
     backend_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     # Models directory is one level up from backend
@@ -945,10 +945,6 @@ def load_classifier_model(user_id: Optional[UUID] = None) -> bool:
     Returns:
         Boolean indicating whether the model was loaded successfully
     """
-    # Avoid circular import
-    import os
-    from pathlib import Path
-    
     # Get the backend directory path
     backend_dir = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     # Models directory is one level up from backend
