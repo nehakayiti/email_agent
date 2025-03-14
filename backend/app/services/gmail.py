@@ -656,3 +656,61 @@ def get_gmail_profile(credentials: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"[GMAIL] Error retrieving Gmail profile: {str(e)}", exc_info=True)
         raise
+
+def _log_sync_summary(self, history_events: List[Dict], new_emails: List[Dict], deleted_emails: List[str], label_changes: List[Dict]) -> None:
+    """Log detailed summary of Gmail sync results."""
+    logger.info("[GMAIL] Sync complete:")
+    logger.info(f"  History Events ({len(history_events)}):")
+    
+    for idx, event in enumerate(history_events, 1):
+        event_type = self._determine_event_type(event)
+        event_details = self._get_event_details(event)
+        
+        logger.info(f"    {idx}. {event_type}:")
+        if event_details.get('subject'):
+            logger.info(f"       Subject: {event_details['subject']}")
+        if event_details.get('sender'):
+            logger.info(f"       From: {event_details['sender']}")
+        if event_details.get('timestamp'):
+            logger.info(f"       Time: {event_details['timestamp']}")
+        if event_details.get('labels_added'):
+            logger.info(f"       Labels Added: {', '.join(event_details['labels_added'])}")
+        if event_details.get('labels_removed'):
+            logger.info(f"       Labels Removed: {', '.join(event_details['labels_removed'])}")
+    
+    logger.info(f"  Summary: {len(new_emails)} new emails, {len(deleted_emails)} deleted emails, and {len(label_changes)} messages with label changes")
+
+def _determine_event_type(self, event: Dict) -> str:
+    """Determine the type of history event."""
+    if 'messagesAdded' in event:
+        return 'New Message'
+    elif 'messagesDeleted' in event:
+        return 'Deleted Message'
+    elif 'labelsAdded' in event or 'labelsRemoved' in event:
+        return 'Label Change'
+    return 'Other Event'
+
+def _get_event_details(self, event: Dict) -> Dict[str, Any]:
+    """Extract relevant details from a history event."""
+    details = {}
+    
+    # Handle message details
+    if 'messages' in event:
+        message = event['messages'][0]  # Get first message in event
+        try:
+            msg_details = self.get_message(message['id'])
+            headers = {h['name'].lower(): h['value'] for h in msg_details.get('payload', {}).get('headers', [])}
+            
+            details['subject'] = headers.get('subject', 'No Subject')
+            details['sender'] = headers.get('from', 'Unknown Sender')
+            details['timestamp'] = headers.get('date')
+        except Exception as e:
+            logger.warning(f"[GMAIL] Could not fetch message details for {message['id']}: {str(e)}")
+    
+    # Handle label changes
+    if 'labelsAdded' in event:
+        details['labels_added'] = [label['name'] for label in event['labelsAdded']]
+    if 'labelsRemoved' in event:
+        details['labels_removed'] = [label['name'] for label in event['labelsRemoved']]
+    
+    return details
