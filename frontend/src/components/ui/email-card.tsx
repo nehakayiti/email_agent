@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Email, archiveEmail, deleteEmail, updateEmailLabels } from '@/lib/api';
+import { Email, archiveEmail, deleteEmail, updateEmailLabels, updateEmailCategory } from '@/lib/api';
 import { formatRelativeTime } from '@/utils/date-utils';
 import { EmailLabel, mapLabelsToComponents } from '@/components/ui/email-label';
 import { toast } from 'react-hot-toast';
@@ -78,7 +78,32 @@ interface EmailCardProps {
 
 export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }: EmailCardProps) {
   // Use the category context
-  const { getCategoryInfo } = useCategoryContext();
+  const { getCategoryInfo, categories } = useCategoryContext();
+  const [updating, setUpdating] = useState(false);
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const categoryBadgeRef = useRef<HTMLDivElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [showArrowAnimation, setShowArrowAnimation] = useState(true);
+  
+  // Disable arrow animation after a short delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowArrowAnimation(false);
+    }, 2000);
+    
+    return () => clearTimeout(timer);
+  }, []);
+  
+  // Update dropdown position when it's shown
+  useEffect(() => {
+    if (showCategoryDropdown && categoryBadgeRef.current) {
+      const rect = categoryBadgeRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + window.scrollY,
+        left: rect.left + window.scrollX
+      });
+    }
+  }, [showCategoryDropdown]);
   
   // Filter out system labels
   const filteredLabels = React.useMemo(() => {
@@ -122,7 +147,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     }
     
     // Default fallback
-    return getCategoryInfo('PRIMARY') || { display_name: 'Primary', color: 'bg-blue-50 text-blue-700', description: null };
+    return getCategoryInfo('primary') || { display_name: 'Primary', color: 'bg-blue-50 text-blue-700', description: null };
   }, [email.category, email.labels, getCategoryInfo]);
 
   // Handle archive action
@@ -284,6 +309,51 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     }
   };
 
+  // Handle category change
+  const handleCategoryChange = async (e: React.MouseEvent<HTMLElement>, newCategory: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Skip if already in this category
+    if (email.category?.toLowerCase() === newCategory.toLowerCase()) {
+      return;
+    }
+    
+    try {
+      setUpdating(true);
+      const toastId = showLoadingToast('Updating category...');
+      
+      const response = await updateEmailCategory(email.id, newCategory.toLowerCase());
+      
+      toast.dismiss(toastId);
+      
+      if (response.status === 'success') {
+        showSuccessToast('Category updated');
+        
+        // Update the email object with new category and labels
+        const updatedEmail = {
+          ...email,
+          category: response.category,
+          labels: response.labels,
+        };
+        
+        // Call onLabelsUpdated to update the parent component
+        if (onLabelsUpdated) {
+          onLabelsUpdated(updatedEmail);
+        }
+      } else {
+        showErrorToast(response.message || 'Failed to update category');
+      }
+    } catch (error) {
+      dismissAllToasts();
+      const errorMessage = error instanceof Error ? error.message : 'Error updating category';
+      showErrorToast(errorMessage);
+      console.error('Error updating category:', error);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   // Create the email card content
   const emailContent = (
     <div 
@@ -317,16 +387,108 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
             {email.snippet}
           </div>
           
-          <div className="flex flex-wrap gap-2 items-center mt-2">
-            {/* Display category badge prominently */}
-            {categoryInfo && (
-              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${categoryInfo.color}`}>
-                <span className="mr-1 opacity-70">Category:</span> {categoryInfo.display_name}
-              </span>
-            )}
-            
-            {/* Display other labels */}
-            {mapLabelsToComponents(filteredLabels, { variant: 'compact', showPrefix: true })}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {/* Category badge */}
+              <div className="relative">
+                <div 
+                  ref={categoryBadgeRef}
+                  className={`text-xs px-2 py-1 rounded-md bg-white shadow-sm cursor-pointer flex items-center gap-1 hover:shadow transition-all border border-gray-300 hover:border-gray-400 ${showCategoryDropdown ? 'ring-2 ring-blue-300 border-blue-300' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCategoryDropdown(!showCategoryDropdown);
+                  }}
+                  title="Click to change category"
+                >
+                  <span className="font-medium mr-1 text-gray-500">Category:</span>
+                  <span className={`mr-1 px-1.5 py-0.5 rounded ${categoryInfo.color}`}>{categoryInfo.display_name}</span>
+                  <span className="border-l border-gray-300 pl-1 flex items-center text-gray-500 bg-gray-50 -mr-2 -my-1 py-1 px-1 rounded-r-md">
+                    <span className="text-xs mr-1 font-medium">Select</span>
+                    <svg 
+                      xmlns="http://www.w3.org/2000/svg" 
+                      className={`h-4 w-4 transition-transform ${showCategoryDropdown ? 'rotate-180' : ''} ${
+                        showArrowAnimation ? 'animate-bounce' : ''
+                      }`} 
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2" 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                  </span>
+                </div>
+                
+                {/* Dropdown menu */}
+                {showCategoryDropdown && (
+                  <div 
+                    className="fixed inset-0 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowCategoryDropdown(false);
+                    }}
+                  >
+                    <div 
+                      style={{
+                        position: 'absolute',
+                        top: `${dropdownPosition.top}px`,
+                        left: `${dropdownPosition.left}px`,
+                      }}
+                      className="mt-1 w-48 bg-white rounded-md shadow-lg z-20 border border-gray-200 overflow-hidden"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="py-1 max-h-60 overflow-y-auto">
+                        <div className="px-4 py-2 text-xs font-medium text-gray-500 border-b border-gray-100 bg-gray-50">
+                          Change category
+                        </div>
+                        {updating && (
+                          <div className="px-4 py-2 text-xs text-gray-500 flex items-center justify-center">
+                            <svg className="animate-spin h-3 w-3 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Updating...
+                          </div>
+                        )}
+                        {categories
+                          .slice() // Create a copy to avoid mutating the original array
+                          .sort((a, b) => a.priority - b.priority) // Sort by priority
+                          .map((category) => {
+                          const isSelected = email.category?.toLowerCase() === category.name.toLowerCase();
+                          return (
+                            <button
+                              key={category.name}
+                              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
+                                isSelected ? 'bg-gray-50 font-medium' : ''
+                              }`}
+                              onClick={(e) => {
+                                handleCategoryChange(e, category.name.toLowerCase());
+                                setShowCategoryDropdown(false);
+                              }}
+                              disabled={updating}
+                            >
+                              <span>{category.display_name}</span>
+                              {isSelected && (
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Regular labels */}
+              <div className="flex flex-wrap gap-1">
+                {mapLabelsToComponents(filteredLabels, { variant: 'compact', showPrefix: false })}
+              </div>
+            </div>
             
             {/* Email actions */}
             <div className="ml-auto flex gap-1">

@@ -57,7 +57,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   const [bodyContent, setBodyContent] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState(() => {
     // Initialize with the exact category from the API without normalization
-    return email.category || 'primary';
+    return (email.category || 'primary').toLowerCase();
   });
   const [updating, setUpdating] = useState(false);
   const { categories } = useCategoryContext();
@@ -76,7 +76,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   useEffect(() => {
     // When email.category changes, update selectedCategory with exact value from the API
     if (email.category) {
-      setSelectedCategory(email.category);
+      setSelectedCategory(email.category.toLowerCase());
     }
   }, [email.category]);
 
@@ -84,32 +84,17 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   const categoryOptions = useMemo(() => {
     // First, grab categories from context and format for dropdown
     const contextCategories = categories.map(cat => ({
-      value: cat.name, // Use exact name from API without toLowerCase()
-      label: cat.display_name
+      value: cat.name.toLowerCase(), // Use lowercase name for consistency with backend
+      label: cat.display_name,
+      priority: cat.priority
     }));
     
-    // Add system categories that might not be in the standard category list
-    const systemCategories = [
-      { value: 'TRASH', label: 'Trash' },
-      { value: 'Archive', label: 'Archive' },
-    ];
-    
-    // Combine and filter out duplicates
-    const allOptions = [...contextCategories];
-    
-    // Add system categories only if they're not already in the list
-    systemCategories.forEach(sysCat => {
-      if (!allOptions.some(opt => opt.value === sysCat.value)) {
-        allOptions.push(sysCat);
-      }
-    });
-    
-    // Sort by label
-    return allOptions.sort((a, b) => a.label.localeCompare(b.label));
+    // Sort by priority (lower number = higher priority)
+    return contextCategories.sort((a, b) => a.priority - b.priority);
   }, [categories]);
 
   const handleCategoryChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newCategory = e.target.value;
+    const newCategory = e.target.value.toLowerCase();
     // Set the category exactly as selected from the dropdown
     setSelectedCategory(newCategory);
     

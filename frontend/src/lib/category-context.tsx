@@ -59,61 +59,63 @@ export function CategoryProvider({ children }: { children: ReactNode }) {
   const getCategoryInfo = (categoryName: string) => {
     if (!categoryName) return null;
     
-    // Normalize category name to match API format
-    const normalizedName = categoryName.toUpperCase().startsWith('CATEGORY_') 
-      ? categoryName.toUpperCase() 
-      : `CATEGORY_${categoryName.toUpperCase()}`;
+    // Normalize category name for consistent lookup
+    const normalizedCategoryName = categoryName.toLowerCase();
     
-    // Special case for primary/inbox which doesn't follow the CATEGORY_ pattern
-    const searchName = normalizedName === 'CATEGORY_PRIMARY' ? 'PRIMARY' : normalizedName;
-    
-    // Find the category in our list
+    // Find the category in our list by case-insensitive name matching
     const category = categories.find(c => 
-      c.name.toUpperCase() === searchName || 
-      c.name.toUpperCase() === categoryName.toUpperCase()
+      c.name.toLowerCase() === normalizedCategoryName
     );
     
-    if (!category) {
-      // Default styles if category not found
-      const defaultStyles: Record<string, { display_name: string, color: string, description: string | null }> = {
-        'PRIMARY': { 
-          display_name: 'Primary', 
-          color: 'bg-blue-100 text-blue-800 border border-blue-200',
-          description: null
-        },
-        'TRASH': { 
-          display_name: 'Trash', 
-          color: 'bg-red-100 text-red-800 border border-red-200',
-          description: null
-        },
-        'ARCHIVE': { 
-          display_name: 'Archive', 
-          color: 'bg-gray-100 text-gray-800 border border-gray-200',
-          description: null
-        }
+    if (category) {
+      // Map category name to tailwind classes for styling
+      const colorMap: Record<string, string> = {
+        'personal': 'bg-indigo-100 text-indigo-800 border border-indigo-200',
+        'updates': 'bg-purple-100 text-purple-800 border border-purple-200',
+        'social': 'bg-green-100 text-green-800 border border-green-200',
+        'promotional': 'bg-orange-100 text-orange-800 border border-orange-200',
+        'promotions': 'bg-orange-100 text-orange-800 border border-orange-200',
+        'forums': 'bg-teal-100 text-teal-800 border border-teal-200',
+        'primary': 'bg-blue-100 text-blue-800 border border-blue-200',
+        'important': 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+        'trash': 'bg-red-100 text-red-800 border border-red-200',
+        'archive': 'bg-gray-100 text-gray-800 border border-gray-200',
+        // Defaults for other categories
+        'default': 'bg-gray-100 text-gray-800 border border-gray-200'
       };
       
-      return defaultStyles[categoryName.toUpperCase()] || null;
+      return {
+        display_name: category.display_name,
+        color: colorMap[category.name.toLowerCase()] || colorMap.default,
+        description: category.description
+      };
     }
     
-    // Map category name to tailwind classes for styling
-    // We could store these colors in the database as well
-    const colorMap: Record<string, string> = {
-      'CATEGORY_PERSONAL': 'bg-indigo-100 text-indigo-800 border border-indigo-200',
-      'CATEGORY_UPDATES': 'bg-purple-100 text-purple-800 border border-purple-200',
-      'CATEGORY_SOCIAL': 'bg-green-100 text-green-800 border border-green-200',
-      'CATEGORY_PROMOTIONS': 'bg-orange-100 text-orange-800 border border-orange-200',
-      'CATEGORY_FORUMS': 'bg-teal-100 text-teal-800 border border-teal-200',
-      'PRIMARY': 'bg-blue-100 text-blue-800 border border-blue-200',
-      // Defaults for other categories
-      'default': 'bg-gray-100 text-gray-800 border border-gray-200'
+    // Default styles if category not found
+    const defaultStyles: Record<string, { display_name: string, color: string, description: string | null }> = {
+      'primary': { 
+        display_name: 'Primary', 
+        color: 'bg-blue-100 text-blue-800 border border-blue-200',
+        description: null
+      },
+      'important': {
+        display_name: 'Important',
+        color: 'bg-yellow-100 text-yellow-800 border border-yellow-200',
+        description: null
+      },
+      'trash': { 
+        display_name: 'Trash', 
+        color: 'bg-red-100 text-red-800 border border-red-200',
+        description: null
+      },
+      'archive': { 
+        display_name: 'Archive', 
+        color: 'bg-gray-100 text-gray-800 border border-gray-200',
+        description: null
+      }
     };
     
-    return {
-      display_name: category.display_name,
-      color: colorMap[category.name] || colorMap.default,
-      description: category.description
-    };
+    return defaultStyles[normalizedCategoryName] || null;
   };
 
   const refreshCategories = () => {
