@@ -211,6 +211,26 @@ async def execute_operation(
             db.commit()
             return {"success": True}
             
+        elif operation.operation_type == OperationType.TRASH:
+            # Move to trash (same as DELETE but with explicit TRASH type)
+            logger.info(f"[EA→GMAIL] Trashing email (TRASH operation): {email_desc}")
+            data = operation.operation_data
+            add_labels = data.get('add_labels', ['TRASH'])
+            remove_labels = data.get('remove_labels', ['INBOX'])
+            
+            result = await gmail.update_email_labels(
+                credentials,
+                email.gmail_id,
+                add_labels=add_labels,
+                remove_labels=remove_labels
+            )
+            logger.info(f"[EA→GMAIL] ✓ Email moved to trash: {email_desc}")
+            # Mark operation as completed
+            operation.status = OperationStatus.COMPLETED
+            operation.completed_at = datetime.now()
+            db.commit()
+            return {"success": True}
+            
         elif operation.operation_type == OperationType.ARCHIVE:
             # Archive email (remove from inbox)
             logger.info(f"[EA→GMAIL] Archiving email: {email_desc}")

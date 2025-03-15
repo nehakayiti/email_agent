@@ -9,6 +9,7 @@ import uuid
 class OperationType(str, Enum):
     """Enum representing different types of email operations"""
     DELETE = "delete"              # Move to trash
+    TRASH = "trash"                # Move to trash (explicit)
     ARCHIVE = "archive"            # Archive (remove from inbox)
     UPDATE_LABELS = "update_labels" # Change labels
     UPDATE_CATEGORY = "update_category" # Change category

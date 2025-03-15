@@ -932,15 +932,36 @@ async def delete_email(
         current_labels.add("EA_NEEDS_LABEL_UPDATE")
         email.labels = list(current_labels)
         
+        # Create operation record for Gmail sync
+        operation_data = {
+            "add_labels": ["TRASH"],
+            "remove_labels": ["INBOX"] if 'INBOX' in email.labels else []
+        }
+        
+        email_operations_service.create_operation(
+            db=db,
+            user=current_user,
+            email=email,
+            operation_type=OperationType.TRASH,
+            operation_data=operation_data
+        )
+        
+        logger.info(f"[API] Created trash operation for email {email_id}")
+        
         # Record the trash event for potential classifier training
         trash_event = EmailTrashEvent(
             user_id=current_user.id,
             email_id=email.id,
-            from_email=email.from_email,
+            sender_email=email.from_email,
+            sender_domain=email.from_email.split('@')[-1] if '@' in email.from_email else '',
             subject=email.subject,
-            category=email.category,
-            labels=email.labels,
-            trashed_at=datetime.utcnow()
+            snippet=email.snippet,
+            event_type='moved_to_trash',
+            email_metadata={
+                "category": email.category,
+                "labels": email.labels
+            },
+            created_at=datetime.utcnow()
         )
         db.add(trash_event)
         logger.info(f"[API] Created trash event record for email {email_id}")
