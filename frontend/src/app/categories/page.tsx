@@ -246,86 +246,98 @@ function ModelMetricsDisplay({ metrics }: { metrics: ModelMetrics | null }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
         <div className="p-3 bg-indigo-50 rounded border border-indigo-100">
           <div className="text-xs text-indigo-600 font-medium">Accuracy</div>
-          <div className="text-xl font-bold text-indigo-700">{(metrics.accuracy * 100).toFixed(1)}%</div>
+          <div className="text-xl font-bold text-indigo-700">{metrics.accuracy !== undefined ? `${(metrics.accuracy * 100).toFixed(1)}%` : 'N/A'}</div>
         </div>
         <div className="p-3 bg-green-50 rounded border border-green-100">
           <div className="text-xs text-green-600 font-medium">Precision</div>
-          <div className="text-xl font-bold text-green-700">{(metrics.precision * 100).toFixed(1)}%</div>
+          <div className="text-xl font-bold text-green-700">{metrics.precision !== undefined ? `${(metrics.precision * 100).toFixed(1)}%` : 'N/A'}</div>
         </div>
         <div className="p-3 bg-blue-50 rounded border border-blue-100">
           <div className="text-xs text-blue-600 font-medium">Recall</div>
-          <div className="text-xl font-bold text-blue-700">{(metrics.recall * 100).toFixed(1)}%</div>
+          <div className="text-xl font-bold text-blue-700">{metrics.recall !== undefined ? `${(metrics.recall * 100).toFixed(1)}%` : 'N/A'}</div>
         </div>
         <div className="p-3 bg-purple-50 rounded border border-purple-100">
           <div className="text-xs text-purple-600 font-medium">F1 Score</div>
-          <div className="text-xl font-bold text-purple-700">{(metrics.f1_score * 100).toFixed(1)}%</div>
+          <div className="text-xl font-bold text-purple-700">{metrics.f1_score !== undefined ? `${(metrics.f1_score * 100).toFixed(1)}%` : 'N/A'}</div>
         </div>
       </div>
       
       <div className="mb-4">
         <h4 className="text-sm font-medium text-gray-700 mb-2">Confusion Matrix</h4>
-        <div className="grid grid-cols-2 gap-2 max-w-xs">
-          <div className="bg-green-100 p-2 rounded text-center border border-green-200">
-            <div className="text-xs text-green-700">True Positive</div>
-            <div className="font-bold">{metrics.confusion_matrix.true_positives}</div>
+        {metrics.confusion_matrix ? (
+          <div className="grid grid-cols-2 gap-2 max-w-xs">
+            <div className="bg-green-100 p-2 rounded text-center border border-green-200">
+              <div className="text-xs text-green-700">True Positive</div>
+              <div className="font-bold">{metrics.confusion_matrix.true_positives}</div>
+            </div>
+            <div className="bg-red-100 p-2 rounded text-center border border-red-200">
+              <div className="text-xs text-red-700">False Positive</div>
+              <div className="font-bold">{metrics.confusion_matrix.false_positives}</div>
+            </div>
+            <div className="bg-red-100 p-2 rounded text-center border border-red-200">
+              <div className="text-xs text-red-700">False Negative</div>
+              <div className="font-bold">{metrics.confusion_matrix.false_negatives}</div>
+            </div>
+            <div className="bg-green-100 p-2 rounded text-center border border-green-200">
+              <div className="text-xs text-green-700">True Negative</div>
+              <div className="font-bold">{metrics.confusion_matrix.true_negatives}</div>
+            </div>
           </div>
-          <div className="bg-red-100 p-2 rounded text-center border border-red-200">
-            <div className="text-xs text-red-700">False Positive</div>
-            <div className="font-bold">{metrics.confusion_matrix.false_positives}</div>
+        ) : (
+          <div className="bg-gray-50 p-3 rounded border border-gray-200 text-center">
+            <p className="text-gray-500 text-sm">Confusion matrix data not available</p>
           </div>
-          <div className="bg-red-100 p-2 rounded text-center border border-red-200">
-            <div className="text-xs text-red-700">False Negative</div>
-            <div className="font-bold">{metrics.confusion_matrix.false_negatives}</div>
-          </div>
-          <div className="bg-green-100 p-2 rounded text-center border border-green-200">
-            <div className="text-xs text-green-700">True Negative</div>
-            <div className="font-bold">{metrics.confusion_matrix.true_negatives}</div>
-          </div>
-        </div>
+        )}
       </div>
       
       <div className="mb-4">
         <h4 className="text-sm font-medium text-gray-700 mb-2">Top Predictive Features</h4>
-        <div className="max-h-40 overflow-y-auto bg-gray-50 rounded p-2 border border-gray-200">
-          <table className="min-w-full text-sm">
-            <thead>
-              <tr className="text-left text-gray-600">
-                <th className="py-1 px-2">Feature</th>
-                <th className="py-1 px-2">Class</th>
-                <th className="py-1 px-2">Importance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {metrics.top_features.map((feature, index) => (
-                <tr key={index} className="border-t border-gray-200">
-                  <td className="py-1 px-2 font-medium">{feature.feature}</td>
-                  <td className="py-1 px-2">
-                    <span className={`inline-block px-2 py-1 rounded-full text-xs ${
-                      feature.class === 'trash' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                    }`}>
-                      {feature.class}
-                    </span>
-                  </td>
-                  <td className="py-1 px-2">{feature.importance.toFixed(3)}</td>
+        {metrics.top_features && metrics.top_features.length > 0 ? (
+          <div className="max-h-40 overflow-y-auto bg-gray-50 rounded p-2 border border-gray-200">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600">
+                  <th className="py-1 px-2">Feature</th>
+                  <th className="py-1 px-2">Class</th>
+                  <th className="py-1 px-2">Importance</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {metrics.top_features.map((feature, index) => (
+                  <tr key={index} className="border-t border-gray-200">
+                    <td className="py-1 px-2 font-medium">{feature.feature}</td>
+                    <td className="py-1 px-2">
+                      <span className={`inline-block px-2 py-1 rounded-full text-xs ${
+                        feature.class === 'trash' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                      }`}>
+                        {feature.class}
+                      </span>
+                    </td>
+                    <td className="py-1 px-2">{feature.importance.toFixed(3)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="bg-gray-50 p-3 rounded border border-gray-200 text-center">
+            <p className="text-gray-500 text-sm">Feature importance data not available</p>
+          </div>
+        )}
       </div>
       
       <div className="grid grid-cols-2 gap-4 text-sm">
         <div className="bg-gray-50 p-2 rounded">
           <span className="text-gray-600">Training data size:</span>
-          <span className="ml-2 font-medium">{metrics.training_size} examples</span>
+          <span className="ml-2 font-medium">{metrics.training_size || 'N/A'} {metrics.training_size ? 'examples' : ''}</span>
         </div>
         <div className="bg-gray-50 p-2 rounded">
           <span className="text-gray-600">Test data size:</span>
-          <span className="ml-2 font-medium">{metrics.test_size} examples</span>
+          <span className="ml-2 font-medium">{metrics.test_size || 'N/A'} {metrics.test_size ? 'examples' : ''}</span>
         </div>
         <div className="bg-gray-50 p-2 rounded col-span-2">
           <span className="text-gray-600">Training time:</span>
-          <span className="ml-2 font-medium">{metrics.training_time}</span>
+          <span className="ml-2 font-medium">{metrics.training_time || 'N/A'}</span>
         </div>
       </div>
     </div>
@@ -408,7 +420,24 @@ export default function CategoriesPage() {
       setModelMetrics(metrics);
     } catch (err) {
       console.error('Error fetching model metrics:', err);
-      // Don't set metrics to null if the request fails - keep any existing metrics
+      // Create a default metrics object with empty/null values
+      // This ensures the UI can still render without errors
+      setModelMetrics({
+        accuracy: 0,
+        precision: 0,
+        recall: 0,
+        f1_score: 0,
+        confusion_matrix: {
+          true_positives: 0,
+          false_positives: 0,
+          true_negatives: 0,
+          false_negatives: 0
+        },
+        top_features: [],
+        training_size: 0,
+        test_size: 0,
+        training_time: 'N/A'
+      });
     } finally {
       setLoadingMetrics(false);
     }

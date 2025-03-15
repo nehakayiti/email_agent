@@ -40,12 +40,26 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         user, expiration = _user_cache[token]
         if now < expiration:
             # Cache hit, use cached user
-            logger.debug(f"Using cached authentication for user: {user.email} (ID: {user.id})")
-            return user
+            # Merge the cached user with the current session to avoid DetachedInstanceError
+            try:
+                # Try to access an attribute to check if the user is still attached
+                _ = user.email
+                logger.debug(f"Using cached authentication for user: {user.email} (ID: {user.id})")
+                return user
+            except:
+                # If accessing attributes fails, the user is detached
+                logger.debug(f"Cached user is detached, reattaching to session")
+                # Merge the user with the current session
+                user = db.merge(user)
+                # Update the cache with the attached user
+                _user_cache[token] = (user, expiration)
+                return user
         else:
             # Cache expired, remove from cache
             logger.debug(f"Authentication cache expired for token: {token[:10]}...")
-            del _user_cache[token]
+            # Add a check to see if the token exists before trying to delete it
+            if token in _user_cache:
+                del _user_cache[token]
     
     # Cache miss or expired, authenticate normally
     logger.debug(f"Authenticating user with token: {token[:10]}...")

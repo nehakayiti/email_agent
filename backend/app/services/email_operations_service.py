@@ -124,6 +124,38 @@ def mark_operation_failed(
     logger.info(f"[OPS] Marked operation {operation.id} as failed: {error_message}")
     return operation
 
+def update_operation_status(
+    db: Session,
+    operation: EmailOperation,
+    status: str,
+    error_message: Optional[str] = None
+) -> EmailOperation:
+    """
+    Update the status of an operation
+    
+    Args:
+        db: Database session
+        operation: EmailOperation instance
+        status: New status (from OperationStatus enum)
+        error_message: Error message (only for failed operations)
+        
+    Returns:
+        Updated EmailOperation instance
+    """
+    operation.status = status
+    operation.updated_at = datetime.now(timezone.utc)
+    
+    if status == OperationStatus.COMPLETED:
+        operation.completed_at = datetime.now(timezone.utc)
+    
+    if error_message and status == OperationStatus.FAILED:
+        operation.error_message = error_message
+    
+    db.commit()
+    db.refresh(operation)
+    logger.info(f"[OPS] Updated operation {operation.id} status to {status}")
+    return operation
+
 async def execute_operation(
     db: Session,
     operation: EmailOperation,
@@ -173,6 +205,10 @@ async def execute_operation(
                 remove_labels=['INBOX']
             )
             logger.info(f"[EA→GMAIL] ✓ Email moved to trash: {email_desc}")
+            # Mark operation as completed
+            operation.status = OperationStatus.COMPLETED
+            operation.completed_at = datetime.now()
+            db.commit()
             return {"success": True}
             
         elif operation.operation_type == OperationType.ARCHIVE:
@@ -184,6 +220,10 @@ async def execute_operation(
                 remove_labels=['INBOX']
             )
             logger.info(f"[EA→GMAIL] ✓ Email archived: {email_desc}")
+            # Mark operation as completed
+            operation.status = OperationStatus.COMPLETED
+            operation.completed_at = datetime.now()
+            db.commit()
             return {"success": True}
             
         elif operation.operation_type == OperationType.UPDATE_LABELS:
@@ -191,6 +231,9 @@ async def execute_operation(
             data = operation.operation_data
             add_labels = data.get('add_labels', [])
             remove_labels = data.get('remove_labels', [])
+            
+            # Special handling for UNREAD label
+            has_unread_change = 'UNREAD' in add_labels or 'UNREAD' in remove_labels
             
             labels_desc = []
             if add_labels:
@@ -201,15 +244,38 @@ async def execute_operation(
             action_desc = " & ".join(labels_desc)
             logger.info(f"[EA→GMAIL] Updating email labels ({action_desc}): {email_desc}")
             
-            result = await gmail.update_email_labels(
-                credentials,
-                email.gmail_id,
-                add_labels=add_labels,
-                remove_labels=remove_labels
-            )
-            
-            logger.info(f"[EA→GMAIL] ✓ Email labels updated: {email_desc}")
-            return {"success": True}
+            try:
+                # Log detailed information about the operation
+                logger.info(f"[EA→GMAIL] Gmail ID: {email.gmail_id}, Add labels: {add_labels}, Remove labels: {remove_labels}")
+                
+                result = await gmail.update_email_labels(
+                    credentials,
+                    email.gmail_id,
+                    add_labels=add_labels,
+                    remove_labels=remove_labels
+                )
+                
+                # Log the result from Gmail API
+                logger.info(f"[EA→GMAIL] Gmail API response: {result}")
+                
+                # Mark operation as completed
+                operation.status = OperationStatus.COMPLETED
+                operation.completed_at = datetime.now()
+                db.commit()
+                
+                # Log success with special note for read/unread status
+                if has_unread_change:
+                    read_status = "unread" if 'UNREAD' in add_labels else "read"
+                    logger.info(f"[EA→GMAIL] ✓ Email marked as {read_status} in Gmail: {email_desc}")
+                else:
+                    logger.info(f"[EA→GMAIL] ✓ Email labels updated: {email_desc}")
+                
+                return {"success": True}
+            except Exception as e:
+                error_msg = f"Error updating labels in Gmail: {str(e)}"
+                logger.error(f"[EA→GMAIL] ✗ {error_msg}")
+                operation = mark_operation_failed(db, operation, error_msg)
+                return {"success": False, "error": error_msg}
             
         else:
             error_msg = f"Unsupported operation type: {operation.operation_type}"
@@ -223,7 +289,7 @@ async def execute_operation(
         operation = mark_operation_failed(db, operation, error_msg)
         return {"success": False, "error": error_msg}
 
-def process_pending_operations(
+async def process_pending_operations(
     db: Session,
     user: User,
     credentials: Dict[str, Any] = None,
@@ -255,6 +321,7 @@ def process_pending_operations(
             "retry_count": 0
         }
     
+    logger.info(f"[OPS] Found {len(operations)} pending operations for user {user.id}")
     logger.info(f"[OPS] Processing {len(operations)} pending operations for user {user.id}")
     
     # Process each operation
@@ -270,19 +337,25 @@ def process_pending_operations(
         logger.info(f"[OPS] Processing operation {operation_id}: {operation_type}")
         
         try:
-            result = execute_operation(db, operation, credentials)
+            # Execute the operation
+            result = await execute_operation(db, operation, credentials)
             
-            if operation.status == OperationStatus.COMPLETED:
+            # Check the operation status after execution
+            refreshed_operation = db.query(EmailOperation).filter(EmailOperation.id == operation_id).first()
+            
+            if refreshed_operation.status == OperationStatus.COMPLETED:
                 results["success"] += 1
                 logger.info(f"[OPS] Operation {operation_id} completed successfully")
-            elif operation.status == OperationStatus.FAILED:
+            elif refreshed_operation.status == OperationStatus.FAILED:
                 results["failure"] += 1
-                logger.info(f"[OPS] Operation {operation_id} failed: {operation.error_message}")
-            elif operation.status == OperationStatus.RETRYING:
+                logger.info(f"[OPS] Operation {operation_id} failed: {refreshed_operation.error_message}")
+            elif refreshed_operation.status == OperationStatus.RETRYING:
                 results["retry"] += 1
                 logger.info(f"[OPS] Operation {operation_id} scheduled for retry")
+            else:
+                logger.warning(f"[OPS] Operation {operation_id} has unexpected status: {refreshed_operation.status}")
         except Exception as e:
-            logger.error(f"[OPS] Error processing operation {operation_id}: {str(e)}")
+            logger.error(f"[OPS] Error processing operation {operation_id}: {str(e)}", exc_info=True)
             mark_operation_failed(db, operation, str(e))
             results["failure"] += 1
     

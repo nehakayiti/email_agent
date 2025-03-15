@@ -55,7 +55,7 @@ async def sync_emails(
         start_time = datetime.now()
         logger.info(f"[API] Starting sync process at {start_time.isoformat()}")
         
-        result = sync_emails_since_last_fetch(
+        result = await sync_emails_since_last_fetch(
             db, 
             current_user, 
             use_current_date=use_current_date,
@@ -735,6 +735,31 @@ async def update_labels_endpoint(
         if 'TRASH' in remove_labels and email.category == 'trash':
             email.category = 'primary'
             logger.info(f"[API] Updated category from 'trash' to 'primary' for email {email_id} because TRASH label was removed")
+        
+        # Special handling for UNREAD label (read status)
+        # Update the is_read flag based on UNREAD label presence
+        if 'UNREAD' in add_labels:
+            email.is_read = False
+            logger.info(f"[API] Marked email {email_id} as unread")
+        elif 'UNREAD' in remove_labels:
+            email.is_read = True
+            logger.info(f"[API] Marked email {email_id} as read")
+        
+        # Create an operation to sync the label changes to Gmail
+        operation_data = {
+            "add_labels": add_labels,
+            "remove_labels": remove_labels
+        }
+        
+        email_operations_service.create_operation(
+            db=db,
+            user=current_user,
+            email=email,
+            operation_type=OperationType.UPDATE_LABELS,
+            operation_data=operation_data
+        )
+        
+        logger.info(f"[API] Created label update operation for email {email_id}")
         
         db.commit()
         

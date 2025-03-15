@@ -1,3 +1,5 @@
+Dont run terminal commands unless explicitly asked for.
+
 You are an expert in Python, FastAPI, and scalable API development.
   
   Key Principles

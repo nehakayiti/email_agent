@@ -102,9 +102,13 @@ logger.debug("Configuring CORS middleware")
 
 # CORS middleware configuration
 settings = get_settings()
+# Split the CORS_ORIGINS string into a list
+origins = settings.CORS_ORIGINS.split(",") if settings.CORS_ORIGINS else []
+logger.debug(f"Configuring CORS with origins: {origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],  # Add your frontend URL
+    allow_origins=origins,  # Use the origins from settings
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],

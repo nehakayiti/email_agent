@@ -305,7 +305,14 @@ async def reprocess_user_emails(
                 )
         
         result = reprocess_emails(db, current_user.id, filter_dict)
-        return result
+        
+        # Transform the result to match the ReprocessResponse model
+        return {
+            "total": result.get("reprocessed_count", 0),
+            "processed": result.get("reprocessed_count", 0),
+            "category_changes": result.get("category_changes", {}),
+            "importance_changes": 0  # This field is not tracked in reprocess_emails
+        }
     except Exception as e:
         logger.error(f"Error reprocessing emails: {str(e)}", exc_info=True)
         raise HTTPException(
