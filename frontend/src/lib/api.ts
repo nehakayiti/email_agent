@@ -692,4 +692,33 @@ export async function bootstrapTrashClassifier(testSize: number = 0.2): Promise<
       test_size: testSize
     })
   });
+}
+
+export async function emptyTrash() {
+    const token = checkAuthToken();
+    if (!token) {
+        throw new Error('No authentication token found');
+    }
+
+    try {
+        const response = await fetch(`${API_URL}/emails/empty-trash`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => null);
+            const errorMessage = errorData?.detail || `API error: ${response.status} ${response.statusText}`;
+            console.error('Error emptying trash:', errorMessage);
+            throw new Error(errorMessage);
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Error emptying trash:', error);
+        throw error;
+    }
 } 

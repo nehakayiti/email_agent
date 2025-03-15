@@ -73,6 +73,8 @@ export default function EmailsPage() {
     const statusParam = searchParams?.get('status') ?? null;
     // Get label from URL parameters
     const labelParam = searchParams?.get('label') ?? null;
+    // Get view from URL parameters (for inbox view)
+    const viewParam = searchParams?.get('view') ?? null;
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
@@ -99,8 +101,15 @@ export default function EmailsPage() {
                 limit: 20,
             };
             
-            // If no specific filters are applied, show all emails EXCEPT trash
-            const isAllEmailsView = !categoryParam && !statusParam && !labelParam;
+            // If no specific filters are applied and not in inbox view, show all emails EXCEPT trash
+            const isAllEmailsView = !categoryParam && !statusParam && !labelParam && !viewParam;
+            
+            // Handle inbox view - exclude archived and trash emails
+            if (viewParam === 'inbox') {
+                // Add INBOX label filter to only show emails in the inbox
+                params.label = 'INBOX';
+                console.log('Inbox view: Showing only emails with INBOX label');
+            }
             
             if (isAllEmailsView) {
                 // Instead of setting showAll=true which includes trash,
@@ -166,7 +175,7 @@ export default function EmailsPage() {
             setLoading(false);
             setLoadingMore(false);
         }
-    }, [categoryParam, statusParam, labelParam, router]);
+    }, [categoryParam, statusParam, labelParam, router, viewParam]);
 
     // Initial data load
     useEffect(() => {
@@ -175,7 +184,7 @@ export default function EmailsPage() {
         setHasMore(true);
         setInitialLoadComplete(false);
         fetchEmails(1, true);
-    }, [fetchEmails, categoryParam, statusParam, labelParam]);
+    }, [fetchEmails, categoryParam, statusParam, labelParam, viewParam]);
 
     // Listen for email sync completion event
     useEffect(() => {
@@ -383,9 +392,11 @@ export default function EmailsPage() {
         return matchesSearch;
     });
 
-    // Determine the title based on category or status parameters
+    // Determine the title based on category, status, or view parameters
     let pageTitle = 'All Emails';
-    if (categoryParam) {
+    if (viewParam === 'inbox') {
+        pageTitle = 'Inbox';
+    } else if (categoryParam) {
         pageTitle = `${categoryParam.charAt(0).toUpperCase() + categoryParam.slice(1)} Emails`;
     } else if (statusParam) {
         pageTitle = `${statusParam.charAt(0).toUpperCase() + statusParam.slice(1)} Emails`;

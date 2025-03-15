@@ -2,11 +2,12 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { getTrashedEmails, type Email, type EmailsParams } from '@/lib/api';
+import { getTrashedEmails, emptyTrash, type Email, type EmailsParams } from '@/lib/api';
 import { isAuthenticated, handleAuthError } from '@/lib/auth';
 import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
 import { Toaster } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 
 export default function TrashPage() {
     const router = useRouter();
@@ -19,6 +20,7 @@ export default function TrashPage() {
     const [totalEmails, setTotalEmails] = useState(0);
     const [initialLoadComplete, setInitialLoadComplete] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
+    const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
     
     // Create a ref for the observer target element
     const observerTarget = useRef<HTMLDivElement>(null);
@@ -125,6 +127,31 @@ export default function TrashPage() {
         );
     };
 
+    // Function to handle emptying the trash
+    const handleEmptyTrash = async () => {
+        if (isEmptyingTrash) return;
+        
+        if (confirm('Are you sure you want to permanently delete all items in Trash? This action cannot be undone.')) {
+            try {
+                setIsEmptyingTrash(true);
+                const result = await emptyTrash();
+                
+                if (result.success) {
+                    toast.success(result.message || 'Trash emptied successfully');
+                    setEmails([]);
+                    setTotalEmails(0);
+                } else {
+                    toast.error(result.message || 'Failed to empty trash');
+                }
+            } catch (error) {
+                console.error('Error emptying trash:', error);
+                toast.error('Failed to empty trash. Please try again.');
+            } finally {
+                setIsEmptyingTrash(false);
+            }
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-screen">
@@ -161,28 +188,51 @@ export default function TrashPage() {
     });
 
     return (
-        <div className="px-4 py-8">
+        <div className="container mx-auto max-w-6xl">
             <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
-            <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
-                <div className="flex flex-col mb-6">
-                    <div className="flex-shrink-0 mb-4">
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            
+            {/* Trash notification banner */}
+            <div className="bg-gray-100 border-b border-gray-200 py-3 px-4 mb-4 flex items-center justify-between">
+                <div className="text-gray-700">
+                    Messages that have been in Trash more than 30 days will be automatically deleted.
+                </div>
+                <button 
+                    onClick={handleEmptyTrash}
+                    disabled={isEmptyingTrash || emails.length === 0}
+                    className={`text-blue-600 hover:text-blue-800 font-medium ${
+                        isEmptyingTrash || emails.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                >
+                    {isEmptyingTrash ? (
+                        <span className="flex items-center">
+                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Emptying...
+                        </span>
+                    ) : 'Empty Trash now'}
+                </button>
+            </div>
+            
+            <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-gray-200">
+                    <div className="flex justify-between items-center mb-4">
+                        <h1 className="text-xl font-semibold text-gray-900">
                             Trash
                             {totalEmails > 0 && <span className="text-gray-500 text-lg ml-2">({totalEmails})</span>}
                         </h1>
-                        <p className="text-sm text-gray-600">
-                            Emails that have been trashed in Gmail but are preserved locally
-                        </p>
+                        <div className="w-64">
+                            <SearchInput 
+                                value={searchTerm} 
+                                onChange={setSearchTerm} 
+                                placeholder="Search in trash..." 
+                            />
+                        </div>
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                        <SearchInput 
-                            value={searchTerm} 
-                            onChange={setSearchTerm} 
-                            placeholder="Search trashed emails..." 
-                            className="w-full"
-                        />
+                    <div className="flex justify-end">
                         <button
-                            onClick={() => router.push('/emails')}
+                            onClick={() => router.push('/emails?view=inbox')}
                             className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex-shrink-0"
                         >
                             Back to Inbox

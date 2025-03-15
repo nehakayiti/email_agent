@@ -32,23 +32,23 @@ type NavItem = {
   href?: string;
   icon?: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   type?: 'link' | 'divider' | 'category';
+  section?: string;
 };
 
 // Fixed navigation items that aren't categories
 const baseNavigation: NavItem[] = [
   // Main Views
-  { name: 'Dashboard', href: '/', icon: HomeIcon, type: 'link' },
-  { name: 'All Emails', href: '/emails', icon: InboxIcon, type: 'link' },
-  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon, type: 'link' },
+  { name: 'Dashboard', href: '/', icon: HomeIcon, type: 'link', section: 'main' },
+  { name: 'Inbox', href: '/emails?view=inbox', icon: InboxIcon, type: 'link', section: 'main' },
+  { name: 'All Mail', href: '/emails', icon: EnvelopeIcon, type: 'link', section: 'main' },
   
   // Email Status
-  { type: 'divider', name: 'Status' },
-  { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link' },
-  { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link' },
+  { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link', section: 'filters' },
+  { name: 'Read', href: '/emails?status=read', icon: EnvelopeOpenIcon, type: 'link', section: 'filters' },
   
-  // Category Management Link
-  { type: 'divider', name: 'CATEGORIES' },
-  { name: 'Manage Categories', href: '/categories', icon: TagIcon, type: 'link' },
+  // Tools & Settings
+  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon, type: 'link', section: 'tools' },
+  { name: 'Manage Categories', href: '/categories', icon: Cog6ToothIcon, type: 'link', section: 'tools' },
 ];
 
 // Custom event name for email sync completion
@@ -354,79 +354,208 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     cat.name.toLowerCase() !== 'archive' && cat.name.toLowerCase() !== 'trash'
   );
 
-  // Create navigation items with base items and categories from database
-  const navigation: NavItem[] = [
-    ...baseNavigation,
-    
-    // Add all regular categories (sorted by priority)
-    ...regularCategories.map(category => ({
-      name: category.display_name,
-      href: `/emails?category=${category.name.toLowerCase()}`,
-      icon: getCategoryIcon(category.name),
-      type: 'category' as const
-    })),
-    
-    // Add Storage divider if we have storage categories
-    ...(storageCategories.length > 0 ? [{ type: 'divider' as const, name: 'Storage' }] : []),
-    
-    // Add storage categories
-    ...storageCategories.map(category => ({
-      name: category.display_name,
-      href: category.name.toLowerCase() === 'trash' 
-        ? '/emails/deleted' 
-        : `/emails?category=${category.name.toLowerCase()}`,
-      icon: getCategoryIcon(category.name),
-      type: 'category' as const
-    }))
-  ];
+  // Group navigation items by section
+  const mainNavItems = baseNavigation.filter(item => item.section === 'main');
+  const filterNavItems = baseNavigation.filter(item => item.section === 'filters');
+  const toolNavItems = baseNavigation.filter(item => item.section === 'tools');
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Left Navigation */}
-      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg">
-        <div className="flex h-16 items-center px-6">
+      <div className="fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg flex flex-col">
+        <div className="flex h-16 items-center px-6 border-b border-gray-200">
           <Link href="/" className="flex items-center space-x-2">
             <div className="text-2xl font-bold text-indigo-600">EA</div>
             <span className="text-lg font-semibold text-gray-900">EmailAgent</span>
           </Link>
         </div>
-        <nav className="mt-5 px-3">
-          {navigation.map((item) => {
-            if (item.type === 'divider') {
+        
+        {/* Scrollable navigation */}
+        <nav className="flex-1 overflow-y-auto py-4 px-3">
+          {/* Main section */}
+          <div className="mb-6">
+            <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Main
+            </div>
+            {mainNavItems.map((item) => {
+              if (!item.href || !item.icon) return null;
+
+              const isActive = pathname === item.href || 
+                (pathname && item.href && pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
+                  (
+                    // Match category parameter
+                    (new URLSearchParams(item.href.split('?')[1]).get('category') === 
+                     new URLSearchParams(pathname.split('?')[1]).get('category')) ||
+                    // Match view parameter (for inbox)
+                    (new URLSearchParams(item.href.split('?')[1]).get('view') === 
+                     new URLSearchParams(pathname.split('?')[1]).get('view')) ||
+                    // Special case for /emails with no parameters (All Emails)
+                    (item.href === '/emails' && 
+                     !pathname.includes('?') && 
+                     !pathname.includes('/deleted'))
+                  ));
+              
               return (
-                <div key={item.name} className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  {item.name}
-                </div>
-              );
-            }
-
-            if (!item.href || !item.icon) return null;
-
-            const isActive = pathname === item.href || 
-              (pathname && item.href && pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
-                new URLSearchParams(item.href.split('?')[1]).get('category') === 
-                new URLSearchParams(pathname.split('?')[1]).get('category'));
-            
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`group flex items-center px-2.5 py-2 my-0.5 text-sm font-medium rounded-lg ${
-                  isActive
-                    ? 'bg-indigo-50 text-indigo-600'
-                    : 'text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <item.icon
-                  className={`mr-2.5 h-5 w-5 flex-shrink-0 ${
-                    isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`group flex items-center px-3 py-2 my-1 text-sm font-medium rounded-md ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-600'
+                      : 'text-gray-700 hover:bg-gray-50'
                   }`}
-                  aria-hidden="true"
-                />
-                {item.name}
-              </Link>
-            );
-          })}
+                >
+                  <item.icon
+                    className={`mr-3 h-5 w-5 flex-shrink-0 ${
+                      isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </div>
+          
+          {/* Filters section */}
+          <div className="mb-6">
+            <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Filters
+            </div>
+            {filterNavItems.map((item) => {
+              if (!item.href || !item.icon) return null;
+
+              const isActive = pathname === item.href || 
+                (pathname && item.href && pathname.startsWith('/emails') && item.href.startsWith('/emails') && 
+                  (new URLSearchParams(item.href.split('?')[1]).get('status') === 
+                   new URLSearchParams(pathname.split('?')[1]).get('status')));
+              
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`group flex items-center px-3 py-2 my-1 text-sm font-medium rounded-md ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-600'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <item.icon
+                    className={`mr-3 h-5 w-5 flex-shrink-0 ${
+                      isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </div>
+          
+          {/* Categories section */}
+          {regularCategories.length > 0 && (
+            <div className="mb-6">
+              <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Categories
+              </div>
+              {regularCategories.map((category) => {
+                const href = `/emails?category=${category.name.toLowerCase()}`;
+                const Icon = getCategoryIcon(category.name);
+                const isActive = pathname && pathname.startsWith('/emails') && 
+                  new URLSearchParams(pathname.split('?')[1]).get('category') === category.name.toLowerCase();
+                
+                return (
+                  <Link
+                    key={category.name}
+                    href={href}
+                    className={`group flex items-center px-3 py-2 my-1 text-sm font-medium rounded-md ${
+                      isActive
+                        ? 'bg-indigo-50 text-indigo-600'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Icon
+                      className={`mr-3 h-5 w-5 flex-shrink-0 ${
+                        isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
+                      }`}
+                      aria-hidden="true"
+                    />
+                    {category.display_name}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+          
+          {/* Storage section */}
+          {storageCategories.length > 0 && (
+            <div className="mb-6">
+              <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Storage
+              </div>
+              {storageCategories.map((category) => {
+                const href = category.name.toLowerCase() === 'trash' 
+                  ? '/emails/deleted' 
+                  : `/emails?category=${category.name.toLowerCase()}`;
+                const Icon = getCategoryIcon(category.name);
+                const isActive = (category.name.toLowerCase() === 'trash' && pathname === '/emails/deleted') ||
+                  (pathname && pathname.startsWith('/emails') && 
+                   new URLSearchParams(pathname.split('?')[1]).get('category') === category.name.toLowerCase());
+                
+                return (
+                  <Link
+                    key={category.name}
+                    href={href}
+                    className={`group flex items-center px-3 py-2 my-1 text-sm font-medium rounded-md ${
+                      isActive
+                        ? 'bg-indigo-50 text-indigo-600'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    <Icon
+                      className={`mr-3 h-5 w-5 flex-shrink-0 ${
+                        isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
+                      }`}
+                      aria-hidden="true"
+                    />
+                    {category.display_name}
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+          
+          {/* Tools section */}
+          <div className="mb-6">
+            <div className="px-3 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Tools
+            </div>
+            {toolNavItems.map((item) => {
+              if (!item.href || !item.icon) return null;
+
+              const isActive = pathname === item.href;
+              
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`group flex items-center px-3 py-2 my-1 text-sm font-medium rounded-md ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-600'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <item.icon
+                    className={`mr-3 h-5 w-5 flex-shrink-0 ${
+                      isActive ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-500'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {item.name}
+                </Link>
+              );
+            })}
+          </div>
         </nav>
       </div>
 

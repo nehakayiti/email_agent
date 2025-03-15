@@ -1147,4 +1147,52 @@ async def fix_trash_consistency_endpoint(
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fix trash consistency: {str(e)}"
+        )
+
+@router.post("/empty-trash")
+async def empty_trash(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Permanently delete all emails in the trash for the current user
+    """
+    try:
+        # Find all emails with TRASH label for the current user
+        trash_emails = db.query(Email).filter(
+            Email.user_id == current_user.id,
+            Email.labels.contains(['TRASH'])
+        ).all()
+        
+        # Count how many emails will be deleted
+        delete_count = len(trash_emails)
+        
+        if delete_count == 0:
+            return {
+                "success": True,
+                "message": "Trash is already empty",
+                "deleted_count": 0
+            }
+        
+        # Delete all trash emails
+        db.query(Email).filter(
+            Email.user_id == current_user.id,
+            Email.labels.contains(['TRASH'])
+        ).delete(synchronize_session=False)
+        
+        db.commit()
+        
+        logger.info(f"[API] Permanently deleted {delete_count} emails from trash for user {current_user.id}")
+        
+        return {
+            "success": True,
+            "message": f"Permanently deleted {delete_count} emails from trash",
+            "deleted_count": delete_count
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[API] Error emptying trash: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to empty trash: {str(e)}"
         ) 
