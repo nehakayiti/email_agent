@@ -142,8 +142,12 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
 
   const handleArchive = async () => {
     try {
+      // Determine if we're archiving or unarchiving
+      const isArchived = !email.labels.includes('INBOX');
+      const actionText = isArchived ? 'Unarchiving' : 'Archiving';
+      
       // Show a toast with the loading state that can be dismissed
-      const toastId = showLoadingToast('Archiving email...');
+      const toastId = showLoadingToast(`${actionText} email...`);
       
       const response = await archiveEmail(email.id);
       
@@ -151,7 +155,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
       toast.dismiss(toastId);
       
       if (response.status === 'success') {
-        showSuccessToast(response.message || 'Email archived successfully');
+        showSuccessToast(response.message || `Email ${isArchived ? 'unarchived' : 'archived'} successfully`);
         
         // Update the email object with new labels
         const updatedEmail = {
@@ -167,16 +171,16 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
         }
       } else {
         // Handle error in successful response but with error status
-        showErrorToast(response.message || 'Failed to archive email');
+        showErrorToast(response.message || `Failed to ${isArchived ? 'unarchive' : 'archive'} email`);
       }
     } catch (error) {
       // Dismiss all loading toasts
       dismissAllToasts();
       
       // Show a meaningful error toast
-      const errorMessage = error instanceof Error ? error.message : 'Error archiving email';
+      const errorMessage = error instanceof Error ? error.message : `Error ${email.labels.includes('INBOX') ? 'archiving' : 'unarchiving'} email`;
       showErrorToast(errorMessage);
-      console.error('Error archiving email:', error);
+      console.error(`Error ${email.labels.includes('INBOX') ? 'archiving' : 'unarchiving'} email:`, error);
     }
   };
 
@@ -224,7 +228,7 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8" />
             </svg>
-            Archive
+            {email.labels.includes('INBOX') ? 'Archive' : 'Unarchive'}
           </button>
         </div>
         

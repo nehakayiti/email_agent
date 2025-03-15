@@ -966,23 +966,20 @@ async def delete_email(
         )
 
 @router.post("/{email_id}/archive")
-async def archive_email(
+async def archive_email_endpoint(
     email_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Archive an email by removing the INBOX label
+    Archive or unarchive an email
     
-    Args:
-        email_id: UUID of the email to archive
-        db: Database session
-        current_user: Current authenticated user
-        
-    Returns:
-        Success message with updated labels
+    If the email has the INBOX label, it will be archived (INBOX label removed)
+    If the email doesn't have the INBOX label, it will be unarchived (INBOX label added)
     """
     try:
+        logger.info(f"[API] Archive/unarchive request for email {email_id}")
+        
         # Find the email
         email = db.query(Email).filter(
             Email.id == email_id,
@@ -992,45 +989,58 @@ async def archive_email(
         if not email:
             raise HTTPException(status_code=404, detail="Email not found")
         
-        # Remove INBOX label if present
+        # Check if email has INBOX label
         current_labels = set(email.labels or [])
-        if 'INBOX' in current_labels:
+        is_in_inbox = 'INBOX' in current_labels
+        
+        operation_data = {}
+        
+        if is_in_inbox:
+            # Archive: Remove INBOX label
             current_labels.remove('INBOX')
             email.labels = list(current_labels)
-            # Update the category to 'archive' since INBOX label is removed
             email.category = 'archive'
+            operation_data = {
+                "remove_labels": ["INBOX"]
+            }
+            operation_type = OperationType.ARCHIVE
+            message = "Email archived successfully"
             logger.info(f"[API] Removed INBOX label from email {email_id} and set category to 'archive'")
         else:
-            logger.info(f"[API] Email {email_id} is already archived (no INBOX label)")
-            return {"status": "success", "message": "Email is already archived", "labels": email.labels}
+            # Unarchive: Add INBOX label
+            current_labels.add('INBOX')
+            email.labels = list(current_labels)
+            email.category = 'primary'  # Set to primary when unarchiving
+            operation_data = {
+                "add_labels": ["INBOX"]
+            }
+            operation_type = OperationType.UPDATE_LABELS
+            message = "Email unarchived successfully"
+            logger.info(f"[API] Added INBOX label to email {email_id} and set category to 'primary'")
         
         # Create operation record for Gmail sync
-        operation_data = {
-            "remove_labels": ["INBOX"]
-        }
-        
         email_operations_service.create_operation(
             db=db,
             user=current_user,
             email=email,
-            operation_type=OperationType.ARCHIVE,
+            operation_type=operation_type,
             operation_data=operation_data
         )
         
-        logger.info(f"[API] Created archive operation for email {email_id}")
+        logger.info(f"[API] Created {'archive' if is_in_inbox else 'unarchive'} operation for email {email_id}")
         
         db.commit()
         
         return {
             "status": "success",
-            "message": "Email archived successfully",
+            "message": message,
             "labels": email.labels,
             "category": email.category
         }
     except Exception as e:
         db.rollback()
-        logger.error(f"[API] Error archiving email: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to archive email: {str(e)}")
+        logger.error(f"[API] Error archiving/unarchiving email: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to archive/unarchive email: {str(e)}")
 
 @router.post("/fix-trash-consistency")
 async def fix_trash_consistency_endpoint(
