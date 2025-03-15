@@ -207,3 +207,58 @@ async def callback(
             status_code=500,
             detail=f"500: {str(e)}"
         )
+
+@router.post("/logout")
+async def logout(request: Request, db: Session = Depends(get_db)):
+    """
+    Logout user and revoke Google OAuth token
+    """
+    logger.debug("Logout endpoint called")
+    
+    try:
+        # Get the current access token from the session or request
+        token = request.cookies.get("access_token")
+        if not token:
+            logger.warning("No access token found during logout")
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={"message": "Already logged out"}
+            )
+
+        # Revoke Google OAuth token
+        revoke_url = "https://oauth2.googleapis.com/revoke"
+        try:
+            response = requests.post(
+                revoke_url,
+                params={"token": token},
+                headers={"content-type": "application/x-www-form-urlencoded"}
+            )
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to revoke token: {response.text}")
+        except Exception as e:
+            logger.error(f"Error revoking Google token: {str(e)}")
+
+        # Create response with cookie deletion
+        response = JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"message": "Successfully logged out"}
+        )
+        
+        # Clear the access token cookie
+        response.delete_cookie(
+            key="access_token",
+            path="/",
+            domain=None,
+            secure=True,
+            httponly=True
+        )
+        
+        return response
+
+    except Exception as e:
+        logger.error(f"Error during logout: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error during logout process"
+        )

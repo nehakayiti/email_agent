@@ -21,7 +21,7 @@ import {
   ArrowRightOnRectangleIcon,
   Cog6ToothIcon
 } from '@heroicons/react/24/outline';
-import { isAuthenticated, handleAuthError, logout } from '@/lib/auth';
+import { isAuthenticated, handleAuthError, logout, initiateGoogleLogin } from '@/lib/auth';
 import { triggerEmailSync, Category } from '@/lib/api';
 import { useCategoryContext } from '@/lib/category-context';
 import { toast } from 'react-hot-toast';
@@ -54,10 +54,152 @@ const baseNavigation: NavItem[] = [
 // Custom event name for email sync completion
 export const EMAIL_SYNC_COMPLETED_EVENT = 'emailSyncCompleted';
 
+// Add this new client component at the top level of the file, before the MainLayout function
+function SyncButton({ handleSync, isSyncing }: { handleSync: () => Promise<void>, isSyncing: boolean }) {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  if (!mounted) return null;
+  
+  return (
+    <button
+      onClick={handleSync}
+      disabled={isSyncing}
+      className={`inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm ${
+        isSyncing 
+          ? 'bg-blue-400 text-white cursor-not-allowed' 
+          : 'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
+      }`}
+      type="button"
+    >
+      <svg 
+        className={`-ml-1 mr-2 h-5 w-5 ${isSyncing ? 'animate-spin' : ''}`}
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+        strokeWidth="1.5"
+        stroke="currentColor"
+        aria-hidden="true"
+      >
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+        />
+      </svg>
+      {isSyncing ? 'Syncing...' : 'Sync Emails'}
+    </button>
+  );
+}
+
+function GoogleLoginButton() {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  if (!mounted) return null;
+  
+  return (
+    <button
+      onClick={initiateGoogleLogin}
+      type="button"
+      className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm bg-white text-gray-800 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 border border-gray-300"
+    >
+      <svg 
+        className="-ml-1 mr-2 h-5 w-5" 
+        xmlns="http://www.w3.org/2000/svg" 
+        viewBox="0 0 48 48"
+        aria-hidden="true"
+      >
+        <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+        <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+        <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+      </svg>
+      Sign in with Google
+    </button>
+  );
+}
+
+function LogoutButton({ handleLogout, isLoggingOut }: { handleLogout: () => Promise<void>, isLoggingOut: boolean }) {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  if (!mounted) return null;
+  
+  return (
+    <button
+      onClick={handleLogout}
+      disabled={isLoggingOut}
+      type="button"
+      className={`inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm ${
+        isLoggingOut 
+          ? 'bg-gray-400 cursor-not-allowed' 
+          : 'bg-red-600 hover:bg-red-700'
+      } text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500`}
+    >
+      {isLoggingOut ? (
+        <>
+          <svg 
+            className="animate-spin -ml-1 mr-2 h-5 w-5" 
+            xmlns="http://www.w3.org/2000/svg" 
+            fill="none" 
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle 
+              className="opacity-25" 
+              cx="12" 
+              cy="12" 
+              r="10" 
+              stroke="currentColor" 
+              strokeWidth="4"
+            />
+            <path 
+              className="opacity-75" 
+              fill="currentColor" 
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+          Logging out...
+        </>
+      ) : (
+        <>
+          <svg
+            className="-ml-1 mr-2 h-5 w-5"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            strokeWidth="1.5"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"
+            />
+          </svg>
+          Logout
+        </>
+      )}
+    </button>
+  );
+}
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'success' | 'error' | null>(null);
   const [syncMessage, setSyncMessage] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
@@ -153,6 +295,24 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       }, 5000);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      setIsLoggingOut(true);
+      await logout();
+      
+      // Show success message
+      toast.success('Successfully logged out');
+      
+      // Redirect to login page with a clean URL
+      router.push('/');
+    } catch (error) {
+      console.error('Logout error:', error);
+      toast.error('Failed to logout. Please try again.');
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
@@ -281,22 +441,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                   {syncMessage}
                 </span>
               )}
-              <button
-                onClick={handleSync}
-                disabled={isSyncing}
-                className={`inline-flex items-center px-4 py-2 rounded-md text-sm font-medium shadow-sm ${
-                  isSyncing 
-                    ? 'bg-blue-400 text-white cursor-not-allowed' 
-                    : 'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500'
-                }`}
-                aria-label="Sync emails"
-              >
-                <ArrowPathIcon 
-                  className={`-ml-1 mr-2 h-5 w-5 ${isSyncing ? 'animate-spin' : ''}`} 
-                  aria-hidden="true" 
-                />
-                {isSyncing ? 'Syncing...' : 'Sync Emails'}
-              </button>
+              
+              {isAuthenticated() && (
+                <SyncButton handleSync={handleSync} isSyncing={isSyncing} />
+              )}
+
+              {isAuthenticated() ? (
+                <LogoutButton handleLogout={handleLogout} isLoggingOut={isLoggingOut} />
+              ) : (
+                <GoogleLoginButton />
+              )}
             </div>
           </div>
         </header>

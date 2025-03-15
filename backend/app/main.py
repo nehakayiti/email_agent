@@ -1,7 +1,7 @@
 import logging
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from .config import settings
+from .config import settings, get_settings
 # Import routers from __init__.py
 from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router, ml_router
 from .db import engine, Base
@@ -101,9 +101,10 @@ app = FastAPI(
 logger.debug("Configuring CORS middleware")
 
 # CORS middleware configuration
+settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Explicitly allow frontend origin
+    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],  # Add your frontend URL
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],

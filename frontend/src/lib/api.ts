@@ -1,4 +1,5 @@
 import { getToken, handleAuthError, initiateGoogleLogin } from './auth';
+import { toast } from 'react-hot-toast';
 
 export interface Email {
     id: string;
@@ -61,13 +62,37 @@ function isEmailsResponse(data: unknown): data is EmailsResponse {
     );
 }
 
-export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+// Helper function to handle auth errors gracefully
+const handleApiError = (error: any) => {
+    if (error.message === 'No authentication token found' || error.message.includes('Authentication failed')) {
+        // Handle auth errors by redirecting to login
+        handleAuthError();
+        // Return null to indicate auth error
+        return null;
+    }
+    // For other errors, show toast and throw
+    toast.error(error.message || 'An error occurred');
+    throw error;
+};
+
+// Update the checkAuthToken function to be more graceful
+const checkAuthToken = () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+        console.log('No authentication token found');
+        handleAuthError();
+        return null;
+    }
+    return token;
+};
+
+export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T | null> {
     const token = getToken();
     
     if (!token) {
         console.log('No authentication token found');
         handleAuthError();
-        throw new Error('No authentication token found');
+        return null;
     }
 
     try {
@@ -85,7 +110,7 @@ export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = 
             if (response.status === 401) {
                 console.log('Authentication failed: Invalid or expired token');
                 handleAuthError();
-                throw new Error('Authentication failed. Token expired. Redirecting to login...');
+                return null;
             }
 
             const errorData = await response.json().catch(() => null);
@@ -100,7 +125,7 @@ export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = 
         return data as T;
     } catch (error) {
         console.error('API request failed:', error);
-        throw error;
+        return handleApiError(error);
     }
 }
 
@@ -359,17 +384,28 @@ export interface SyncResponse {
   new_email_count?: number;
 }
 
-export async function triggerEmailSync(): Promise<SyncResponse> {
-  try {
-    const timestamp = new Date().getTime();
-    const response = await fetchWithAuth<SyncResponse>(`/emails/sync?t=${timestamp}&use_current_date=true`, {
-      method: 'POST',
-    });
-    return response;
-  } catch (error) {
-    console.error('Error triggering email sync:', error);
-    throw error;
-  }
+export async function triggerEmailSync() {
+    const token = checkAuthToken();
+    if (!token) return null;
+
+    try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/emails/sync`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to sync emails');
+        }
+
+        return await response.json();
+    } catch (error) {
+        return handleApiError(error);
+    }
 }
 
 export async function getTrashedEmails(params: EmailsParams = {}): Promise<EmailsResponse> {
