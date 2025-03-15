@@ -6,8 +6,8 @@ from ..models.user import User
 from ..models.email_sync import EmailSync
 from ..models.email import Email
 from . import gmail
-# Remove circular import
-# from .email_processor import process_and_store_emails
+# Import process_and_store_emails from email_processor
+from .email_processor import process_and_store_emails
 import logging
 import time
 from uuid import UUID
@@ -179,6 +179,65 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
         logger.info(f"[GMAIL→EA] Updated {updated_count} emails due to label changes")
         
     return updated_count
+
+def mark_emails_deleted(db: Session, user: User, deleted_gmail_ids: List[str]) -> int:
+    """
+    Mark emails as deleted in our database based on Gmail IDs
+    
+    Args:
+        db: Database session
+        user: User model instance
+        deleted_gmail_ids: List of Gmail IDs that were deleted
+        
+    Returns:
+        Number of emails marked as deleted
+    """
+    if not deleted_gmail_ids:
+        return 0
+    
+    deleted_count = 0
+    not_found_count = 0
+    already_deleted_count = 0
+    
+    # Log the first few deleted Gmail IDs for debugging
+    if len(deleted_gmail_ids) > 0:
+        sample_ids = deleted_gmail_ids[:min(5, len(deleted_gmail_ids))]
+        logger.info(f"[SYNC] Sample deleted Gmail IDs: {sample_ids}")
+    
+    for gmail_id in deleted_gmail_ids:
+        # Find the email in our database
+        email = db.query(Email).filter(
+            Email.user_id == user.id,
+            Email.gmail_id == gmail_id
+        ).first()
+        
+        if not email:
+            not_found_count += 1
+            if not_found_count <= 5:  # Log first 5 not found emails to avoid log spam
+                logger.debug(f"[SYNC] Email with gmail_id {gmail_id} not found in database")
+        elif 'TRASH' in (email.labels or []):
+            already_deleted_count += 1
+            if already_deleted_count <= 5:  # Log first 5 already deleted emails
+                logger.debug(f"[SYNC] Email {email.id} (gmail_id: {gmail_id}) already has TRASH label")
+        else:
+            logger.info(f"[SYNC] Adding TRASH label to email {email.id} (gmail_id: {gmail_id})")
+            # Add TRASH label
+            current_labels = set(email.labels or [])
+            current_labels.add('TRASH')
+            email.labels = list(current_labels)
+            
+            # Update category to 'trash'
+            email.category = 'trash'
+            
+            deleted_count += 1
+    
+    logger.info(f"[SYNC] Deletion summary: deleted_count={deleted_count}, not_found_count={not_found_count}, already_deleted_count={already_deleted_count}")
+    
+    if deleted_count > 0:
+        db.commit()
+        logger.info(f"[SYNC] Added TRASH label to {deleted_count} emails")
+    
+    return deleted_count
 
 # Removed old implementation as we're now using the modular categorizer
 # The function is now directly imported from email_categorizer.py
@@ -398,84 +457,30 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
     else:
         logger.info(f"No pending EA → GMAIL operations to process")
     
-    # Use history-based approach with existing history ID
+    # Fetch changes from Gmail
     logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
     logger.info(f"║                  FETCHING GMAIL → EA CHANGES                             ║")
     logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-    logger.info(f"Using history ID: {email_sync.last_history_id}")
     
+    # Use the history ID from the last sync if available
+    history_id = email_sync.last_history_id
+    logger.info(f"Using history ID: {history_id}")
+    
+    # Fetch changes from Gmail
     try:
-        sync_start = datetime.now(timezone.utc)
-        # Use the sync_gmail_changes function to efficiently fetch changes since last history ID
-        new_emails_raw, deleted_ids, label_changes, new_history_id = gmail.sync_gmail_changes(
-            credentials,
-            email_sync.last_history_id
+        gmail_service = await gmail.get_gmail_service(credentials)
+        
+        # Fetch history changes
+        history_result = await gmail.fetch_history_changes(
+            gmail_service, 
+            history_id,
+            max_pages=5
         )
-        sync_duration = (datetime.now(timezone.utc) - sync_start).total_seconds()
         
-        # Log summary of changes from Gmail
-        if new_emails_raw or deleted_ids or label_changes:
-            logger.info(f"GMAIL → EA Changes detected:")
-            
-            if new_emails_raw:
-                logger.info(f"  - {len(new_emails_raw)} new emails")
-                # Log a sample of new emails
-                for i, email in enumerate(new_emails_raw[:5]):
-                    subject = email.get('subject', 'No subject')
-                    sender = email.get('from_address', 'Unknown sender')
-                    logger.info(f"    {i+1}. New: '{subject[:40]}...' from {sender[:30]}")
-                if len(new_emails_raw) > 5:
-                    logger.info(f"    ... and {len(new_emails_raw) - 5} more")
-            
-            if deleted_ids:
-                logger.info(f"  - {len(deleted_ids)} deleted emails")
-                # Log a few deleted IDs
-                for i, gmail_id in enumerate(deleted_ids[:5]):
-                    logger.info(f"    {i+1}. Deleted: {gmail_id}")
-                if len(deleted_ids) > 5:
-                    logger.info(f"    ... and {len(deleted_ids) - 5} more")
-            
-            if label_changes:
-                logger.info(f"  - {len(label_changes)} emails with label changes")
-                # Log a few label changes
-                for i, (gmail_id, changes) in enumerate(list(label_changes.items())[:5]):
-                    added = changes.get('added', [])
-                    removed = changes.get('removed', [])
-                    change_desc = []
-                    if added:
-                        change_desc.append(f"added {added}")
-                    if removed:
-                        change_desc.append(f"removed {removed}")
-                    logger.info(f"    {i+1}. Labels changed ({' & '.join(change_desc)}): {gmail_id}")
-                if len(label_changes) > 5:
-                    logger.info(f"    ... and {len(label_changes) - 5} more")
-        else:
-            logger.info(f"No changes detected from Gmail")
-        
-        # If we've processed operations but no Gmail changes, we should still report success
-        if operations_processed > 0 and (new_history_id is None or new_history_id == email_sync.last_history_id):
-            logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
-            logger.info(f"║                  SYNC COMPLETED SUCCESSFULLY                             ║")
-            logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-            logger.info(f"EA → GMAIL operations processed, no Gmail changes detected")
-            
-            # Update the sync checkpoint - use the same history ID but new timestamp
-            update_sync_checkpoint(db, email_sync, sync_start_time, email_sync.last_history_id)
-            
-            return {
-                "status": "success",
-                "message": f"Processed {operations_processed} operations ({operations_succeeded} successful)",
-                "sync_count": operations_processed,
-                "operations_processed": operations_processed,
-                "operations_succeeded": operations_succeeded,
-                "new_email_count": 0,
-                "deleted_email_count": 0,
-                "label_changes_count": 0,
-                "sync_started_at": sync_start_timestamp,
-                "user_id": str(user_id),
-                "sync_method": "operations_only",
-                "sync_duration_seconds": ops_duration
-            }
+        new_history_id = history_result.get("new_history_id")
+        new_emails_raw = history_result.get("new_emails", [])
+        deleted_ids = history_result.get("deleted_ids", [])
+        label_changes = history_result.get("label_changes", {})
         
         # If we got a valid history ID back, process the results
         if new_history_id and new_history_id != email_sync.last_history_id:
@@ -501,47 +506,97 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
             # Process label changes (mark as read/unread, deleted, etc.)
             label_changes_count = process_label_changes(db, fresh_user, label_changes)
             
-            # Process any pending category updates from our database to Gmail
-            category_updates_count = process_pending_category_updates(db, fresh_user)
+            # Process new emails
+            new_email_count = 0
+            if new_emails:
+                logger.info(f"[SYNC] Processing {len(new_emails)} new emails")
+                new_email_count = await process_and_store_emails(db, fresh_user, new_emails)
+                logger.info(f"[SYNC] Processed {new_email_count} new emails")
             
-            logger.info(f"[SYNC] Processing summary:")
-            logger.info(f"  - Total emails found: {total_found}")
-            logger.info(f"  - Already processed: {already_processed}")
-            logger.info(f"  - New emails to process: {len(new_emails)}")
-            logger.info(f"  - Deleted emails to process: {len(deleted_email_ids)}")
-            logger.info(f"  - Label changes processed: {label_changes_count}")
-            logger.info(f"  - Category updates processed: {category_updates_count}")
-            logger.info(f"  - Operations processed: {operations_processed}")
+            # Process deleted emails
+            deleted_email_count = 0
+            if deleted_email_ids:
+                logger.info(f"[SYNC] Processing {len(deleted_email_ids)} deleted emails")
+                deleted_email_count = mark_emails_deleted(db, fresh_user, deleted_email_ids)
+                logger.info(f"[SYNC] Marked {deleted_email_count} emails as deleted")
             
-            # Final summary
-            logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
-            logger.info(f"║                  SYNC COMPLETED SUCCESSFULLY                             ║")
-            logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-            logger.info(f"Bidirectional sync summary:")
-            logger.info(f"  EA → GMAIL:")
-            logger.info(f"    - Operations processed: {operations_processed}")
-            logger.info(f"    - Operations succeeded: {operations_succeeded}")
-            logger.info(f"  GMAIL → EA:")
-            logger.info(f"    - New emails: {len(new_emails)}")
-            logger.info(f"    - Deleted emails: {len(deleted_email_ids)}")
-            logger.info(f"    - Label changes: {label_changes_count}")
+            # Update the sync checkpoint
+            email_sync.last_history_id = new_history_id
+            email_sync.last_fetched_at = datetime.now(timezone.utc)
+            db.commit()
+            
+            # Calculate sync duration
+            sync_duration = (datetime.now(timezone.utc) - sync_start_time).total_seconds()
+            
+            # Return success with counts
+            return {
+                "status": "success",
+                "message": f"Synced {new_email_count} new emails, {deleted_email_count} deleted, and {label_changes_count} label changes",
+                "sync_count": new_email_count + deleted_email_count + label_changes_count,
+                "new_email_count": new_email_count,
+                "deleted_email_count": deleted_email_count,
+                "label_changes_count": label_changes_count,
+                "sync_started_at": sync_start_timestamp,
+                "user_id": user_id,
+                "sync_method": "history",
+                "debug_info": {
+                    "last_history_id": str(email_sync.last_history_id),
+                    "new_history_id": str(new_history_id),
+                    "sync_duration_seconds": sync_duration
+                }
+            }
         else:
-            # Only show the warning if we didn't process any operations
-            if operations_processed == 0:
+            # No changes detected from Gmail
+            logger.info(f"No changes detected from Gmail")
+            
+            # Update the sync checkpoint timestamp even if no changes
+            email_sync.last_fetched_at = datetime.now(timezone.utc)
+            db.commit()
+            
+            # Calculate sync duration
+            sync_duration = (datetime.now(timezone.utc) - sync_start_time).total_seconds()
+            
+            # Check if we processed any operations
+            if operations_processed > 0 and operations_succeeded > 0:
+                # We processed operations but didn't detect Gmail changes
+                logger.warning(f"╔══════════════════════════════════════════════════════════════════════════╗")
+                logger.warning(f"║                  OPERATIONS PROCESSED BUT NO GMAIL CHANGES               ║")
+                logger.warning(f"╚══════════════════════════════════════════════════════════════════════════╝")
+                logger.warning(f"Processed {operations_succeeded} operations successfully, but no changes detected from Gmail")
+                
+                return {
+                    "status": "success",
+                    "message": f"Processed {operations_succeeded} operations successfully",
+                    "sync_count": operations_succeeded,
+                    "operations_processed": operations_processed,
+                    "operations_succeeded": operations_succeeded,
+                    "operations_failed": operations_failed,
+                    "sync_started_at": sync_start_timestamp,
+                    "user_id": user_id,
+                    "sync_method": "operations_only",
+                    "debug_info": {
+                        "last_history_id": str(email_sync.last_history_id),
+                        "new_history_id": str(new_history_id) if new_history_id else "None",
+                        "sync_duration_seconds": sync_duration
+                    }
+                }
+            else:
+                # No changes detected from Gmail and no operations processed
                 logger.warning(f"╔══════════════════════════════════════════════════════════════════════════╗")
                 logger.warning(f"║                  NO CHANGES DETECTED                                     ║")
                 logger.warning(f"╚══════════════════════════════════════════════════════════════════════════╝")
                 logger.warning(f"History ID unchanged: {email_sync.last_history_id}")
+                
                 return {
                     "status": "warning",
                     "message": "No changes detected since last sync",
                     "sync_count": 0,
                     "sync_started_at": sync_start_timestamp,
-                    "user_id": str(user_id),
+                    "user_id": user_id,
                     "sync_method": "history_no_changes",
                     "debug_info": {
-                        "last_history_id": email_sync.last_history_id,
-                        "new_history_id": new_history_id,
+                        "last_history_id": str(email_sync.last_history_id),
+                        "new_history_id": str(new_history_id) if new_history_id else str(email_sync.last_history_id),
                         "sync_duration_seconds": sync_duration
                     }
                 }
@@ -575,8 +630,6 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
     processed_emails = []
     if new_emails:
         logger.info(f"[SYNC] Processing {len(new_emails)} new emails for user {user_id}")
-        # Use local import to avoid circular dependency
-        from .email_processor import process_and_store_emails
         processed_emails = process_and_store_emails(db, fresh_user, new_emails)
         logger.info(f"[SYNC] Successfully processed and stored {len(processed_emails)} emails")
         

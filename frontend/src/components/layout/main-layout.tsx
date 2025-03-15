@@ -264,6 +264,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           setSyncMessage('');
           setSyncStatus(null);
         }, 3000);
+      } else if (response.status === 'warning' && response.message?.includes('No changes detected')) {
+        // Handle the "No changes detected" case with a more user-friendly message
+        setSyncStatus('success');
+        setSyncMessage('Your inbox is up to date! No new changes found.');
+        
+        // Clear the message after 3 seconds
+        setTimeout(() => {
+          setSyncMessage('');
+          setSyncStatus(null);
+        }, 3000);
       } else {
         setSyncStatus('error');
         setSyncMessage(`Sync failed: ${response.message}`);

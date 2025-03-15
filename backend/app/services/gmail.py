@@ -29,6 +29,155 @@ def _hash_credentials(credentials_dict: Dict[str, Any]) -> str:
     hash_input = '|'.join(key_parts)
     return hashlib.md5(hash_input.encode()).hexdigest()
 
+async def get_gmail_service(credentials_dict: Dict[str, Any]):
+    """
+    Async wrapper for create_gmail_service.
+    Creates a Gmail API service instance from stored credentials.
+    """
+    return create_gmail_service(credentials_dict)
+
+async def fetch_history_changes(service, history_id, max_pages=5):
+    """
+    Fetch changes from Gmail using the history API
+    
+    Args:
+        service: Gmail API service instance
+        history_id: History ID to start from
+        max_pages: Maximum number of pages to fetch
+        
+    Returns:
+        Dictionary with new_history_id, new_emails, deleted_ids, and label_changes
+    """
+    if not history_id:
+        logger.warning("[GMAIL] No history ID provided, cannot fetch changes")
+        return {
+            "new_history_id": None,
+            "new_emails": [],
+            "deleted_ids": [],
+            "label_changes": {}
+        }
+    
+    logger.info(f"[GMAIL] Fetching history changes since history ID: {history_id}")
+    
+    try:
+        # Initialize result containers
+        new_emails = []
+        deleted_ids = []
+        label_changes = {}
+        new_history_id = None
+        
+        # Fetch history list
+        page_token = None
+        pages_fetched = 0
+        
+        while pages_fetched < max_pages:
+            pages_fetched += 1
+            
+            # Make the API request
+            request = service.users().history().list(
+                userId='me',
+                startHistoryId=history_id,
+                historyTypes=['messageAdded', 'messageDeleted', 'labelAdded', 'labelRemoved'],
+                pageToken=page_token
+            )
+            
+            history_response = request.execute()
+            
+            # Get the new history ID
+            if 'historyId' in history_response:
+                new_history_id = history_response['historyId']
+            
+            # Process history entries
+            history_entries = history_response.get('history', [])
+            logger.info(f"[GMAIL] Found {len(history_entries)} history entries on page {pages_fetched}")
+            
+            for entry in history_entries:
+                # Process message additions
+                for added in entry.get('messagesAdded', []):
+                    message = added.get('message', {})
+                    gmail_id = message.get('id')
+                    
+                    if gmail_id:
+                        # Fetch the full message
+                        try:
+                            message_data = service.users().messages().get(
+                                userId='me', 
+                                id=gmail_id, 
+                                format='full'
+                            ).execute()
+                            
+                            # Process the message data
+                            email_data = process_message_data(message_data)
+                            new_emails.append(email_data)
+                            logger.debug(f"[GMAIL] Added new email: {gmail_id}")
+                        except Exception as e:
+                            logger.error(f"[GMAIL] Error fetching added message {gmail_id}: {str(e)}")
+                
+                # Process message deletions
+                for deleted in entry.get('messagesDeleted', []):
+                    message = deleted.get('message', {})
+                    gmail_id = message.get('id')
+                    
+                    if gmail_id and gmail_id not in deleted_ids:
+                        deleted_ids.append(gmail_id)
+                        logger.debug(f"[GMAIL] Marked email as deleted: {gmail_id}")
+                
+                # Process label additions
+                for added in entry.get('labelsAdded', []):
+                    message = added.get('message', {})
+                    gmail_id = message.get('id')
+                    label_ids = added.get('labelIds', [])
+                    
+                    if gmail_id and label_ids:
+                        if gmail_id not in label_changes:
+                            label_changes[gmail_id] = {'added': [], 'removed': []}
+                        
+                        for label in label_ids:
+                            if label not in label_changes[gmail_id]['added']:
+                                label_changes[gmail_id]['added'].append(label)
+                                logger.debug(f"[GMAIL] Added label {label} to email {gmail_id}")
+                
+                # Process label removals
+                for removed in entry.get('labelsRemoved', []):
+                    message = removed.get('message', {})
+                    gmail_id = message.get('id')
+                    label_ids = removed.get('labelIds', [])
+                    
+                    if gmail_id and label_ids:
+                        if gmail_id not in label_changes:
+                            label_changes[gmail_id] = {'added': [], 'removed': []}
+                        
+                        for label in label_ids:
+                            if label not in label_changes[gmail_id]['removed']:
+                                label_changes[gmail_id]['removed'].append(label)
+                                logger.debug(f"[GMAIL] Removed label {label} from email {gmail_id}")
+            
+            # Check if there are more pages
+            page_token = history_response.get('nextPageToken')
+            if not page_token:
+                break
+            
+            # Sleep briefly between pages to avoid rate limits
+            time.sleep(0.5)
+        
+        # Log summary
+        logger.info(f"[GMAIL] History changes summary:")
+        logger.info(f"  - New history ID: {new_history_id}")
+        logger.info(f"  - New emails: {len(new_emails)}")
+        logger.info(f"  - Deleted emails: {len(deleted_ids)}")
+        logger.info(f"  - Emails with label changes: {len(label_changes)}")
+        
+        return {
+            "new_history_id": new_history_id,
+            "new_emails": new_emails,
+            "deleted_ids": deleted_ids,
+            "label_changes": label_changes
+        }
+    
+    except Exception as e:
+        logger.error(f"[GMAIL] Error fetching history changes: {str(e)}", exc_info=True)
+        raise
+
 def create_gmail_service(credentials_dict: Dict[str, Any]):
     """
     Create a Gmail API service instance from stored credentials.
