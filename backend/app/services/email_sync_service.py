@@ -510,7 +510,8 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
             new_email_count = 0
             if new_emails:
                 logger.info(f"[SYNC] Processing {len(new_emails)} new emails")
-                new_email_count = await process_and_store_emails(db, fresh_user, new_emails)
+                processed_emails = process_and_store_emails(db, fresh_user, new_emails)
+                new_email_count = len(processed_emails)
                 logger.info(f"[SYNC] Processed {new_email_count} new emails")
             
             # Process deleted emails
@@ -626,17 +627,6 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
                 "sync_method": "error"
             }
     
-    # Process and store the new emails
-    processed_emails = []
-    if new_emails:
-        logger.info(f"[SYNC] Processing {len(new_emails)} new emails for user {user_id}")
-        processed_emails = process_and_store_emails(db, fresh_user, new_emails)
-        logger.info(f"[SYNC] Successfully processed and stored {len(processed_emails)} emails")
-        
-        # Log details of the synced emails for debugging
-        for i, email in enumerate(processed_emails, 1):
-            logger.info(f"[SYNC] Email {i}/{len(processed_emails)}: ID={email.id}, Subject='{email.subject[:30]}...', From={email.from_email}, Received={email.received_at}, Category={email.category}")
-    
     # Process deleted emails
     if deleted_email_ids:
         logger.info(f"[SYNC] Marking {len(deleted_email_ids)} emails as deleted")
@@ -717,12 +707,11 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
     # Return summary of the sync
     result = {
         "status": "success",
-        "message": f"Processed {len(processed_emails)} new emails, {len(deleted_email_ids)} deleted emails, and {label_changes_count} label changes, {category_updates_count} category updates",
-        "sync_count": len(processed_emails) + len(deleted_email_ids) + label_changes_count + category_updates_count,
-        "new_email_count": len(processed_emails),
-        "deleted_email_count": len(deleted_email_ids),
+        "message": f"Processed {new_email_count} new emails, {deleted_email_count} deleted emails, and {label_changes_count} label changes",
+        "sync_count": new_email_count + deleted_email_count + label_changes_count,
+        "new_email_count": new_email_count,
+        "deleted_email_count": deleted_email_count,
         "label_changes_count": label_changes_count,
-        "category_updates_processed": category_updates_count,
         "sync_started_at": sync_start_timestamp,
         "user_id": str(user_id),
         "sync_method": "history"
