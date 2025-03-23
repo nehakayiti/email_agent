@@ -65,6 +65,8 @@ cover/
 *.mo
 *.pot
 node_modules/
+frontend/.next/
+frontend/test-results/
 # Django stuff:
 *.log
 local_settings.py
