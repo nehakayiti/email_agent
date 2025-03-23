@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "e2e": "npx playwright test -ui"
+    "e2e": "npx playwright test"
   },
   "dependencies": {
     "@chakra-ui/react": "^3.9.0",
