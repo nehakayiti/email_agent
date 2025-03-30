@@ -13,7 +13,7 @@ from uuid import UUID
 import time
 import math
 import json
-from ..services import email_classifier_service
+from ..services.email_classifier_service import email_classifier_service
 from ..utils.filter_utils import apply_email_filters
 
 logger = logging.getLogger(__name__)
@@ -428,8 +428,6 @@ def maybe_train_classifier(db: Session, user_id: UUID) -> Dict[str, Any]:
     Returns:
         Dictionary with training results
     """
-    # Import here to avoid circular imports
-    from .email_classifier_service import train_balanced_trash_classifier
     from ..utils.naive_bayes_classifier import load_classifier_model
     
     # Check if model exists
@@ -440,7 +438,7 @@ def maybe_train_classifier(db: Session, user_id: UUID) -> Dict[str, Any]:
         
         try:
             # Train with balanced approach
-            training_results = train_balanced_trash_classifier(
+            training_results = email_classifier_service.train_trash_classifier(
                 db=db,
                 user_id=user_id,
                 save_model=True

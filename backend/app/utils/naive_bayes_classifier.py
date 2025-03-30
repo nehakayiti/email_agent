@@ -786,19 +786,19 @@ def classify_email(email_data: Dict[str, Any], user_id: Optional[UUID] = None) -
         
         if user_id_key not in _model_load_time or (now - _model_load_time[user_id_key]).total_seconds() > _MODEL_CACHE_TTL:
             # Import here to avoid circular imports
-            from ..services.email_classifier_service import load_trash_classifier
+            from ..services.email_classifier_service import email_classifier_service
             
             # Load the appropriate model for this user
             if user_id:
                 logger.debug(f"[ML-CLASSIFIER] Loading user-specific model for user {user_id}")
-                model_loaded = load_trash_classifier(user_id)
+                model_loaded = email_classifier_service.load_trash_classifier(user_id)
                 if not model_loaded:
                     logger.warning(f"[ML-CLASSIFIER] Failed to load user-specific model for {user_id}, defaulting to global model")
-                    load_trash_classifier(None)  # Fall back to global model
+                    email_classifier_service.load_trash_classifier(None)  # Fall back to global model
             else:
                 # Use global model
                 logger.debug(f"[ML-CLASSIFIER] No user_id provided, using global model")
-                load_trash_classifier(None)
+                email_classifier_service.load_trash_classifier(None)
                 
             # Update cache time
             _model_load_time[user_id_key] = now

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = "your-secret-key-please-change-in-production"
+    JWT_ALGORITHM: str = "HS256"  # Default JWT algorithm
     
     class Config:
         env_file = ".env"

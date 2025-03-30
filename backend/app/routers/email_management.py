@@ -24,9 +24,7 @@ from ..services.category_service import (
 )
 from ..models.email_category import EmailCategory, CategoryKeyword, SenderRule
 from ..models.email_trash_event import EmailTrashEvent
-from ..services.email_classifier_service import (
-    train_trash_classifier, load_trash_classifier, retrain_all_models, bootstrap_training_data
-)
+from ..services.email_classifier_service import email_classifier_service
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +55,7 @@ async def train_classifier(
     test_size = request.get('test_size', 0.2)
     
     # Start the training in the background
-    background_tasks.add_task(train_trash_classifier, db, user.id, True, test_size)
+    background_tasks.add_task(email_classifier_service.train_trash_classifier, db, user.id, True, test_size)
     
     return {
         "status": "training_started",
@@ -77,11 +75,11 @@ async def get_classifier_status(
         Dictionary with classifier status
     """
     # Try to load the model to check if it exists
-    model_loaded = load_trash_classifier(user.id)
+    model_loaded = email_classifier_service.load_trash_classifier(user.id)
     
     # If user-specific model doesn't exist, try the global model
     if not model_loaded:
-        model_loaded = load_trash_classifier(None)
+        model_loaded = email_classifier_service.load_trash_classifier(None)
     
     # Get event counts for training data information
     trash_events_count = db.query(EmailTrashEvent).filter(
@@ -116,7 +114,7 @@ async def admin_retrain_all_models(
         )
     
     # Start the retraining in the background
-    background_tasks.add_task(retrain_all_models, db)
+    background_tasks.add_task(email_classifier_service.retrain_all_models, db)
     
     return {
         "status": "retraining_started",
@@ -144,7 +142,7 @@ async def bootstrap_classifier_data(
     test_size = request.get('test_size', 0.2)
     
     # Start the bootstrapping in the background
-    result = bootstrap_training_data(db, user.id)
+    result = email_classifier_service.bootstrap_training_data(db, user.id)
     
     return {
         "status": "success",
@@ -166,7 +164,7 @@ async def get_model_metrics(
         Dictionary with model metrics
     """
     # Load the model to ensure we have the latest version
-    model_loaded = load_trash_classifier(user.id)
+    model_loaded = email_classifier_service.load_trash_classifier(user.id)
     
     if not model_loaded:
         raise HTTPException(
@@ -198,7 +196,7 @@ async def evaluate_classifier(
         Dictionary with evaluation metrics
     """
     # Check if model exists
-    model_loaded = load_trash_classifier(user.id)
+    model_loaded = email_classifier_service.load_trash_classifier(user.id)
     
     if not model_loaded:
         raise HTTPException(

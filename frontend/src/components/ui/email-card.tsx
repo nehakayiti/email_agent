@@ -150,6 +150,12 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     return getCategoryInfo('primary') || { display_name: 'Primary', color: 'bg-blue-50 text-blue-700', description: null };
   }, [email.category, email.labels, getCategoryInfo]);
 
+  // Create a derived property to determine if the email is unread
+  const isUnread = React.useMemo(() => {
+    // An email is unread if is_read is false OR it has the UNREAD label
+    return !email.is_read || email.labels.includes('UNREAD');
+  }, [email.is_read, email.labels]);
+
   // Handle archive action
   const handleArchive = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -231,7 +237,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     e.stopPropagation();
     
     // Skip if already read
-    if (email.is_read) {
+    if (email.is_read && !email.labels.includes('UNREAD')) {
       return;
     }
     
@@ -273,7 +279,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     e.stopPropagation();
     
     // Skip if already unread
-    if (!email.is_read) {
+    if (!email.is_read || email.labels.includes('UNREAD')) {
       return;
     }
     
@@ -357,12 +363,12 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
   // Create the email card content
   const emailContent = (
     <div 
-      className={`p-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-all ${!email.is_read ? 'bg-slate-50' : ''}`}
+      className={`p-4 border-b border-gray-200 hover:bg-gray-50 cursor-pointer transition-all ${isUnread ? 'bg-slate-50' : ''}`}
       onClick={onClick}
     >
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 mt-0.5">
-          {!email.is_read && (
+          {isUnread && (
             <div className="h-2 w-2 rounded-full bg-blue-600" title="Unread"></div>
           )}
         </div>
@@ -494,7 +500,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
             <div className="ml-auto flex gap-1">
               {!isDeleted && !email.labels.includes('TRASH') && (
                 <>
-                  {email.is_read ? (
+                  {!isUnread ? (
                     <button
                       onClick={handleMarkAsUnread}
                       className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"

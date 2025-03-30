@@ -1,0 +1,222 @@
+2025-03-23 14:18:06 - DEBUG - app.dependencies - Authentication cache expired for token: eyJhbGciOi...
+2025-03-23 14:18:06 - DEBUG - app.dependencies - Authenticating user with token: eyJhbGciOi...
+2025-03-23 14:18:06 - DEBUG - app.dependencies - Decoding JWT token with SECRET_KEY: cf7d7...
+2025-03-23 14:18:06 - DEBUG - app.dependencies - Decoded JWT token, user_email: sunkay.subscriptions@gmail.com
+2025-03-23 14:18:07 - DEBUG - app.dependencies - Found user: sunkay.subscriptions@gmail.com (ID: 2b743c51-aa25-4472-98d4-f15f3df955b1)
+2025-03-23 14:18:07 - DEBUG - app.dependencies - Updating last_sign_in for user 2b743c51-aa25-4472-98d4-f15f3df955b1
+2025-03-23 14:18:07 - INFO - app.routers.emails - [API] Email sync requested for user 2b743c51-aa25-4472-98d4-f15f3df955b1 (email: sunkay.subscriptions@gmail.com)
+2025-03-23 14:18:07 - INFO - app.routers.emails - [API] Sync parameters: use_current_date=False, force_full_sync=False
+2025-03-23 14:18:07 - INFO - app.routers.emails - [API] Starting sync process at 2025-03-23T14:18:07.019833
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ╔══════════════════════════════════════════════════════════════════════════╗
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ║                  STARTING EMAIL SYNC                                     ║
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ╚══════════════════════════════════════════════════════════════════════════╝
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - User: sunkay.subscriptions@gmail.com
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - Time: 2025-03-23T18:18:07.019949+00:00
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - Last sync: 2025-03-23 17:23:29.371315+00:00
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - History ID: 1956896
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ╔══════════════════════════════════════════════════════════════════════════╗
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ║                  PROCESSING EA → GMAIL OPERATIONS                        ║
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ╚══════════════════════════════════════════════════════════════════════════╝
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - [SYNC] Processing pending operations with user credentials
+2025-03-23 14:18:07 - INFO - app.services.email_operations_service - [OPS] Found 0 pending operations for user 2b743c51-aa25-4472-98d4-f15f3df955b1
+2025-03-23 14:18:07 - INFO - app.services.email_operations_service - [OPS] No pending operations for user 2b743c51-aa25-4472-98d4-f15f3df955b1
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - [SYNC] Operations processing completed successfully
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - No pending EA → GMAIL operations to process
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ╔══════════════════════════════════════════════════════════════════════════╗
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ║                  FETCHING GMAIL → EA CHANGES                             ║
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - ╚══════════════════════════════════════════════════════════════════════════╝
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - Using history ID: 1956896
+2025-03-23 14:18:07 - DEBUG - app.services.gmail - [GMAIL] Gmail service cache expired
+2025-03-23 14:18:07 - DEBUG - app.services.gmail - [GMAIL] Created and cached new Gmail service
+2025-03-23 14:18:07 - INFO - app.services.gmail - [GMAIL] Fetching history changes since history ID: 1956896
+2025-03-23 14:18:07 - INFO - app.services.gmail - [GMAIL] Found 0 history entries on page 1
+2025-03-23 14:18:07 - INFO - app.services.gmail - [GMAIL] History changes summary:
+2025-03-23 14:18:07 - INFO - app.services.gmail -   - New history ID: 1956896
+2025-03-23 14:18:07 - INFO - app.services.gmail -   - New emails: 0
+2025-03-23 14:18:07 - INFO - app.services.gmail -   - Deleted emails: 0
+2025-03-23 14:18:07 - INFO - app.services.gmail -   - Emails with label changes: 0
+2025-03-23 14:18:07 - INFO - app.services.email_sync_service - No changes detected from Gmail
+2025-03-23 14:18:07 - WARNING - app.services.email_sync_service - ╔══════════════════════════════════════════════════════════════════════════╗
+2025-03-23 14:18:07 - WARNING - app.services.email_sync_service - ║                  NO CHANGES DETECTED                                     ║
+2025-03-23 14:18:07 - WARNING - app.services.email_sync_service - ╚══════════════════════════════════════════════════════════════════════════╝
+2025-03-23 14:18:07 - WARNING - app.services.email_sync_service - History ID unchanged: 1956896
+2025-03-23 14:18:07 - INFO - app.routers.emails - [API] Sync completed in 0.25 seconds
+2025-03-23 14:18:07 - INFO - app.routers.emails - [API] Sync result: {'status': 'warning', 'message': 'No changes detected since last sync', 'sync_count': 0, 'sync_started_at': '2025-03-23T18:18:07.019949+00:00', 'user_id': UUID('2b743c51-aa25-4472-98d4-f15f3df955b1'), 'sync_method': 'history_no_changes', 'debug_info': {'last_history_id': '1956896', 'new_history_id': '1956896', 'sync_duration_seconds': 0.244967}}
+2025-03-23 14:27:45 - DEBUG - app.routers.auth - Logout endpoint called
+2025-03-23 14:27:45 - WARNING - app.routers.auth - No access token found during logout
+2025-03-23 20:41:51 - DEBUG - app.main - Application shutting down
+2025-03-23 20:41:53 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 20:41:53 - INFO - app.main - Starting Email Agent API
+2025-03-23 20:41:53 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:41:53 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 20:41:53 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 20:41:53 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:41:53 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 20:41:53 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:41:53 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:41:53 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:41:53 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:41:53 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:41:53 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 20:41:53 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:41:53 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:41:53 - DEBUG - app.main - Application initialization complete
+2025-03-23 20:46:29 - DEBUG - app.main - Application shutting down
+2025-03-23 20:46:30 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 20:46:30 - INFO - app.main - Starting Email Agent API
+2025-03-23 20:46:30 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:46:30 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 20:46:30 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 20:46:30 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:30 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 20:46:30 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:30 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:30 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:30 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:30 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:46:30 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 20:46:30 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:30 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:46:30 - DEBUG - app.main - Application initialization complete
+2025-03-23 20:46:57 - DEBUG - app.main - Application shutting down
+2025-03-23 20:46:58 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 20:46:58 - INFO - app.main - Starting Email Agent API
+2025-03-23 20:46:58 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:46:58 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 20:46:58 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 20:46:58 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:58 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 20:46:58 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:46:58 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:58 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:58 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:58 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:46:58 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 20:46:58 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:46:58 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:46:58 - DEBUG - app.main - Application initialization complete
+2025-03-23 20:48:37 - DEBUG - app.main - Application shutting down
+2025-03-23 20:48:38 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 20:48:38 - INFO - app.main - Starting Email Agent API
+2025-03-23 20:48:38 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:48:38 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 20:48:38 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 20:48:38 - DEBUG - app.main - Starting application initialization
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:48:38 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 20:48:38 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 20:48:38 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:48:38 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:48:38 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:48:38 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:48:38 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 20:48:38 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 20:48:38 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 20:48:38 - DEBUG - app.main - Application initialization complete
+2025-03-23 20:50:29 - DEBUG - app.main - Application shutting down
+2025-03-23 21:06:39 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 21:06:39 - INFO - app.main - Starting Email Agent API
+2025-03-23 21:06:39 - DEBUG - app.main - Starting application initialization
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory is configured at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 21:06:39 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 21:06:39 - DEBUG - app.main - Starting application initialization
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 21:06:39 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:06:39 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:06:39 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:06:39 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:06:39 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:06:39 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 21:06:39 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:06:39 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:06:39 - DEBUG - app.main - Application initialization complete
+2025-03-23 21:07:05 - DEBUG - app.main - Application shutting down
+2025-03-23 21:07:06 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 21:07:06 - INFO - app.main - Starting Email Agent API
+2025-03-23 21:07:06 - DEBUG - app.main - Starting application initialization
+2025-03-23 21:07:06 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 21:07:06 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 21:07:06 - DEBUG - app.main - Starting application initialization
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:06 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 21:07:06 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:06 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:06 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:06 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:06 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:07:06 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 21:07:06 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:06 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:07:06 - DEBUG - app.main - Application initialization complete
+2025-03-23 21:07:18 - DEBUG - app.main - Application shutting down
+2025-03-23 21:07:19 - INFO - app.core.logging_config - Logging configured. Log file: logs/email_agent.log
+2025-03-23 21:07:19 - INFO - app.main - Starting Email Agent API
+2025-03-23 21:07:19 - DEBUG - app.main - Starting application initialization
+2025-03-23 21:07:19 - DEBUG - app.main - Configuring CORS middleware
+2025-03-23 21:07:19 - DEBUG - app.main - Configuring CORS with origins: ['http://localhost:3000', 'http://localhost:8000']
+2025-03-23 21:07:19 - DEBUG - app.main - Starting application initialization
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:19 - INFO - app.main - Models directory created/verified successfully
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found global model at /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Found 1 user-specific models
+2025-03-23 21:07:19 - INFO - app.main - Found 2 classifier model(s)
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Ensuring models directory exists at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Models directory exists and is writable at /Users/sunilkayiti/email_agent/models
+2025-03-23 21:07:19 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:19 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:19 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:19 - INFO - app.services.email_classifier_service - [ML-SERVICE] Successfully loaded requested model for global use from /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:07:19 - INFO - app.main - Trash classifier model loaded successfully
+2025-03-23 21:07:19 - DEBUG - app.services.email_classifier_service - [ML-SERVICE] Using global model
+2025-03-23 21:07:19 - INFO - app.main - Expected global model path: /Users/sunilkayiti/email_agent/models/trash_classifier_global.pkl
+2025-03-23 21:07:19 - DEBUG - app.main - Application initialization complete

@@ -1,65 +1,131 @@
-from typing import Dict, Any
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy.orm import Session
-from uuid import UUID
-from datetime import datetime, timezone
+"""
+Machine Learning routes for model training and management.
+"""
 import logging
-
-from ..dependencies import get_db, get_current_user
-from ..services.email_classifier_service import train_balanced_trash_classifier
+from typing import Dict, Any, List
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
+from sqlalchemy.orm import Session
+from ..db import get_db
 from ..models.user import User
-from ..db import SessionLocal
+from ..dependencies import get_current_user
+from ..services.email_classifier_service import email_classifier_service
 
-router = APIRouter()
+logger = logging.getLogger(__name__)
 
-@router.post("/train-classifier-balanced", response_model=Dict[str, Any])
-async def train_classifier_balanced(
+router = APIRouter(
+    prefix="/ml",
+    tags=["machine-learning"],
+    responses={404: {"description": "Not found"}},
+)
+
+@router.post("/train", response_model=Dict[str, Any])
+async def train_model(
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """
-    Train the email classifier with an improved balanced dataset approach
-    using Gmail labels as ground truth.
-    """
-    user_id = current_user.id
-    
-    # Run training in the background
-    background_tasks.add_task(
-        train_classifier_balanced_task,
-        db,
-        user_id
-    )
-    
-    return {
-        "status": "success",
-        "message": "Balanced classifier training started in the background"
-    }
-
-async def train_classifier_balanced_task(db: Session, user_id: UUID):
-    """Background task to train the classifier with balanced data"""
-    # Create new session for background task
-    new_db = SessionLocal()
+    """Train a balanced trash classifier model"""
     try:
-        # Train classifier with improved methodology
-        results = train_balanced_trash_classifier(
-            db=new_db,
-            user_id=user_id,
-            save_model=True,
-            test_size=0.2
+        # Start training in the background
+        background_tasks.add_task(
+            email_classifier_service.train_balanced_trash_classifier,
+            db=db,
+            user_id=user.id,
+            save_model=True
         )
         
-        logging.info(f"[ML-API] Balanced classifier training completed for user {user_id}")
-        logging.info(f"[ML-API] Results: {results}")
-        
-        # Update user's model metadata
-        user = new_db.query(User).filter(User.id == user_id).first()
-        if user:
-            user.ml_model_updated_at = datetime.now(timezone.utc)
-            user.ml_model_metrics = results
-            new_db.commit()
-    
+        return {
+            "status": "training_started",
+            "message": "Model training has been started in the background"
+        }
     except Exception as e:
-        logging.error(f"[ML-API] Error in balanced classifier training: {str(e)}", exc_info=True)
-    finally:
-        new_db.close() 
+        logger.error(f"Error starting model training: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error starting model training: {str(e)}"
+        )
+
+@router.get("/status", response_model=Dict[str, Any])
+async def get_model_status(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get the status of the ML model"""
+    try:
+        # Check if model exists
+        model_loaded = email_classifier_service.load_trash_classifier(user.id)
+        
+        if not model_loaded:
+            # Try global model
+            model_loaded = email_classifier_service.load_trash_classifier(None)
+        
+        # Get available models
+        available_models = email_classifier_service.find_available_models()
+        
+        return {
+            "is_model_available": model_loaded,
+            "available_models": [str(p) for p in available_models],
+            "message": "Model is ready" if model_loaded else "No model available"
+        }
+    except Exception as e:
+        logger.error(f"Error checking model status: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking model status: {str(e)}"
+        )
+
+@router.post("/retrain", response_model=Dict[str, Any])
+async def retrain_model(
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrain the model with latest data"""
+    try:
+        # Start retraining in the background
+        background_tasks.add_task(
+            email_classifier_service.train_trash_classifier,
+            db=db,
+            user_id=user.id,
+            save_model=True
+        )
+        
+        return {
+            "status": "retraining_started",
+            "message": "Model retraining has been started in the background"
+        }
+    except Exception as e:
+        logger.error(f"Error starting model retraining: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error starting model retraining: {str(e)}"
+        )
+
+@router.post("/evaluate", response_model=Dict[str, Any])
+async def evaluate_model(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Evaluate the current model's performance"""
+    try:
+        # Check if model exists
+        model_loaded = email_classifier_service.load_trash_classifier(user.id)
+        
+        if not model_loaded:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No trained model available"
+            )
+        
+        # Evaluate the model
+        metrics = email_classifier_service.evaluate_model(db, user.id)
+        
+        return metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error evaluating model: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error evaluating model: {str(e)}"
+        ) 
