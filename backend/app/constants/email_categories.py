@@ -9,7 +9,7 @@ from typing import Dict, Set, List
 # Map of category name to a set of keywords found in subject lines
 # Using sets for O(1) lookup performance
 CATEGORY_KEYWORDS: Dict[str, Set[str]] = {
-    "promotional": {
+    "promotions": {
         "offer", "discount", "sale", "promo", "deal", "save", "subscription", 
         "limited time", "hurry", "expires", "coupon", "% off", "promotion",
         "special", "clearance", "membership", "renew", "trial", "upgrade",
@@ -20,30 +20,30 @@ CATEGORY_KEYWORDS: Dict[str, Set[str]] = {
         "network", "social", "connect", "group", "community", "shared", "comment",
         "birthday", "anniversary", "celebrate", "event", "party", "meetup"
     },
-    "updates": {
-        "update", "notification", "alert", "status", "confirm", "confirmation",
-        "receipt", "statement", "bill", "invoice", "purchase", "shipping", "tracking",
-        "delivery", "payment", "security", "verification", "verify", "confirm"
-    },
-    "forums": {
-        "forum", "thread", "topic", "discussion", "post", "reply", "digest", "community",
-        "newsletter", "bulletin", "board", "mailing list", "subscribe", "unsubscribe"
-    },
     "important": {
+        # Original important keywords
         "urgent", "important", "attention", "priority", "critical", "required",
         "action", "deadline", "expiration", "immediate", "asap", "now", "approval",
-        "password", "security", "alert", "warning", "notice", "tax", "legal"
-    },
-    "personal": {
+        "password", "security", "alert", "warning", "notice", "tax", "legal",
+        # Added from personal
         "hello", "hey", "hi", "private", "confidential", "personal", "family", 
         "friend", "fyi", "introduction", "meeting", "appointment", "coffee", 
-        "lunch", "dinner", "call"
+        "lunch", "dinner", "call",
+        # Added high-priority update terms
+        "confirm", "confirmation", "receipt", "payment", "verification", "verify"
     },
     "newsletters": {
+        # Original newsletter keywords
         "newsletter", "digest", "weekly", "daily", "monthly", "edition", "issue",
         "bulletin", "report", "roundup", "update", "news", "briefing", "summary",
         "today's", "this week", "this month", "breaking", "latest", "trending",
-        "insights", "analysis", "exclusive", "featuring", "spotlight"
+        "insights", "analysis", "exclusive", "featuring", "spotlight",
+        # Added from updates
+        "notification", "alert", "status", "statement", "bill", "invoice", 
+        "purchase", "shipping", "tracking", "delivery",
+        # Added from forums
+        "forum", "thread", "topic", "discussion", "post", "reply", "digest", "community",
+        "bulletin", "board", "mailing list", "subscribe", "unsubscribe"
     }
 }
 
@@ -55,20 +55,30 @@ SENDER_DOMAINS: Dict[str, str] = {
     "instagram.com": "social",
     "linkedin.com": "social",
     "pinterest.com": "social",
+    "tiktok.com": "social",
+    "snapchat.com": "social",
+    "youtube.com": "social",
+    "reddit.com": "social",
+    "discord.com": "social",
+    "slack.com": "social",
     
     # Common promotional senders
-    "marketing": "promotional",
-    "newsletter": "promotional",
-    "noreply": "promotional",
-    "promotions": "promotional",
-    "info": "promotional",
+    "marketing": "promotions",
+    "newsletter": "promotions",
+    "noreply": "promotions",
+    "promotions": "promotions",
+    "info": "promotions",
+    "offers": "promotions",
+    "deals": "promotions",
+    "sales": "promotions",
     
-    # Update services
-    "accounts": "updates",
-    "notifications": "updates",
-    "no-reply": "updates", 
-    "donotreply": "updates",
-    "alerts": "updates",
+    # Update services - now in newsletters
+    "accounts": "newsletters",
+    "notifications": "newsletters",
+    "no-reply": "newsletters", 
+    "donotreply": "newsletters",
+    "alerts": "newsletters",
+    "updates": "newsletters",
     
     # Newsletter & News domains
     "nytimes.com": "newsletters",
@@ -95,13 +105,9 @@ SENDER_DOMAINS: Dict[str, str] = {
 # Lower number = higher priority
 CATEGORY_PRIORITY: Dict[str, int] = {
     "important": 1,
-    "personal": 2,
-    "primary": 3,
-    "newsletters": 4,  # Higher priority than general updates
-    "updates": 5,
-    "forums": 6,
-    "social": 7,
-    "promotional": 8,
-    "trash": 9,
-    "archive": 10
+    "newsletters": 2,
+    "social": 3,
+    "promotions": 4,
+    "trash": 5,      # Keeping trash and archive
+    "archive": 6
 } 
