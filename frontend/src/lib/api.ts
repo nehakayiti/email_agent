@@ -721,4 +721,13 @@ export async function emptyTrash() {
         console.error('Error emptying trash:', error);
         throw error;
     }
+}
+
+export async function updateSenderRuleWeight(ruleId: number, weight: number): Promise<SenderRule> {
+  return fetchWithAuth(`/email-management/sender-rules/${ruleId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      weight
+    })
+  });
 } 

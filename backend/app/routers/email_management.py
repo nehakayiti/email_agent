@@ -271,6 +271,10 @@ class SenderRuleItem(BaseModel):
     weight: int
     user_id: Optional[UUID] = None
 
+class SenderRuleUpdateRequest(BaseModel):
+    """Request model for updating a sender rule"""
+    weight: int
+
 @router.post("/reprocess", response_model=ReprocessResponse)
 async def reprocess_user_emails(
     filter_criteria: Optional[ReprocessFilter] = None,
@@ -645,4 +649,79 @@ async def delete_category(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error deleting category: {str(e)}"
+        )
+
+@router.patch("/sender-rules/{rule_id}", response_model=SenderRuleItem)
+async def update_sender_rule(
+    rule_id: int,
+    rule_data: SenderRuleUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a sender rule's properties.
+    
+    Currently supports updating the weight of a sender rule.
+    For user-created rules, updates the rule directly.
+    For system rules, creates a user override with the new weight.
+    """
+    try:
+        # Find the rule
+        rule = db.query(SenderRule).filter(SenderRule.id == rule_id).first()
+        if not rule:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Sender rule with ID {rule_id} not found"
+            )
+        
+        # For user rules, update directly
+        if rule.user_id == current_user.id:
+            rule.weight = rule_data.weight
+            db.commit()
+            db.refresh(rule)
+            return rule
+        
+        # For system rules, create a user override
+        if rule.user_id is None:
+            # Check if override already exists
+            existing_override = db.query(SenderRule).filter(
+                and_(
+                    SenderRule.pattern == rule.pattern,
+                    SenderRule.category_id == rule.category_id,
+                    SenderRule.user_id == current_user.id
+                )
+            ).first()
+            
+            if existing_override:
+                # Update existing override
+                existing_override.weight = rule_data.weight
+                db.commit()
+                db.refresh(existing_override)
+                return existing_override
+            else:
+                # Create new override
+                new_rule = SenderRule(
+                    category_id=rule.category_id,
+                    pattern=rule.pattern,
+                    is_domain=rule.is_domain,
+                    weight=rule_data.weight,
+                    user_id=current_user.id
+                )
+                db.add(new_rule)
+                db.commit()
+                db.refresh(new_rule)
+                return new_rule
+        
+        # Not a system rule or user's rule
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own sender rules or create overrides for system rules"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating sender rule: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating sender rule: {str(e)}"
         ) 

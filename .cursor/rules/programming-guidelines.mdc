@@ -1,0 +1,69 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+ ---
+description: Essential programming guidelines for this project
+globs: [**/*.py, **/*.tsx, **/*.ts, **/*.jsx, **/*.js]
+alwaysApply: true
+---
+
+# Programming Guidelines
+
+## General
+
+- Don't run terminal commands unless explicitly asked for
+- Follow user requirements to the letter
+- Write correct, secure, and efficient code
+- Focus on readability over premature optimization
+- Be concise and minimize prose
+- Acknowledge uncertainty rather than guessing
+
+## Backend (Python/FastAPI)
+
+### Code Style
+- Use functional, declarative programming over classes
+- Use descriptive variable names with auxiliary verbs (`is_active`, `has_permission`)
+- Use lowercase with underscores for files (`user_routes.py`)
+- Prefer single-line syntax for simple conditionals
+
+### Functions
+- `def` for pure functions, `async def` for async operations
+- Use type hints for all signatures
+- Use Pydantic models over raw dictionaries
+- Apply RORO pattern (Receive Object, Return Object)
+
+### Error Handling
+- Handle errors at the beginning of functions
+- Use early returns to avoid nested conditionals
+- Place the happy path last in functions
+- Use guard clauses for preconditions
+- Use custom error types for consistency
+
+### FastAPI Best Practices
+- Use Pydantic models for validation and schemas
+- Use clear return type annotations
+- Prefer lifespan context managers over `@app.on_event`
+- Use `HTTPException` for expected errors
+- Use dependency injection for shared resources
+- Optimize async operations for I/O-bound tasks
+
+## Frontend (Next.js/React)
+
+### Component Design
+- Use kebab-case for component names (`my-component.tsx`)
+- Favor React Server Components where possible
+- Limit client components to small, isolated pieces
+- Use semantic HTML elements
+
+### State Management
+- Add loading and error states to data fetching components
+- Implement proper error handling and logging
+- Follow Next.js 14 best practices
+
+## Testing
+
+- Use actual dependencies (no mocks)
+- Tests should be fast and easy to run
+- Write tests relevant to the code being developed

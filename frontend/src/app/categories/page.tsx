@@ -18,13 +18,20 @@ import {
   getClassifierMetrics,
   type Category,
   type CategoryKeyword,
-  type SenderRule,
+  type SenderRule as ApiSenderRule,
   type CreateCategoryRequest,
   type ClassifierStatus,
-  type ModelMetrics
+  type ModelMetrics,
+  updateSenderRuleWeight
 } from '@/lib/api';
 import { TrashIcon, BeakerIcon } from '@heroicons/react/24/outline';
 import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
+import { toast } from 'react-hot-toast';
+
+// Extend the SenderRule type to include the isOverridden flag
+interface SenderRule extends ApiSenderRule {
+  isOverridden?: boolean;
+}
 
 // New category form component 
 function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
@@ -372,6 +379,9 @@ export default function CategoriesPage() {
   const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(false);
   const [evaluatingModel, setEvaluatingModel] = useState(false);
+  const [editingSenderId, setEditingSenderId] = useState<number | null>(null);
+  const [newWeight, setNewWeight] = useState<number>(1);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     async function fetchCategories() {
@@ -590,18 +600,36 @@ export default function CategoriesPage() {
       setSelectedCategory(category);
       setLoadingRules(true);
       
-      // Fetch the keywords and sender rules for the selected category
-      const [keywordsResponse, senderRulesResponse] = await Promise.all([
-        getCategoryKeywords(category.name),
-        getCategorySenderRules(category.name)
-      ]);
+      // Fetch rules for this category
+      const keywords = await getCategoryKeywords(category.name);
+      const senderRules = await getCategorySenderRules(category.name);
       
-      setSelectedCategoryKeywords(keywordsResponse);
-      setSelectedCategorySenderRules(senderRulesResponse);
+      // Identify system rules that have user overrides
+      // Group sender rules by pattern to find duplicates (system + user override)
+      const patternMap = new Map();
+      senderRules.forEach(rule => {
+        const key = `${rule.pattern}-${rule.is_domain}`;
+        if (!patternMap.has(key)) {
+          patternMap.set(key, []);
+        }
+        patternMap.get(key).push(rule);
+      });
+      
+      // Mark overridden system rules
+      const processedRules = senderRules.map(rule => {
+        const key = `${rule.pattern}-${rule.is_domain}`;
+        const rulesWithSamePattern = patternMap.get(key);
+        // If there are multiple rules with this pattern and this is a system rule
+        const isOverridden = rulesWithSamePattern.length > 1 && rule.user_id === null;
+        return { ...rule, isOverridden };
+      });
+      
+      setSelectedCategoryKeywords(keywords);
+      setSelectedCategorySenderRules(processedRules);
       setIsViewRulesModalOpen(true);
-    } catch (err) {
-      console.error('Error fetching category rules:', err);
-      alert('Failed to fetch category rules');
+    } catch (error) {
+      console.error("Error fetching category details:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to fetch category details");
     } finally {
       setLoadingRules(false);
     }
@@ -647,6 +675,27 @@ export default function CategoriesPage() {
     // This will refresh the navigation sidebar
     const event = new CustomEvent(EMAIL_SYNC_COMPLETED_EVENT);
     window.dispatchEvent(event);
+  };
+
+  const handleUpdateSenderRuleWeight = async (ruleId: number, weight: number) => {
+    try {
+      setUpdating(true);
+      await updateSenderRuleWeight(ruleId, weight);
+      
+      // Refresh the rules for this category
+      if (selectedCategory) {
+        const updatedRules = await getCategorySenderRules(selectedCategory.name);
+        setSelectedCategorySenderRules(updatedRules);
+      }
+      
+      setEditingSenderId(null);
+      toast.success("Sender rule weight has been updated successfully. New emails will be categorized using this weight.");
+    } catch (error) {
+      console.error("Error updating sender rule:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to update sender rule");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   return (
@@ -996,6 +1045,20 @@ export default function CategoriesPage() {
                     {/* Sender Rules Section */}
                     <div>
                       <h4 className="text-lg font-medium mb-3">Sender Rules ({selectedCategorySenderRules.length})</h4>
+                      
+                      {selectedCategory?.name === 'newsletters' && (
+                        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4 rounded">
+                          <p className="text-sm text-blue-800">
+                            <strong>Tip:</strong> Increasing the weight of sender rules for newsletters can help ensure they don't 
+                            get incorrectly categorized as Important. For domains you always want in Newsletters, try setting a weight of 3 or higher.
+                          </p>
+                          <p className="text-sm text-blue-800 mt-2">
+                            <strong>Note:</strong> Existing emails may need to be reprocessed to apply new weights. 
+                            Press the "Reprocess All Emails" button after making changes.
+                          </p>
+                        </div>
+                      )}
+                      
                       {selectedCategorySenderRules.length === 0 ? (
                         <div className="bg-gray-50 p-4 rounded text-gray-600">
                           No sender rules found for this category.
@@ -1013,13 +1076,54 @@ export default function CategoriesPage() {
                                     ) : (
                                       <span className="px-2 py-1 bg-gray-100 text-gray-800 rounded">Substring</span>
                                     )}
-                                    <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">
-                                      Weight: {rule.weight}
-                                    </span>
+                                    
+                                    {editingSenderId === rule.id ? (
+                                      <div className="flex items-center space-x-2">
+                                        <input 
+                                          type="number" 
+                                          min="1" 
+                                          max="10"
+                                          className="w-16 px-2 py-1 border rounded"
+                                          value={newWeight}
+                                          onChange={(e) => setNewWeight(parseInt(e.target.value))}
+                                        />
+                                        <button
+                                          onClick={() => handleUpdateSenderRuleWeight(rule.id, newWeight)}
+                                          disabled={updating}
+                                          className="px-2 py-1 bg-green-500 text-white rounded hover:bg-green-600"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          onClick={() => setEditingSenderId(null)}
+                                          className="px-2 py-1 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded">
+                                          Weight: {rule.weight}
+                                        </span>
+                                        <button
+                                          onClick={() => {
+                                            setEditingSenderId(rule.id);
+                                            setNewWeight(rule.weight);
+                                          }}
+                                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600"
+                                        >
+                                          Edit
+                                        </button>
+                                      </>
+                                    )}
+                                    
                                     {rule.user_id ? (
                                       <span className="px-2 py-1 bg-green-100 text-green-800 rounded">User</span>
                                     ) : (
-                                      <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded">System</span>
+                                      <span className={`px-2 py-1 rounded ${rule.isOverridden ? 'bg-yellow-100 text-yellow-800' : 'bg-purple-100 text-purple-800'}`}>
+                                        {rule.isOverridden ? 'Overridden' : 'System'}
+                                      </span>
                                     )}
                                   </div>
                                 </div>
