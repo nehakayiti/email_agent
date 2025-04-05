@@ -1,9 +1,4 @@
 ---
-description: 
-globs: 
-alwaysApply: true
----
- ---
 description: Essential programming guidelines for this project
 globs: [**/*.py, **/*.tsx, **/*.ts, **/*.jsx, **/*.js]
 alwaysApply: true
