@@ -383,7 +383,8 @@ def add_user_sender_rule(
     user_id: UUID, 
     category_name: str, 
     pattern: str, 
-    is_domain: bool = True
+    is_domain: bool = True,
+    weight: int = 1
 ) -> Optional[SenderRule]:
     """
     Add a user-specific sender rule for a category.
@@ -394,6 +395,7 @@ def add_user_sender_rule(
         category_name: Category name
         pattern: Domain or pattern to match
         is_domain: Whether the pattern is a full domain
+        weight: The weight of the rule (higher = stronger influence)
         
     Returns:
         Created SenderRule instance or None if failed
@@ -424,7 +426,7 @@ def add_user_sender_rule(
         pattern=pattern,
         is_domain=is_domain,
         user_id=user_id,
-        weight=1
+        weight=weight
     )
     
     db.add(new_rule)

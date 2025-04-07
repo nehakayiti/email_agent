@@ -247,6 +247,7 @@ class SenderRuleRequest(BaseModel):
     category_name: str
     pattern: str
     is_domain: bool = True
+    weight: int = 1
 
 class CreateCategoryRequest(BaseModel):
     """Request model for creating a new category"""
@@ -274,6 +275,15 @@ class SenderRuleItem(BaseModel):
 class SenderRuleUpdateRequest(BaseModel):
     """Request model for updating a sender rule"""
     weight: int
+
+class KeywordUpdateRequest(BaseModel):
+    """Request model for updating a keyword"""
+    weight: int
+
+class SenderRulePatternUpdateRequest(BaseModel):
+    """Request model for updating a sender rule pattern"""
+    pattern: str
+    is_domain: bool
 
 @router.post("/reprocess", response_model=ReprocessResponse)
 async def reprocess_user_emails(
@@ -397,7 +407,8 @@ async def add_sender_rule(
             current_user.id, 
             rule_data.category_name, 
             rule_data.pattern,
-            rule_data.is_domain
+            rule_data.is_domain,
+            rule_data.weight
         )
         
         if not result:
@@ -663,7 +674,8 @@ async def update_sender_rule(
     
     Currently supports updating the weight of a sender rule.
     For user-created rules, updates the rule directly.
-    For system rules, creates a user override with the new weight.
+    For system rules, creates a user override with the new weight,
+    first deleting any existing user overrides to prevent duplication.
     """
     try:
         # Find the rule
@@ -683,34 +695,27 @@ async def update_sender_rule(
         
         # For system rules, create a user override
         if rule.user_id is None:
-            # Check if override already exists
-            existing_override = db.query(SenderRule).filter(
+            # First, delete any existing user overrides for this rule to prevent duplicates
+            db.query(SenderRule).filter(
                 and_(
                     SenderRule.pattern == rule.pattern,
                     SenderRule.category_id == rule.category_id,
                     SenderRule.user_id == current_user.id
                 )
-            ).first()
+            ).delete()
             
-            if existing_override:
-                # Update existing override
-                existing_override.weight = rule_data.weight
-                db.commit()
-                db.refresh(existing_override)
-                return existing_override
-            else:
-                # Create new override
-                new_rule = SenderRule(
-                    category_id=rule.category_id,
-                    pattern=rule.pattern,
-                    is_domain=rule.is_domain,
-                    weight=rule_data.weight,
-                    user_id=current_user.id
-                )
-                db.add(new_rule)
-                db.commit()
-                db.refresh(new_rule)
-                return new_rule
+            # Create new override
+            new_rule = SenderRule(
+                category_id=rule.category_id,
+                pattern=rule.pattern,
+                is_domain=rule.is_domain,
+                weight=rule_data.weight,
+                user_id=current_user.id
+            )
+            db.add(new_rule)
+            db.commit()
+            db.refresh(new_rule)
+            return new_rule
         
         # Not a system rule or user's rule
         raise HTTPException(
@@ -724,4 +729,230 @@ async def update_sender_rule(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error updating sender rule: {str(e)}"
+        )
+
+@router.delete("/keywords/{keyword_id}")
+async def delete_keyword(
+    keyword_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a keyword.
+    
+    Only user-specific keywords can be deleted directly.
+    System keywords can be overridden but not deleted.
+    """
+    try:
+        # Find the keyword
+        keyword = db.query(CategoryKeyword).filter(CategoryKeyword.id == keyword_id).first()
+        if not keyword:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Keyword with ID {keyword_id} not found"
+            )
+        
+        # Only allow deleting user's own keywords
+        if keyword.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own keywords"
+            )
+        
+        # Delete the keyword
+        db.delete(keyword)
+        db.commit()
+        
+        return {"success": True, "message": "Keyword deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting keyword: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting keyword: {str(e)}"
+        )
+
+@router.patch("/sender-rules/{rule_id}/pattern", response_model=SenderRuleItem)
+async def update_sender_rule_pattern(
+    rule_id: int,
+    rule_data: SenderRulePatternUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a sender rule's pattern and domain flag.
+    
+    For user-created rules, updates the rule directly.
+    For system rules, creates a user override with the new pattern and domain flag,
+    first deleting any existing user overrides to prevent duplication.
+    """
+    try:
+        # Find the rule
+        rule = db.query(SenderRule).filter(SenderRule.id == rule_id).first()
+        if not rule:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Sender rule with ID {rule_id} not found"
+            )
+        
+        # For user rules, update directly
+        if rule.user_id == current_user.id:
+            rule.pattern = rule_data.pattern
+            rule.is_domain = rule_data.is_domain
+            db.commit()
+            db.refresh(rule)
+            return rule
+        
+        # For system rules, create a user override with original weight but new pattern
+        if rule.user_id is None:
+            # First, delete any existing user overrides for this rule to prevent duplicates
+            db.query(SenderRule).filter(
+                and_(
+                    SenderRule.category_id == rule.category_id,
+                    SenderRule.user_id == current_user.id,
+                    # This condition identifies likely overrides of the same rule
+                    or_(
+                        SenderRule.pattern == rule.pattern,
+                        SenderRule.pattern == rule_data.pattern
+                    )
+                )
+            ).delete()
+            
+            # Create new override
+            new_rule = SenderRule(
+                category_id=rule.category_id,
+                pattern=rule_data.pattern,
+                is_domain=rule_data.is_domain,
+                weight=rule.weight,
+                user_id=current_user.id
+            )
+            db.add(new_rule)
+            db.commit()
+            db.refresh(new_rule)
+            return new_rule
+        
+        # Not a system rule or user's rule
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own sender rules or create overrides for system rules"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating sender rule pattern: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating sender rule pattern: {str(e)}"
+        )
+
+@router.patch("/keywords/{keyword_id}", response_model=KeywordItem)
+async def update_keyword(
+    keyword_id: int,
+    keyword_data: KeywordUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Update a keyword's properties.
+    
+    Currently supports updating the weight of a keyword.
+    For user-created keywords, updates the keyword directly.
+    For system keywords, creates a user override with the new weight,
+    first deleting any existing user overrides to prevent duplication.
+    """
+    try:
+        # Find the keyword
+        keyword = db.query(CategoryKeyword).filter(CategoryKeyword.id == keyword_id).first()
+        if not keyword:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Keyword with ID {keyword_id} not found"
+            )
+        
+        # For user keywords, update directly
+        if keyword.user_id == current_user.id:
+            keyword.weight = keyword_data.weight
+            db.commit()
+            db.refresh(keyword)
+            return keyword
+        
+        # For system keywords, create a user override
+        if keyword.user_id is None:
+            # First, delete any existing user overrides for this keyword to prevent duplicates
+            db.query(CategoryKeyword).filter(
+                and_(
+                    CategoryKeyword.keyword == keyword.keyword,
+                    CategoryKeyword.category_id == keyword.category_id,
+                    CategoryKeyword.user_id == current_user.id
+                )
+            ).delete()
+            
+            # Create new override
+            new_keyword = CategoryKeyword(
+                category_id=keyword.category_id,
+                keyword=keyword.keyword,
+                is_regex=keyword.is_regex,
+                weight=keyword_data.weight,
+                user_id=current_user.id
+            )
+            db.add(new_keyword)
+            db.commit()
+            db.refresh(new_keyword)
+            return new_keyword
+        
+        # Not a system keyword or user's keyword
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update your own keywords or create overrides for system keywords"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating keyword: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error updating keyword: {str(e)}"
+        )
+
+@router.delete("/sender-rules/{rule_id}")
+async def delete_sender_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete a sender rule.
+    
+    Only user-specific sender rules can be deleted directly.
+    System sender rules can be overridden but not deleted.
+    """
+    try:
+        # Find the rule
+        rule = db.query(SenderRule).filter(SenderRule.id == rule_id).first()
+        if not rule:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Sender rule with ID {rule_id} not found"
+            )
+        
+        # Only allow deleting user's own rules
+        if rule.user_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only delete your own sender rules"
+            )
+        
+        # Delete the rule
+        db.delete(rule)
+        db.commit()
+        
+        return {"success": True, "message": "Sender rule deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting sender rule: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting sender rule: {str(e)}"
         ) 

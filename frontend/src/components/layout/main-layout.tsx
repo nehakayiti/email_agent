@@ -49,6 +49,7 @@ const baseNavigation: NavItem[] = [
   // Tools & Settings
   { name: 'Analytics', href: '/analytics', icon: ChartBarIcon, type: 'link', section: 'tools' },
   { name: 'Manage Categories', href: '/categories', icon: Cog6ToothIcon, type: 'link', section: 'tools' },
+  { name: 'Improved Categories', href: '/categories/improved', icon: Cog6ToothIcon, type: 'link', section: 'tools' },
 ];
 
 // Custom event name for email sync completion

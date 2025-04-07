@@ -180,6 +180,22 @@ export async function getEmails(params: EmailsParams = {}): Promise<EmailsRespon
     
     const data = await fetchWithAuth<EmailsResponse>(endpoint);
     
+    if (!data) {
+        return {
+            emails: [],
+            pagination: {
+                total: 0,
+                limit: params.limit || 20,
+                current_page: params.page || 1,
+                total_pages: 0,
+                has_next: false,
+                has_previous: false,
+                next_page: null,
+                previous_page: null
+            }
+        };
+    }
+    
     if ('error' in data && 'status' in data) {
         console.error('Error fetching emails:', data.error);
         return {
@@ -367,6 +383,9 @@ export interface DbInsightsResponse {
 export async function getDbInsights(): Promise<DbInsightsResponse> {
   try {
     const response = await fetchWithAuth<DbInsightsResponse>(`/analytics/db-insights`);
+    if (!response) {
+      throw new Error('Failed to fetch DB insights');
+    }
     return response;
   } catch (error) {
     console.error('Error fetching DB insights:', error);
@@ -419,6 +438,9 @@ export async function getTrashedEmails(params: EmailsParams = {}): Promise<Email
     const url = `/emails/deleted${queryString ? `?${queryString}` : ''}`;
     
     const response = await fetchWithAuth<EmailsResponse>(url);
+    if (!response) {
+      throw new Error('Failed to fetch trashed emails');
+    }
     return response;
   } catch (error) {
     console.error('Error fetching trashed emails:', error);
@@ -460,6 +482,10 @@ export async function updateEmailLabels(
       body: JSON.stringify(body),
     });
     
+    if (!response) {
+      throw new Error('Failed to update email labels');
+    }
+    
     return response;
   } catch (error) {
     console.error('Error updating email labels:', error);
@@ -485,6 +511,10 @@ export async function updateEmailCategory(
       body: JSON.stringify({ category }),
     });
     
+    if (!response) {
+      throw new Error('Failed to update email category');
+    }
+    
     return response;
   } catch (error) {
     console.error('Error updating email category:', error);
@@ -508,6 +538,10 @@ export async function archiveEmail(emailId: string): Promise<{
       method: 'POST',
     });
     
+    if (!response) {
+      throw new Error('Failed to archive email');
+    }
+    
     return response;
   } catch (error) {
     console.error('Error archiving email:', error);
@@ -526,6 +560,10 @@ export async function deleteEmail(emailId: string): Promise<{
     }>(`/emails/${emailId}`, {
       method: 'DELETE',
     });
+    
+    if (!response) {
+      throw new Error('Failed to delete email');
+    }
     
     return response;
   } catch (error) {
@@ -564,9 +602,8 @@ export interface SenderRule {
 
 export interface ClassifierStatus {
   is_model_available: boolean;
-  trash_events_count: number;
-  recommended_min_events: number;
-  message: string;
+  training_data_count: number;
+  last_trained: string | null;
 }
 
 // New model metrics interface
@@ -597,6 +634,9 @@ interface CategoriesResponse {
 
 export async function getCategoriesApi(): Promise<CategoriesResponse> {
   const data = await fetchWithAuth<Category[]>('/email-management/categories');
+  if (!data) {
+    return { data: [] };
+  }
   return { data };
 }
 
@@ -607,11 +647,19 @@ export async function initializeCategories(): Promise<any> {
 }
 
 export async function getCategoryKeywords(categoryName: string): Promise<CategoryKeyword[]> {
-  return fetchWithAuth<CategoryKeyword[]>(`/email-management/categories/${categoryName}/keywords`);
+  const response = await fetchWithAuth<CategoryKeyword[]>(`/email-management/categories/${categoryName}/keywords`);
+  if (!response) {
+    return [];
+  }
+  return response;
 }
 
 export async function getCategorySenderRules(categoryName: string): Promise<SenderRule[]> {
-  return fetchWithAuth<SenderRule[]>(`/email-management/categories/${categoryName}/sender-rules`);
+  const response = await fetchWithAuth<SenderRule[]>(`/email-management/categories/${categoryName}/sender-rules`);
+  if (!response) {
+    return [];
+  }
+  return response;
 }
 
 export async function addKeyword(categoryName: string, keyword: string): Promise<any> {
@@ -624,13 +672,14 @@ export async function addKeyword(categoryName: string, keyword: string): Promise
   });
 }
 
-export async function addSenderRule(categoryName: string, pattern: string, isDomain: boolean = true): Promise<any> {
+export async function addSenderRule(categoryName: string, pattern: string, isDomain: boolean = true, weight: number = 1): Promise<any> {
   return fetchWithAuth('/email-management/sender-rules', {
     method: 'POST',
     body: JSON.stringify({
       category_name: categoryName,
       pattern,
-      is_domain: isDomain
+      is_domain: isDomain,
+      weight
     })
   });
 }
@@ -652,17 +701,29 @@ export async function trainTrashClassifier(testSize: number = 0.2): Promise<any>
 }
 
 export async function getTrashClassifierStatus(): Promise<ClassifierStatus> {
-  return fetchWithAuth<ClassifierStatus>('/email-management/classifier/status');
+  const response = await fetchWithAuth<ClassifierStatus>('/email-management/classifier/status');
+  if (!response) {
+    throw new Error('Failed to get classifier status');
+  }
+  return response;
 }
 
 // New function to evaluate the model with test data
 export async function evaluateTrashClassifier(): Promise<ModelMetrics> {
-  return fetchWithAuth<ModelMetrics>('/email-management/classifier/evaluate');
+  const response = await fetchWithAuth<ModelMetrics>('/email-management/classifier/evaluate');
+  if (!response) {
+    throw new Error('Failed to evaluate classifier');
+  }
+  return response;
 }
 
 // New function to get model metrics
 export async function getClassifierMetrics(): Promise<ModelMetrics> {
-  return fetchWithAuth<ModelMetrics>('/email-management/classifier/metrics');
+  const response = await fetchWithAuth<ModelMetrics>('/email-management/classifier/metrics');
+  if (!response) {
+    throw new Error('Failed to get classifier metrics');
+  }
+  return response;
 }
 
 export async function deleteCategory(categoryName: string): Promise<any> {
@@ -679,10 +740,14 @@ export interface CreateCategoryRequest {
 }
 
 export async function createCategory(data: CreateCategoryRequest): Promise<Category> {
-  return fetchWithAuth('/email-management/categories', {
+  const response = await fetchWithAuth<Category>('/email-management/categories', {
     method: 'POST',
     body: JSON.stringify(data)
   });
+  if (!response) {
+    throw new Error('Failed to create category');
+  }
+  return response;
 }
 
 export async function bootstrapTrashClassifier(testSize: number = 0.2): Promise<any> {
@@ -724,10 +789,53 @@ export async function emptyTrash() {
 }
 
 export async function updateSenderRuleWeight(ruleId: number, weight: number): Promise<SenderRule> {
-  return fetchWithAuth(`/email-management/sender-rules/${ruleId}`, {
+  const response = await fetchWithAuth<SenderRule>(`/email-management/sender-rules/${ruleId}`, {
     method: 'PATCH',
     body: JSON.stringify({
       weight
     })
   });
+  if (!response) {
+    throw new Error('Failed to update sender rule weight');
+  }
+  return response;
+}
+
+export async function deleteSenderRule(ruleId: number): Promise<any> {
+  return fetchWithAuth(`/email-management/sender-rules/${ruleId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function deleteKeyword(keywordId: number): Promise<any> {
+  return fetchWithAuth(`/email-management/keywords/${keywordId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function updateKeywordWeight(keywordId: number, weight: number): Promise<CategoryKeyword> {
+  const response = await fetchWithAuth<CategoryKeyword>(`/email-management/keywords/${keywordId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      weight
+    })
+  });
+  if (!response) {
+    throw new Error('Failed to update keyword weight');
+  }
+  return response;
+}
+
+export async function updateSenderRulePattern(ruleId: number, pattern: string, isDomain: boolean): Promise<SenderRule> {
+  const response = await fetchWithAuth<SenderRule>(`/email-management/sender-rules/${ruleId}/pattern`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      pattern,
+      is_domain: isDomain
+    })
+  });
+  if (!response) {
+    throw new Error('Failed to update sender rule pattern');
+  }
+  return response;
 } 
