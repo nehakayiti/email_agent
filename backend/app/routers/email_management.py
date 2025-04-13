@@ -632,10 +632,8 @@ async def delete_category(
         db.delete(category)
         
         # We need to update any emails that were in this category to a default category
-        # Find the primary category or use another system category as fallback
+        # Find the highest priority system category as fallback
         default_category = db.query(EmailCategory).filter(
-            EmailCategory.name == "primary"
-        ).first() or db.query(EmailCategory).filter(
             EmailCategory.is_system == True
         ).order_by(EmailCategory.priority).first()
         

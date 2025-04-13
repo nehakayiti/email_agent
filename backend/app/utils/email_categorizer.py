@@ -404,8 +404,8 @@ class SenderBasedCategorizer:
                         matches.append(
                             (category_name, priority - (weight * 1.5), f'sender_domain_exact:{pattern}')
                         )
-                    elif domain.endswith('.' + pattern):
-                        # Subdomain match
+                    elif domain.endswith('.' + pattern) or pattern.endswith('.' + domain) or '.'.join(domain.split('.')[-2:]) == pattern:
+                        # Subdomain match (in either direction) or base domain match
                         matches.append(
                             (category_name, priority - weight, f'sender_domain:{pattern}')
                         )

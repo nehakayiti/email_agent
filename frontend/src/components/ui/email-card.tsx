@@ -76,6 +76,14 @@ interface EmailCardProps {
   onLabelsUpdated?: (updatedEmail: Email) => void;
 }
 
+// Add confidence color utility
+function getConfidenceColor(score: number | null): string {
+  if (score === null) return 'text-gray-400';
+  if (score >= 0.8) return 'text-green-600';
+  if (score >= 0.5) return 'text-yellow-600';
+  return 'text-red-600';
+}
+
 export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }: EmailCardProps) {
   // Use the category context
   const { getCategoryInfo, categories } = useCategoryContext();
@@ -84,6 +92,8 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
   const categoryBadgeRef = useRef<HTMLDivElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [showArrowAnimation, setShowArrowAnimation] = useState(true);
+  const [confidenceScore, setConfidenceScore] = useState<number | null>(null);
+  const [decisionFactors, setDecisionFactors] = useState<any>(null);
   
   // Disable arrow animation after a short delay
   useEffect(() => {
@@ -336,6 +346,10 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
       if (response.status === 'success') {
         showSuccessToast('Category updated');
         
+        // Update confidence score and decision factors
+        setConfidenceScore(response.confidence_score);
+        setDecisionFactors(response.decision_factors);
+        
         // Update the email object with new category and labels
         const updatedEmail = {
           ...email,
@@ -404,10 +418,15 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
                     e.stopPropagation();
                     setShowCategoryDropdown(!showCategoryDropdown);
                   }}
-                  title="Click to change category"
+                  title={decisionFactors ? `Categorization factors: ${JSON.stringify(decisionFactors, null, 2)}` : "Click to change category"}
                 >
                   <span className="font-medium mr-1 text-gray-500">Category:</span>
                   <span className={`mr-1 px-1.5 py-0.5 rounded ${categoryInfo.color}`}>{categoryInfo.display_name}</span>
+                  {confidenceScore !== null && (
+                    <span className={`text-xs ${getConfidenceColor(confidenceScore)} ml-1`} title={`Confidence: ${Math.round(confidenceScore * 100)}%`}>
+                      {Math.round(confidenceScore * 100)}%
+                    </span>
+                  )}
                   <span className="border-l border-gray-300 pl-1 flex items-center text-gray-500 bg-gray-50 -mr-2 -my-1 py-1 px-1 rounded-r-md">
                     <span className="text-xs mr-1 font-medium">Select</span>
                     <svg 

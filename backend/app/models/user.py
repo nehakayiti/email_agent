@@ -18,4 +18,9 @@ class User(Base):
     emails = relationship("Email", back_populates="user", cascade="all, delete-orphan")
     
     # Add the relationship to email_sync
-    email_sync = relationship("EmailSync", back_populates="user", uselist=False, cascade="all, delete-orphan") 
+    email_sync = relationship("EmailSync", back_populates="user", uselist=False, cascade="all, delete-orphan")
+
+    # Add relationship for categorization feedback
+    categorization_feedback = relationship("CategorizationFeedback", back_populates="user")
+    
+    # ... rest of the model ... 

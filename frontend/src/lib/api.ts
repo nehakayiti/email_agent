@@ -499,6 +499,8 @@ export interface UpdateCategoryResponse {
   email_id: string;
   category: string;
   labels: string[];
+  confidence_score: number | null;
+  decision_factors: Record<string, any> | null;
 }
 
 export async function updateEmailCategory(

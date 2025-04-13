@@ -20,6 +20,9 @@ import logging
 from ..models.email_operation import EmailOperation, OperationType, OperationStatus
 from ..services import email_operations_service
 from ..models.email_trash_event import EmailTrashEvent
+from ..models.email_categorization_decision import EmailCategorizationDecision
+from ..models.categorization_feedback import CategorizationFeedback
+from ..models.email_category import EmailCategory
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -788,7 +791,7 @@ async def update_category_endpoint(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Update the category of an email in the database
+    Update the category of an email in the database and store feedback for learning
     
     Args:
         email_id: UUID of the email to update
@@ -815,8 +818,19 @@ async def update_category_endpoint(
         if not email:
             raise HTTPException(status_code=404, detail="Email not found")
         
-        # Validate the category
-        valid_categories = ["primary", "social", "promotions", "updates", "forums", "personal", "trash", "archive"]
+        # Get valid categories from database
+        valid_categories = [
+            cat.name for cat in db.query(EmailCategory).filter(
+                or_(
+                    EmailCategory.is_system == True,
+                    and_(
+                        EmailCategory.is_system == False,
+                        # TODO: Add user ownership check once implemented
+                    )
+                )
+            ).all()
+        ]
+        
         normalized_category = category.lower()
         
         if normalized_category not in valid_categories:
@@ -825,8 +839,46 @@ async def update_category_endpoint(
                 detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
             )
         
-        # Store old category for comparison
+        # Store old category for comparison and feedback
         old_category = email.category
+        
+        # Get the current categorization decision if it exists
+        current_decision = db.query(EmailCategorizationDecision).filter(
+            EmailCategorizationDecision.email_id == email_id
+        ).first()
+        
+        # Store feedback about the category change
+        if old_category != normalized_category:
+            feedback = CategorizationFeedback(
+                email_id=email_id,
+                user_id=current_user.id,
+                original_category=old_category,
+                new_category=normalized_category,
+                feedback_timestamp=datetime.utcnow(),
+                feedback_metadata={
+                    "subject": email.subject,
+                    "sender": email.from_email,
+                    "original_confidence": current_decision.confidence_score if current_decision else None
+                }
+            )
+            db.add(feedback)
+            
+            # Update the categorization decision with the user's choice
+            if current_decision:
+                current_decision.category_to = normalized_category
+                current_decision.confidence_score = 1.0  # User-selected categories get max confidence
+                current_decision.decision_type = "user_override"
+                current_decision.updated_at = datetime.utcnow()
+            else:
+                new_decision = EmailCategorizationDecision(
+                    email_id=email_id,
+                    category_to=normalized_category,
+                    confidence_score=1.0,
+                    decision_type="user_override",
+                    decision_factors={"user_selected": True},
+                    created_at=datetime.utcnow()
+                )
+                db.add(new_decision)
         
         # Update the category
         email.category = normalized_category
@@ -864,12 +916,19 @@ async def update_category_endpoint(
         
         db.commit()
         
+        # Get the updated decision for the response
+        updated_decision = db.query(EmailCategorizationDecision).filter(
+            EmailCategorizationDecision.email_id == email_id
+        ).first()
+        
         return {
             "status": "success",
             "message": "Category updated successfully. Changes will sync to Gmail during next email sync.",
             "email_id": str(email.id),
             "category": normalized_category,
-            "labels": email.labels
+            "labels": email.labels,
+            "confidence_score": updated_decision.confidence_score if updated_decision else None,
+            "decision_factors": updated_decision.decision_factors if updated_decision else None
         }
     except HTTPException:
         db.rollback()
@@ -1020,7 +1079,16 @@ async def archive_email_endpoint(
             # Archive: Remove INBOX label
             current_labels.remove('INBOX')
             email.labels = list(current_labels)
-            email.category = 'archive'
+            
+            # Get archive category from database
+            archive_category = db.query(EmailCategory).filter(
+                EmailCategory.name == 'archive',
+                EmailCategory.is_system == True
+            ).first()
+            
+            if archive_category:
+                email.category = archive_category.name
+            
             operation_data = {
                 "remove_labels": ["INBOX"]
             }
@@ -1031,13 +1099,21 @@ async def archive_email_endpoint(
             # Unarchive: Add INBOX label
             current_labels.add('INBOX')
             email.labels = list(current_labels)
-            email.category = 'primary'  # Set to primary when unarchiving
+            
+            # Get highest priority system category from database
+            default_category = db.query(EmailCategory).filter(
+                EmailCategory.is_system == True
+            ).order_by(EmailCategory.priority).first()
+            
+            if default_category:
+                email.category = default_category.name
+            
             operation_data = {
                 "add_labels": ["INBOX"]
             }
             operation_type = OperationType.UPDATE_LABELS
             message = "Email unarchived successfully"
-            logger.info(f"[API] Added INBOX label to email {email_id} and set category to 'primary'")
+            logger.info(f"[API] Added INBOX label to email {email_id} and set category to highest priority category")
         
         # Create operation record for Gmail sync
         email_operations_service.create_operation(
@@ -1083,11 +1159,23 @@ async def fix_trash_consistency_endpoint(
         # Import email operations models only when needed to avoid circular dependencies
         from ..models.email import Email
         
+        # Get trash category from database
+        trash_category = db.query(EmailCategory).filter(
+            EmailCategory.name == 'trash',
+            EmailCategory.is_system == True
+        ).first()
+        
+        if not trash_category:
+            raise HTTPException(
+                status_code=500,
+                detail="System trash category not found"
+            )
+        
         # Case 1: Emails with category='trash' but missing TRASH label
         category_trash_no_label = db.query(Email).filter(
             and_(
                 Email.user_id == current_user.id,
-                Email.category == 'trash',
+                Email.category == trash_category.name,
                 ~Email.labels.contains(['TRASH'])
             )
         ).all()
@@ -1112,7 +1200,7 @@ async def fix_trash_consistency_endpoint(
             and_(
                 Email.user_id == current_user.id,
                 Email.labels.contains(['TRASH']),
-                Email.category != 'trash'
+                Email.category != trash_category.name
             )
         ).all()
         
@@ -1120,8 +1208,8 @@ async def fix_trash_consistency_endpoint(
         
         # Fix them
         for email in label_trash_wrong_category:
-            logger.info(f"[API] Changed category from '{email.category}' to 'trash' for email {email.id}")
-            email.category = 'trash'
+            logger.info(f"[API] Changed category from '{email.category}' to '{trash_category.name}' for email {email.id}")
+            email.category = trash_category.name
             
             # Remove INBOX label if present
             current_labels = set(email.labels or [])
