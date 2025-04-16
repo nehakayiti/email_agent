@@ -23,6 +23,7 @@ from ..models.email_trash_event import EmailTrashEvent
 from ..models.email_categorization_decision import EmailCategorizationDecision
 from ..models.categorization_feedback import CategorizationFeedback
 from ..models.email_category import EmailCategory
+from ..models.sender_rule import SenderRule
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -879,6 +880,44 @@ async def update_category_endpoint(
                     created_at=datetime.utcnow()
                 )
                 db.add(new_decision)
+                
+            # Create or update user-specific sender rule based on the email domain
+            if email.from_email and '@' in email.from_email:
+                try:
+                    # Get the domain from the email address
+                    _, domain = email.from_email.lower().split('@', 1)
+                    
+                    # Get the category ID
+                    category_id = db.query(EmailCategory.id).filter(EmailCategory.name == normalized_category).scalar()
+                    
+                    if category_id:
+                        # Check if a user rule already exists for this domain and category
+                        existing_rule = db.query(SenderRule).filter(
+                            SenderRule.user_id == current_user.id,
+                            SenderRule.category_id == category_id,
+                            SenderRule.pattern == domain,
+                            SenderRule.is_domain == True
+                        ).first()
+                        
+                        if existing_rule:
+                            # Update existing rule's weight
+                            existing_rule.weight = 3  # High weight for user rules
+                            logger.info(f"[API] Updated user sender rule for domain {domain} to category {normalized_category}")
+                        else:
+                            # Create new user rule with high weight
+                            new_rule = SenderRule(
+                                category_id=category_id,
+                                user_id=current_user.id,
+                                pattern=domain,
+                                is_domain=True,
+                                weight=3,  # High weight for user rules
+                                created_at=datetime.utcnow()
+                            )
+                            db.add(new_rule)
+                            logger.info(f"[API] Created user sender rule for domain {domain} to category {normalized_category}")
+                except Exception as e:
+                    logger.warning(f"[API] Failed to create/update sender rule: {str(e)}")
+                    # Continue with the category update even if rule creation fails
         
         # Update the category
         email.category = normalized_category

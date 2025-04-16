@@ -1,0 +1,98 @@
+[
+  [
+    {
+      "gmail_id": "sample_gmail_id_001",
+      "thread_id": "sample_thread_id_001",
+      "subject": "Is It Time to De-Risk Your Retirement Portfolio?",
+      "from_email": "retirement@barrons.com",
+      "received_at": "2025-04-14T00:00:00Z",
+      "snippet": "Barron's Retirement Read in browser Sponsored By: By Elizabeth O'Brien | Sunday, April 13 Investors may be yearning for solid ground after the rollercoaster in the stock market this past week,",
+      "labels": ["INBOX"],
+      "is_read": false,
+      "is_processed": false,
+      "importance_score": 50,
+      "raw_data": {}
+    },
+    "newsletters"
+  ],
+  [
+    {
+      "gmail_id": "sample_gmail_id_002",
+      "thread_id": "sample_thread_id_002",
+      "subject": "Your Weekly Digest is Here!",
+      "from_email": "digest@nytimes.com",
+      "received_at": "2025-04-14T00:00:00Z",
+      "snippet": "Check out the latest news and analysis in your weekly digest.",
+      "labels": ["INBOX"],
+      "is_read": false,
+      "is_processed": false,
+      "importance_score": 50,
+      "raw_data": {}
+    },
+    "newsletters"
+  ],
+  [
+    {
+      "gmail_id": "sample_gmail_id_003",
+      "thread_id": "sample_thread_id_003",
+      "subject": "Churches are selling for up to $55m",
+      "from_email": "news@thehustle.co",
+      "received_at": "2025-04-12T00:00:00Z",
+      "snippet": "The US has a severe shortage of affordable homes — and a staggering number of churches and synagogues with unused space for redevelopment View in browser The Hustle Issue #343 An old white wooden",
+      "labels": ["INBOX"],
+      "is_read": false,
+      "is_processed": false,
+      "importance_score": 50,
+      "raw_data": {}
+    },
+    "newsletters"
+  ],
+  [
+    {
+      "gmail_id": "sample_gmail_id_004",
+      "thread_id": "sample_thread_id_004",
+      "subject": "Don't Miss This! 30% Off Denim + Extra 25% Off Your Purchase",
+      "from_email": "luckybrand@cs.luckybrand.com",
+      "received_at": "2025-04-11T00:00:00Z",
+      "snippet": "Score Extra Savings Online AND In Stores, This Weekend Only VIEW IN BROWSER SIGN UP FOR TEXTS AND GET 15% OFF YOUR NEXT PURCHASE Lucky Brand JEANS WOMEN MEN SALE Live Email Exclusive Extra 25% Off Your",
+      "labels": ["INBOX"],
+      "is_read": false,
+      "is_processed": false,
+      "importance_score": 50,
+      "raw_data": {}
+    },
+    "promotions"
+  ],
+  [
+    {
+      "gmail_id": "sample_gmail_id_005",
+      "thread_id": "sample_thread_id_005",
+      "subject": "More on Apple's AI stumble, Meta adds ex-Trump adviser and Stripe CEO to board",
+      "from_email": "newsletter@techmeme.com",
+      "received_at": "2025-04-11T00:00:00Z",
+      "snippet": "Sources: Tim Cook approved a plan to double the AI chip budget for John Giannandrea's team in 2023, but CFO Luca Maestri cut the increase to less than Got this from a friend? Subscribe! | Forward |",
+      "labels": ["INBOX"],
+      "is_read": false,
+      "is_processed": false,
+      "importance_score": 50,
+      "raw_data": {}
+    },
+    "newsletters"
+  ],
+  [
+    {
+      "gmail_id": "sample_gmail_id_006",
+      "thread_id": "sample_thread_id_006",
+      "subject": "SWLW #646: Strengths and weaknesses, LLMs are dissolving & creating work, and more.",
+      "from_email": "oren@softwareleadweekly.com",
+      "received_at": "2025-04-10T00:00:00Z",
+      "snippet": "Weekly articles & videos about people, culture and leadership: everything you need to design the org that makes the product. A weekly newsletter by Oren Ellenbogen with the best content I found",
+      "labels": ["INBOX"],
+      "is_read": false,
+      "is_processed": false,
+      "importance_score": 50,
+      "raw_data": {}
+    },
+    "newsletters"
+  ]
+] 

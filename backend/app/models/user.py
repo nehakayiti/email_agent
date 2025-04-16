@@ -23,4 +23,7 @@ class User(Base):
     # Add relationship for categorization feedback
     categorization_feedback = relationship("CategorizationFeedback", back_populates="user")
     
+    # Add sender_rules relationship
+    sender_rules = relationship("SenderRule", back_populates="user", cascade="all, delete-orphan")
+    
     # ... rest of the model ... 

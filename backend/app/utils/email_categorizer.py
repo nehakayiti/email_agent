@@ -10,12 +10,18 @@ from typing import Dict, Any, Set, List, Tuple, Optional, Union, Pattern, Protoc
 from sqlalchemy.orm import Session
 from uuid import UUID
 from ..services.category_service import get_categorization_rules
-from functools import lru_cache
+from functools import lru_cache, wraps
 from ..models.email_category import EmailCategory, CategoryKeyword, SenderRule
 import json
+from collections import defaultdict
+from datetime import datetime
+import time
 
 # Import the Naive Bayes classifier
 from .naive_bayes_classifier import classify_email as nbc_classify_email, record_trash_event
+
+# Import logging utilities first to avoid circular imports
+from .logging_utils import EmailLogger, log_operation, summarize_matches, sanitize_email
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -313,110 +319,236 @@ class SenderBasedCategorizer:
             [(cat_id, details) for cat_id, details in self.rules["categories"].items()],
             key=lambda x: x[1]["priority"]
         )
-    
-    def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
-        """
-        Categorize email based on sender email domain
         
-        Args:
-            email_data: Email data including subject, labels, etc.
-            
-        Returns:
-            Tuple of (category_name, confidence_score, reason)
-        """
+        # Initialize logger (will be set from composite categorizer)
+        self.email_logger = None
+    
+    @log_operation("sender_categorization")
+    def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
+        """Categorize email based on sender email domain"""
         from_email = email_data.get('from_email', '[No Sender]')
         
-        logger.info(f"[EMAIL_CAT_SENDER] Checking sender: {from_email}")
+        self.email_logger.debug("Processing sender", details={"from_email": sanitize_email(from_email)})
         
         if not from_email or '@' not in from_email:
-            logger.info(f"[EMAIL_CAT_SENDER] Invalid or missing sender email")
+            self.email_logger.warning(
+                "Invalid sender email",
+                details={"reason": "missing_at_symbol" if from_email else "empty_email"}
+            )
             return ('unknown', 0.0, 'invalid_sender')
         
         matches = self.get_sender_category_matches(from_email)
         if not matches:
-            logger.info(f"[EMAIL_CAT_SENDER] No sender matches found")
+            self.email_logger.debug("No sender matches found")
             return ('unknown', 0.0, 'no_sender_matches')
         
-        # Log all matches found
-        for match in matches:
-            logger.info(f"[EMAIL_CAT_SENDER] Match: '{match[0]}' ({match[2]})")
-            
-        # Sort by priority (lower number = higher priority)
-        matches.sort(key=lambda x: x[1])
+        # Sort by priority and weight
+        matches.sort(key=lambda x: (x[1], -float(x[2].split(':')[-1])))
         best_match = matches[0]
         category_name = best_match[0]
         match_type = best_match[2]
         
         # Calculate confidence based on match type
-        confidence = 0.0
-        if "sender_domain_exact" in match_type:
-            confidence = 0.9
-            logger.info(f"[EMAIL_CAT_SENDER] Exact domain match (0.9 confidence)")
-        elif "sender_domain" in match_type:
-            confidence = 0.8
-            logger.info(f"[EMAIL_CAT_SENDER] Domain match (0.8 confidence)")
-        elif "sender_substring" in match_type:
-            confidence = 0.6
-            logger.info(f"[EMAIL_CAT_SENDER] Substring match (0.6 confidence)")
+        confidence = self._calculate_confidence(match_type)
         
-        logger.info(f"[EMAIL_CAT_SENDER] Best match: '{category_name}' with confidence {confidence} ({match_type})")
+        self.email_logger.info(
+            "Sender categorization complete",
+            details={
+                "category": category_name,
+                "confidence": confidence,
+                "match_type": match_type
+            }
+        )
+        
         return (category_name, confidence, match_type)
     
+    def _calculate_confidence(self, match_type: str) -> float:
+        """Calculate confidence score based on match type."""
+        if "user_rule" in match_type:
+            if "sender_domain_exact" in match_type:
+                return 0.95  # Highest confidence for user-specific exact domain matches
+            elif "sender_domain" in match_type:
+                return 0.9   # High confidence for user-specific domain matches
+            elif "sender_substring" in match_type:
+                return 0.85  # Good confidence for user-specific substring matches
+        else:
+            if "sender_domain_exact" in match_type:
+                return 0.8   # Good confidence for system exact domain matches
+            elif "sender_domain" in match_type:
+                return 0.7   # Moderate confidence for system domain matches
+            elif "sender_substring" in match_type:
+                return 0.6   # Lower confidence for system substring matches
+        return 0.5  # Default confidence
+    
+    @log_operation("sender_matching")
     def get_sender_category_matches(self, from_email: str) -> List[Tuple[str, int, str]]:
-        """
-        Find categories matching the sender email.
-        
-        Args:
-            from_email: Email address of the sender
-            
-        Returns:
-            List of (category_name, priority, match_type) tuples
-        """
+        """Find categories matching the sender email."""
         if not from_email or '@' not in from_email:
+            self.email_logger.warning(
+                "Invalid email format",
+                details={
+                    "from_email": sanitize_email(from_email),
+                    "reason": "missing_at_symbol" if from_email else "empty_email"
+                }
+            )
             return []
         
         matches = []
         try:
             local_part, domain = from_email.lower().split('@', 1)
         except ValueError:
-            logger.warning(f"Invalid email format: {from_email}")
+            self.email_logger.error(
+                "Email split error",
+                Exception(f"Invalid email format: {sanitize_email(from_email)}")
+            )
             return []
+        
+        self.email_logger.debug(
+            "Processing email parts",
+            details={
+                "domain": domain,
+                "local_part_length": len(local_part)
+            }
+        )
         
         # Process categories in priority order
         for cat_id, details in self.sorted_categories:
             category_name = self.category_id_to_name.get(cat_id)
             if not category_name:
                 continue
-                
-            priority = self.category_priorities.get(category_name, 50)
             
-            # Check sender rules
+            priority = self.category_priorities.get(category_name, 50)
             sender_rules = self.rules.get("senders", {}).get(cat_id, [])
+            
+            self.email_logger.debug(
+                "Processing category rules",
+                details={
+                    "category": category_name,
+                    "priority": priority,
+                    "num_rules": len(sender_rules)
+                }
+            )
+            
+            # Check exact domain matches first (highest confidence)
+            exact_match_found = False
             for rule in sender_rules:
+                if not rule.get("is_domain", True):
+                    continue
+                    
                 pattern = rule["pattern"].lower()
                 weight = rule.get("weight", 1)
-                is_domain = rule.get("is_domain", True)
+                is_user_rule = rule.get("user_id") is not None
                 
-                if is_domain:
-                    # Domain matching (exact or subdomain) - higher priority
-                    if domain == pattern:
-                        # Exact domain match gets extra weight
-                        matches.append(
-                            (category_name, priority - (weight * 1.5), f'sender_domain_exact:{pattern}')
+                if domain == pattern:
+                    match_info = self._create_match_info(
+                        category_name, priority, weight,
+                        "sender_domain_exact", pattern, is_user_rule
+                    )
+                    matches.append(match_info)
+                    self.email_logger.debug(
+                        "Exact domain match found",
+                        details={
+                            "category": category_name,
+                            "pattern": pattern,
+                            "is_user_rule": is_user_rule
+                        }
+                    )
+                    exact_match_found = True
+            
+            # Check for subdomain or domain base matches
+            if not exact_match_found:
+                for rule in sender_rules:
+                    if not rule.get("is_domain", True):
+                        continue
+                        
+                    pattern = rule["pattern"].lower()
+                    weight = rule.get("weight", 1)
+                    is_user_rule = rule.get("user_id") is not None
+                    
+                    # Check for subdomain matches
+                    if domain.endswith('.' + pattern) or pattern.endswith('.' + domain):
+                        match_info = self._create_match_info(
+                            category_name, priority, weight * 1.5,
+                            "sender_domain", pattern, is_user_rule
                         )
-                    elif domain.endswith('.' + pattern) or pattern.endswith('.' + domain) or '.'.join(domain.split('.')[-2:]) == pattern:
-                        # Subdomain match (in either direction) or base domain match
-                        matches.append(
-                            (category_name, priority - weight, f'sender_domain:{pattern}')
+                        matches.append(match_info)
+                        self.email_logger.debug(
+                            "Subdomain match found",
+                            details={
+                                "category": category_name,
+                                "pattern": pattern,
+                                "is_user_rule": is_user_rule,
+                                "match_type": "subdomain"
+                            }
                         )
-                else:
-                    # Substring matching in either part - lower priority
-                    if pattern in local_part or pattern in domain:
-                        matches.append(
-                            (category_name, priority - (weight * 0.8), f'sender_substring:{pattern}')
-                        )
+                    
+                    # Check base domain match
+                    domain_parts = domain.split('.')
+                    pattern_parts = pattern.split('.')
+                    if len(domain_parts) >= 2 and len(pattern_parts) >= 2:
+                        domain_base = '.'.join(domain_parts[-2:])
+                        pattern_base = '.'.join(pattern_parts[-2:])
+                        if domain_base == pattern_base:
+                            match_info = self._create_match_info(
+                                category_name, priority, weight,
+                                "sender_domain_base", pattern, is_user_rule
+                            )
+                            matches.append(match_info)
+                            self.email_logger.debug(
+                                "Base domain match found",
+                                details={
+                                    "category": category_name,
+                                    "pattern": pattern,
+                                    "domain_base": domain_base,
+                                    "is_user_rule": is_user_rule
+                                }
+                            )
+        
+            # Check for substring matches (always check regardless of domain matches)
+            for rule in sender_rules:
+                if rule.get("is_domain", True):
+                    continue
+                    
+                pattern = rule["pattern"].lower()
+                weight = rule.get("weight", 1)
+                is_user_rule = rule.get("user_id") is not None
+                
+                if pattern in local_part or pattern in domain:
+                    match_location = "local_part" if pattern in local_part else "domain"
+                    match_info = self._create_match_info(
+                        category_name, priority, weight,
+                        "sender_substring", pattern, is_user_rule
+                    )
+                    matches.append(match_info)
+                    self.email_logger.debug(
+                        "Substring match found",
+                        details={
+                            "category": category_name,
+                            "pattern": pattern,
+                            "match_location": match_location,
+                            "is_user_rule": is_user_rule
+                        }
+                    )
+        
+        if matches:
+            self.email_logger.info(
+                "Sender matching complete",
+                details={"matches": summarize_matches(matches)}
+            )
         
         return matches
+    
+    def _create_match_info(
+        self, category: str, priority: int, weight: float,
+        match_type: str, pattern: str, is_user_rule: bool
+    ) -> Tuple[str, int, str]:
+        """Create a standardized match info tuple."""
+        rule_type = "user_rule" if is_user_rule else "system_rule"
+        return (
+            category,
+            priority - (weight if match_type != "sender_substring" else 0),
+            f"{rule_type}:{match_type}:{pattern}:{weight}"
+        )
 
 class MLBasedCategorizer:
     """Categorizer that uses ML model to determine if an email is trash"""
@@ -643,112 +775,172 @@ class CompositeCategorizer:
             details["name"]: details["priority"] 
             for cat_id, details in self.rules["categories"].items()
         }
-    
-    def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
-        """
-        Categorize email using multiple approaches and resolve based on confidence and priority
         
-        Args:
-            email_data: Email data including subject, labels, etc.
-            
-        Returns:
-            Tuple of (category_name, confidence_score, reason)
-        """
-        subject = email_data.get('subject', '[No Subject]')
-        from_email = email_data.get('from_email', '[No Sender]')
-        gmail_id = email_data.get('gmail_id', '[No ID]')
-        
-        logger.info(f"[EMAIL_CAT_COMPOSITE] Starting categorization process")
-        
-        # Initialize empty list for candidate categories
-        candidate_categories = []
-        
-        # Apply label-based categorization first (highest precedence)
-        logger.info(f"[EMAIL_CAT_COMPOSITE] Checking Gmail labels...")
-        label_category, label_confidence, label_reason = self.label_categorizer.categorize(email_data)
-        if label_category != 'unknown' and label_confidence > 0:
-            # Prepare label-based category tuple: (name, confidence, reason, priority adjustment)
-            # Lower priority number = higher priority
-            priority_adjustment = -10  # Highest precedence
-            candidate_categories.append((label_category, label_confidence, label_reason, priority_adjustment))
-            logger.info(f"[EMAIL_CAT_COMPOSITE] Labels match: '{label_category}' with confidence {label_confidence:.2f} ({label_reason})")
-        else:
-            logger.info(f"[EMAIL_CAT_COMPOSITE] No matching Gmail labels found")
-        
-        # Apply keyword-based categorization
-        logger.info(f"[EMAIL_CAT_COMPOSITE] Checking subject keywords...")
-        keyword_category, keyword_confidence, keyword_reason = self.keyword_categorizer.categorize(email_data)
-        if keyword_category != 'unknown' and keyword_confidence > 0:
-            # Prepare keyword-based category tuple
-            priority_adjustment = -5
-            candidate_categories.append((keyword_category, keyword_confidence, keyword_reason, priority_adjustment))
-            logger.info(f"[EMAIL_CAT_COMPOSITE] Subject keywords match: '{keyword_category}' with confidence {keyword_confidence:.2f} ({keyword_reason})")
-        else:
-            logger.info(f"[EMAIL_CAT_COMPOSITE] No matching subject keywords found")
-        
-        # Apply sender-based categorization
-        logger.info(f"[EMAIL_CAT_COMPOSITE] Checking sender patterns...")
-        sender_category, sender_confidence, sender_reason = self.sender_categorizer.categorize(email_data)
-        if sender_category != 'unknown' and sender_confidence > 0:
-            # Prepare sender-based category tuple
-            priority_adjustment = -3
-            candidate_categories.append((sender_category, sender_confidence, sender_reason, priority_adjustment))
-            logger.info(f"[EMAIL_CAT_COMPOSITE] Sender match: '{sender_category}' with confidence {sender_confidence:.2f} ({sender_reason})")
-        else:
-            logger.info(f"[EMAIL_CAT_COMPOSITE] No matching sender patterns found")
-        
-        # Apply ML-based categorization for trash detection (if enabled)
-        if self.use_ml:
-            logger.info(f"[EMAIL_CAT_COMPOSITE] Checking ML classification...")
-            ml_category, ml_confidence, ml_reason = self.ml_categorizer.categorize(email_data)
-            if ml_category == 'trash' and ml_confidence >= ML_CONFIDENCE_THRESHOLD:
-                # ML trash detection with high confidence overrides other rules
-                # This could be made configurable if needed
-                logger.info(f"[EMAIL_CAT_COMPOSITE] ML classified as trash with high confidence ({ml_confidence:.2f}): {ml_reason}")
-                return (ml_category, ml_confidence, ml_reason)
-            elif ml_category == 'trash' and ml_confidence >= 0.6:
-                # Add as a candidate for borderline cases
-                priority_adjustment = 0  # Standard priority for ML
-                candidate_categories.append((ml_category, ml_confidence, ml_reason, priority_adjustment))
-                logger.info(f"[EMAIL_CAT_COMPOSITE] ML trash match: confidence {ml_confidence:.2f} ({ml_reason})")
-            else:
-                logger.info(f"[EMAIL_CAT_COMPOSITE] ML did not classify as trash")
-        
-        # If no categories were determined, default to 'primary' or first category
-        if not candidate_categories:
-            sorted_categories = sorted(
-                [(name, priority) for name, priority in self.category_priorities.items()],
-                key=lambda x: x[1]
+        # Initialize logger without correlation ID (will be set per email)
+        self.email_logger = None
+
+    @log_operation("combine_matches")
+    def _combine_matches(self, matches: List[Tuple[str, float, str]]) -> List[Tuple[str, float, str]]:
+        """Combine and deduplicate matches, keeping the highest confidence match for each category."""
+        # Group matches by category
+        category_matches = defaultdict(list)
+        for category, confidence, match_type in matches:
+            category_matches[category].append((confidence, match_type))
+            self.email_logger.debug(
+                "Processing match",
+                details={
+                    "category": category,
+                    "confidence": confidence,
+                    "match_type": match_type
+                }
             )
-            default_category = next((cat for cat in sorted_categories if cat[0] == 'primary'), sorted_categories[0])
-            logger.info(f"[EMAIL_CAT_COMPOSITE] No matches found, defaulting to '{default_category[0]}'")
-            return (default_category[0], 0.5, 'default_category')
         
-        # Select the best category based on:
-        # 1. Base category priority (from database)
-        # 2. Method-specific priority adjustment
-        # 3. Confidence score as a tiebreaker
-        selected_categories = []
+        # For each category, keep the match with highest confidence
+        combined = []
+        for category, cat_matches in category_matches.items():
+            # Sort by confidence (higher is better)
+            cat_matches.sort(key=lambda x: x[0], reverse=True)
+            best_match = cat_matches[0]
+            combined.append((category, best_match[0], best_match[1]))
+            
+            # Log category summary
+            self.email_logger.debug(
+                "Category matches summary",
+                details={
+                    "category": category,
+                    "best_match_confidence": best_match[0],
+                    "best_match_type": best_match[1],
+                    "priority": self.category_priorities.get(category, 50),
+                    "matches": summarize_matches(cat_matches)
+                }
+            )
         
-        logger.info(f"[EMAIL_CAT_COMPOSITE] Found {len(candidate_categories)} potential categories, resolving...")
+        # Sort by confidence and then by category priority
+        combined.sort(
+            key=lambda x: (x[1], -self.category_priorities.get(x[0], 50)),
+            reverse=True
+        )
         
-        for cat_name, confidence, reason, adjustment in candidate_categories:
-            # Get the base priority for this category (lower = higher priority)
-            base_priority = self.category_priorities.get(cat_name, 50)
-            # Apply the method-specific adjustment
-            adjusted_priority = base_priority + adjustment
-            # Add to selection list
-            selected_categories.append((cat_name, confidence, reason, adjusted_priority))
-            logger.info(f"[EMAIL_CAT_COMPOSITE] Candidate: '{cat_name}' (priority={adjusted_priority}, confidence={confidence:.2f})")
+        if combined:
+            self.email_logger.info(
+                "Combined matches",
+                details={"best_match": combined[0]},
+                metrics={"num_categories": len(combined)}
+            )
         
-        # Sort by adjusted priority (lower = higher priority)
-        # and then by confidence (higher = better) for ties
-        selected_categories.sort(key=lambda x: (x[3], -x[1]))
+        return combined
+
+    @log_operation("categorize_email")
+    def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
+        """Categorize an email using all available categorizers."""
+        # Initialize logger with email correlation ID
+        self.email_logger = EmailLogger(
+            correlation_id=email_data.get('gmail_id', 'unknown'),
+            component="EMAIL_CAT_COMPOSITE",
+            user_id=self.user_id
+        )
         
-        # Return the best match
-        best_match = selected_categories[0]
-        logger.info(f"[EMAIL_CAT_COMPOSITE] Selected: '{best_match[0]}' with confidence {best_match[1]:.2f} ({best_match[2]})")
-        return (best_match[0], best_match[1], best_match[2])
+        # Share the email_logger with component categorizers
+        self.sender_categorizer.email_logger = self.email_logger
+        self.keyword_categorizer.email_logger = self.email_logger
+        self.label_categorizer.email_logger = self.email_logger
+        if self.use_ml:
+            self.ml_categorizer.email_logger = self.email_logger
+        
+        # Log start of categorization
+        self.email_logger.info(
+            "Starting categorization",
+            details={
+                "subject": email_data.get('subject', '[No Subject]'),
+                "from_email": sanitize_email(email_data.get('from_email', '[No Sender]'))
+            }
+        )
+        
+        all_matches = []
+        
+        # Get matches from sender rules
+        try:
+            self.email_logger.start_operation("sender_matching")
+            sender_matches = self.sender_categorizer.get_sender_category_matches(
+                email_data.get('from_email', '')
+            )
+            if sender_matches:
+                all_matches.extend(sender_matches)
+                self.email_logger.info(
+                    "Sender matches found",
+                    details={"matches": summarize_matches(sender_matches)}
+                )
+            self.email_logger.end_operation()
+        except Exception as e:
+            self.email_logger.error("Error in sender categorization", e)
+        
+        # Get matches from keyword rules
+        try:
+            self.email_logger.start_operation("keyword_matching")
+            keyword_matches = self.keyword_categorizer.get_subject_category_matches(
+                email_data.get('subject', '')
+            )
+            if keyword_matches:
+                all_matches.extend(keyword_matches)
+                self.email_logger.info(
+                    "Keyword matches found",
+                    details={"matches": summarize_matches(keyword_matches)}
+                )
+            self.email_logger.end_operation()
+        except Exception as e:
+            self.email_logger.error("Error in keyword categorization", e)
+        
+        # Get matches from ML classifier if available
+        if self.use_ml:
+            try:
+                self.email_logger.start_operation("ml_classification")
+                ml_matches = self.ml_categorizer.categorize(email_data)
+                if ml_matches:
+                    all_matches.extend([ml_matches])  # ML returns single tuple
+                    self.email_logger.info(
+                        "ML match found",
+                        details={
+                            "category": ml_matches[0],
+                            "confidence": ml_matches[1],
+                            "reason": ml_matches[2]
+                        }
+                    )
+                self.email_logger.end_operation()
+            except Exception as e:
+                self.email_logger.error("Error in ML categorization", e)
+        
+        if not all_matches:
+            self.email_logger.info(
+                "No matches found, using default category",
+                details={"default_category": "inbox"}
+            )
+            return ("inbox", 1.0, "default")
+        
+        # Combine and sort matches
+        combined = self._combine_matches(all_matches)
+        
+        # Get final result
+        if combined:
+            final_category, final_confidence, final_reason = combined[0]
+            self.email_logger.info(
+                "Categorization complete",
+                details={
+                    "category": final_category,
+                    "confidence": final_confidence,
+                    "reason": final_reason
+                },
+                metrics={
+                    "num_total_matches": len(all_matches),
+                    "num_combined_matches": len(combined)
+                }
+            )
+            return combined[0]
+        
+        self.email_logger.info(
+            "No valid matches after combining, using default",
+            details={"default_category": "inbox"}
+        )
+        return ("inbox", 1.0, "default")
 
 def categorize_email(email_data: Dict[str, Any], db: Session, user_id: Optional[UUID] = None) -> str:
     """

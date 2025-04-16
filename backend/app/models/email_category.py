@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 import uuid
 from ..db import Base
+from .sender_rule import SenderRule  # Import SenderRule from its own module
 
 class EmailCategory(Base):
     """
@@ -56,31 +57,4 @@ class CategoryKeyword(Base):
     )
     
     def __repr__(self):
-        return f"<CategoryKeyword {self.keyword} for {self.category.name}>"
-
-
-class SenderRule(Base):
-    """
-    Rules for categorizing emails based on sender information
-    """
-    __tablename__ = "sender_rules"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    category_id = Column(Integer, ForeignKey("email_categories.id", ondelete="CASCADE"), nullable=False)
-    pattern = Column(String, nullable=False)  # Domain or pattern to match in sender email
-    is_domain = Column(Boolean, default=True)  # True if pattern is a full domain, False if substring
-    weight = Column(Integer, default=1)  # Higher weight = stronger influence
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)  # Null = applies to all users
-    
-    # Relationships
-    category = relationship("EmailCategory", back_populates="sender_rules")
-    
-    # Indexing for fast lookup
-    __table_args__ = (
-        Index('idx_sender_rule_pattern', 'pattern'),
-        Index('idx_sender_rule_category', 'category_id'),
-        Index('idx_sender_rule_user', 'user_id'),
-    )
-    
-    def __repr__(self):
-        return f"<SenderRule {self.pattern} for {self.category.name}>" 
+        return f"<CategoryKeyword {self.keyword} for {self.category.name}>" 

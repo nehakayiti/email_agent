@@ -689,7 +689,10 @@ export async function addSenderRule(categoryName: string, pattern: string, isDom
 export async function reprocessAllEmails(): Promise<any> {
   return fetchWithAuth('/email-management/reprocess', {
     method: 'POST',
-    body: JSON.stringify({})
+    body: JSON.stringify({
+      force_reprocess: true,
+      include_reprocessed: true
+    })
   });
 }
 

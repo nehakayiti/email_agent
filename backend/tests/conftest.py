@@ -7,6 +7,11 @@ from app.db import Base, get_db
 from app.models.user import User
 import os
 import logging
+from app.services.category_service import (
+    initialize_system_categories,
+    populate_system_keywords,
+    populate_system_sender_rules,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +33,7 @@ def setup_test_db():
     finally:
         Base.metadata.drop_all(bind=engine)
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def db():
     """Provide test database session"""
     connection = engine.connect()
@@ -75,3 +80,12 @@ def test_user(db):
     db.commit()
     db.refresh(user)
     return user
+
+@pytest.fixture(scope="session", autouse=True)
+def seed_system_rules(db):
+    """Seed system categories, keywords, and sender rules for all tests."""
+    logger.info("Seeding system categories, keywords, and sender rules for tests...")
+    initialize_system_categories(db)
+    populate_system_keywords(db)
+    populate_system_sender_rules(db)
+    logger.info("System rules seeded.")

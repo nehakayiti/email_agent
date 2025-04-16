@@ -104,15 +104,29 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
     return () => clearTimeout(timer);
   }, []);
   
-  // Update dropdown position when it's shown
+  // Update dropdown position when scrolling or when it's shown
   useEffect(() => {
-    if (showCategoryDropdown && categoryBadgeRef.current) {
-      const rect = categoryBadgeRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + window.scrollY,
-        left: rect.left + window.scrollX
-      });
-    }
+    const updatePosition = () => {
+      if (showCategoryDropdown && categoryBadgeRef.current) {
+        const rect = categoryBadgeRef.current.getBoundingClientRect();
+        setDropdownPosition({
+          top: rect.bottom,
+          left: rect.left
+        });
+      }
+    };
+
+    // Update position initially
+    updatePosition();
+
+    // Add scroll event listener
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
   }, [showCategoryDropdown]);
   
   // Filter out system labels
@@ -413,22 +427,22 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
               <div className="relative">
                 <div 
                   ref={categoryBadgeRef}
-                  className={`text-xs px-2 py-1 rounded-md bg-white shadow-sm cursor-pointer flex items-center gap-1 hover:shadow transition-all border border-gray-300 hover:border-gray-400 ${showCategoryDropdown ? 'ring-2 ring-blue-300 border-blue-300' : ''}`}
+                  className={`text-xs px-2.5 py-1.5 rounded-lg bg-white shadow-sm cursor-pointer flex items-center gap-2 hover:shadow transition-all border border-gray-200 hover:border-gray-300 ${showCategoryDropdown ? 'ring-2 ring-blue-300 border-blue-300' : ''}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowCategoryDropdown(!showCategoryDropdown);
                   }}
                   title={decisionFactors ? `Categorization factors: ${JSON.stringify(decisionFactors, null, 2)}` : "Click to change category"}
                 >
-                  <span className="font-medium mr-1 text-gray-500">Category:</span>
-                  <span className={`mr-1 px-1.5 py-0.5 rounded ${categoryInfo.color}`}>{categoryInfo.display_name}</span>
+                  <span className="font-medium text-gray-600">Category:</span>
+                  <span className={`px-2 py-0.5 rounded-md ${categoryInfo.color}`}>{categoryInfo.display_name}</span>
                   {confidenceScore !== null && (
                     <span className={`text-xs ${getConfidenceColor(confidenceScore)} ml-1`} title={`Confidence: ${Math.round(confidenceScore * 100)}%`}>
                       {Math.round(confidenceScore * 100)}%
                     </span>
                   )}
-                  <span className="border-l border-gray-300 pl-1 flex items-center text-gray-500 bg-gray-50 -mr-2 -my-1 py-1 px-1 rounded-r-md">
-                    <span className="text-xs mr-1 font-medium">Select</span>
+                  <span className="border-l border-gray-200 pl-2 flex items-center text-gray-500 bg-gray-50/50 -mr-2.5 -my-1.5 py-1.5 px-2 rounded-r-lg">
+                    <span className="text-xs mr-1.5 font-medium">Select</span>
                     <svg 
                       xmlns="http://www.w3.org/2000/svg" 
                       className={`h-4 w-4 transition-transform ${showCategoryDropdown ? 'rotate-180' : ''} ${
@@ -449,7 +463,7 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
                 {/* Dropdown menu */}
                 {showCategoryDropdown && (
                   <div 
-                    className="fixed inset-0 z-10"
+                    className="fixed inset-0 z-50"
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowCategoryDropdown(false);
@@ -457,52 +471,62 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
                   >
                     <div 
                       style={{
-                        position: 'absolute',
-                        top: `${dropdownPosition.top}px`,
+                        position: 'fixed',
+                        top: `${dropdownPosition.top + 4}px`,
                         left: `${dropdownPosition.left}px`,
+                        transform: 'translateY(2px)',
+                        maxHeight: '400px',
+                        overflowY: 'auto',
+                        zIndex: 51
                       }}
-                      className="mt-1 w-48 bg-white rounded-md shadow-lg z-20 border border-gray-200 overflow-hidden"
+                      className="w-56 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div className="py-1 max-h-60 overflow-y-auto">
-                        <div className="px-4 py-2 text-xs font-medium text-gray-500 border-b border-gray-100 bg-gray-50">
+                      <div className="divide-y divide-gray-100">
+                        <div className="px-4 py-2.5 text-xs font-medium text-gray-500 bg-gray-50">
                           Change category
                         </div>
                         {updating && (
-                          <div className="px-4 py-2 text-xs text-gray-500 flex items-center justify-center">
-                            <svg className="animate-spin h-3 w-3 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                          <div className="px-4 py-3 text-xs text-gray-500 flex items-center justify-center bg-gray-50/50">
+                            <svg className="animate-spin h-3.5 w-3.5 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
                             Updating...
                           </div>
                         )}
-                        {categories
-                          .slice() // Create a copy to avoid mutating the original array
-                          .sort((a, b) => a.priority - b.priority) // Sort by priority
-                          .map((category) => {
-                          const isSelected = email.category?.toLowerCase() === category.name.toLowerCase();
-                          return (
-                            <button
-                              key={category.name}
-                              className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                                isSelected ? 'bg-gray-50 font-medium' : ''
-                              }`}
-                              onClick={(e) => {
-                                handleCategoryChange(e, category.name.toLowerCase());
-                                setShowCategoryDropdown(false);
-                              }}
-                              disabled={updating}
-                            >
-                              <span>{category.display_name}</span>
-                              {isSelected && (
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                              )}
-                            </button>
-                          );
-                        })}
+                        <div className="py-1">
+                          {categories
+                            .slice()
+                            .sort((a, b) => a.priority - b.priority)
+                            .map((category) => {
+                              const isSelected = email.category?.toLowerCase() === category.name.toLowerCase();
+                              return (
+                                <button
+                                  key={category.name}
+                                  className={`w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center justify-between group ${
+                                    isSelected ? 'bg-blue-50/50 text-blue-700 font-medium' : 'text-gray-700'
+                                  }`}
+                                  onClick={(e) => {
+                                    handleCategoryChange(e, category.name.toLowerCase());
+                                    setShowCategoryDropdown(false);
+                                  }}
+                                  disabled={updating}
+                                >
+                                  <span>{category.display_name}</span>
+                                  {isSelected ? (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  ) : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-400 opacity-0 group-hover:opacity-100" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                  )}
+                                </button>
+                              );
+                            })}
+                        </div>
                       </div>
                     </div>
                   </div>

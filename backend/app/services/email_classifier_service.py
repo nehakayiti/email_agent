@@ -424,74 +424,107 @@ class EmailClassifierService:
             "total_events": event_count
         } 
 
-    def evaluate_model(self, db: Session, user_id: Optional[UUID] = None) -> Dict[str, Any]:
+    async def evaluate_model(self, db: Session, user_id: Optional[UUID] = None) -> Dict[str, Any]:
         """
-        Evaluate the trained classifier model and return metrics
+        Evaluate the performance of the email classifier model.
         
         Args:
             db: Database session
-            user_id: Optional user ID to evaluate a user-specific model
+            user_id: Optional user ID to evaluate user-specific model
             
         Returns:
-            Dictionary with evaluation metrics
+            Dictionary containing model metrics
         """
-        logger.info(f"[ML-SERVICE] Evaluating trash classifier for {'user ' + str(user_id) if user_id else 'global model'}")
+        from ..models.email_trash_event import EmailTrashEvent
+        from ..models.email_categorization_decision import EmailCategorizationDecision
+        from ..models.categorization_feedback import CategorizationFeedback
         
-        # Load the classifier model
-        model_loaded = self.load_trash_classifier(user_id)
-        if not model_loaded:
-            logger.error(f"[ML-SERVICE] No model available for evaluation")
-            return {
-                "status": "error",
-                "message": "No trained model available for evaluation"
-            }
+        metrics = {
+            "total_decisions": 0,
+            "correct_decisions": 0,
+            "incorrect_decisions": 0,
+            "accuracy": 0.0,
+            "trash_precision": 0.0,
+            "trash_recall": 0.0,
+            "feedback_count": 0,
+            "user_rules_count": 0,
+            "last_training_date": None,
+            "model_type": "global" if user_id is None else "user_specific"
+        }
         
-        # Get test data from database - use all available events for evaluation
-        query = db.query(EmailTrashEvent)
-        if user_id:
-            query = query.filter(EmailTrashEvent.user_id == user_id)
-        
-        # Since we're evaluating, we'll use all available data
-        # In a real system, you'd want to keep a separate test set
-        test_events = query.all()
-        
-        if not test_events:
-            logger.error(f"[ML-SERVICE] No test data available for evaluation")
-            return {
-                "status": "error",
-                "message": "No test data available for evaluation"
-            }
-        
-        # Extract features and labels
-        test_features = []
-        test_labels = []
-        
-        for event in test_events:
-            test_features.append({
-                "sender": event.sender_email,
-                "subject": event.subject,
-                "snippet": event.snippet
-            })
-            test_labels.append(1 if event.event_type == 'moved_to_trash' else 0)
-        
-        # If we already have stored metrics, use them
-        if hasattr(classifier, 'evaluation_metrics') and classifier.evaluation_metrics:
-            stored_metrics = classifier.evaluation_metrics
-            logger.info(f"[ML-SERVICE] Using stored evaluation metrics")
-            return stored_metrics
-        
-        # Otherwise, evaluate the model on the test data
-        logger.info(f"[ML-SERVICE] Evaluating model on {len(test_features)} examples")
-        metrics = self.evaluate_classifier(test_features, test_labels, user_id)
-        
-        # Store metrics in the classifier for future reference
-        classifier.evaluation_metrics = metrics
-        
-        # Save the model with the updated metrics
-        model_path = self.get_model_path(user_id)
-        classifier.save_model(str(model_path))
-        
-        return metrics
+        try:
+            # Get total categorization decisions
+            decisions_query = db.query(EmailCategorizationDecision)
+            if user_id:
+                decisions_query = decisions_query.join(
+                    EmailTrashEvent,
+                    EmailCategorizationDecision.email_id == EmailTrashEvent.email_id
+                ).filter(EmailTrashEvent.user_id == user_id)
+            
+            total_decisions = decisions_query.count()
+            metrics["total_decisions"] = total_decisions
+            
+            # Get correct decisions (where decision matches feedback)
+            correct_decisions = db.query(EmailCategorizationDecision).join(
+                CategorizationFeedback,
+                EmailCategorizationDecision.email_id == CategorizationFeedback.email_id
+            ).filter(
+                EmailCategorizationDecision.category_to == CategorizationFeedback.new_category
+            )
+            
+            if user_id:
+                correct_decisions = correct_decisions.filter(CategorizationFeedback.user_id == user_id)
+            
+            metrics["correct_decisions"] = correct_decisions.count()
+            
+            # Calculate accuracy
+            if total_decisions > 0:
+                metrics["accuracy"] = metrics["correct_decisions"] / total_decisions
+            
+            # Get trash-specific metrics
+            trash_decisions = decisions_query.filter(
+                EmailCategorizationDecision.category_to == "trash"
+            ).count()
+            
+            actual_trash = db.query(EmailTrashEvent).filter(
+                EmailTrashEvent.event_type == "moved_to_trash"
+            )
+            if user_id:
+                actual_trash = actual_trash.filter(EmailTrashEvent.user_id == user_id)
+            actual_trash_count = actual_trash.count()
+            
+            # Calculate trash precision and recall
+            if trash_decisions > 0:
+                true_positives = correct_decisions.filter(
+                    EmailCategorizationDecision.category_to == "trash"
+                ).count()
+                metrics["trash_precision"] = true_positives / trash_decisions
+            
+            if actual_trash_count > 0:
+                metrics["trash_recall"] = metrics["correct_decisions"] / actual_trash_count
+            
+            # Get feedback count
+            feedback_query = db.query(CategorizationFeedback)
+            if user_id:
+                feedback_query = feedback_query.filter(CategorizationFeedback.user_id == user_id)
+            metrics["feedback_count"] = feedback_query.count()
+            
+            # Get user rules count
+            if user_id:
+                from ..models.sender_rule import SenderRule
+                metrics["user_rules_count"] = db.query(SenderRule).filter(
+                    SenderRule.user_id == user_id
+                ).count()
+            
+            # Get last training date from model metadata
+            model = self.load_trash_classifier(user_id)
+            if model and hasattr(model, 'metadata_'):
+                metrics["last_training_date"] = model.metadata_.get("last_training_date")
+            
+            return metrics
+        except Exception as e:
+            logger.error(f"Error evaluating model: {str(e)}", exc_info=True)
+            raise
 
     def evaluate_classifier(self, features: List[Dict[str, Any]], labels: List[int], user_id: Optional[UUID] = None) -> Dict[str, Any]:
         """

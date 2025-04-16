@@ -230,7 +230,7 @@ def populate_system_sender_rules(db: Session) -> int:
             "accounts", "notifications", "no-reply", "donotreply", "alerts", "updates",
             "nytimes.com", "barrons.com", "wsj.com", "theinformation.com", "hbr.org",
             "marketwatch.com", "economist.com", "bloomberg.com", "morningbrew.com",
-            "substack.com", "medium.com", "wired.com", "techcrunch.com",
+            "substack.com", "medium.com", "wired.com", "techcrunch.com", "techmeme.com",
             "washingtonpost.com", "ft.com", "cnn.com", "forbes.com", "reuters.com"
         ]
     }
@@ -526,4 +526,9 @@ def get_categorization_rules(
     
     rules["senders"] = sender_dict
     
+    # Print debug info about loaded rules
+    print("[DEBUG] get_categorization_rules loaded:")
+    print(f"  categories: {rules['categories']}")
+    print(f"  keywords: {rules['keywords']}")
+    print(f"  senders: {rules['senders']}")
     return rules 

@@ -218,6 +218,8 @@ class ReprocessFilter(BaseModel):
     date_from: Optional[date] = None  
     date_to: Optional[date] = None
     search: Optional[str] = None
+    include_reprocessed: Optional[bool] = Field(default=False, description="Whether to include already reprocessed emails")
+    force_reprocess: Optional[bool] = Field(default=False, description="Whether to mark all matching emails as dirty")
 
 class ReprocessResponse(BaseModel):
     """Response model for email reprocessing"""
@@ -316,7 +318,23 @@ async def reprocess_user_emails(
                     filter_dict['date_to'], datetime.max.time()
                 )
         
-        result = reprocess_emails(db, current_user.id, filter_dict)
+        # If force_reprocess is True, mark matching emails as dirty
+        if filter_criteria and filter_criteria.force_reprocess:
+            query = db.query(Email).filter(Email.user_id == current_user.id)
+            
+            # Apply filters if any
+            if filter_dict:
+                from ..utils.filter_utils import apply_email_filters
+                query = apply_email_filters(query, filter_dict)
+            
+            # Mark matching emails as dirty
+            count = query.update({"is_dirty": True})
+            db.commit()
+            logger.info(f"Marked {count} emails as dirty for reprocessing")
+        
+        # Pass include_reprocessed parameter to reprocess_emails
+        include_reprocessed = filter_criteria.include_reprocessed if filter_criteria else False
+        result = reprocess_emails(db, current_user.id, filter_dict, include_reprocessed)
         
         # Transform the result to match the ReprocessResponse model
         return {

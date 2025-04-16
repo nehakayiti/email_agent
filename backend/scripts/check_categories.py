@@ -103,7 +103,25 @@ try:
     print("-" * 25)
     for rule_count in rule_counts:
         print(f"{rule_count[0]:<15} | {rule_count[1]}")
+        
+    # Get detailed sender rules for newsletters
+    sender_rules = session.execute(
+        text("""
+        SELECT sr.pattern, sr.is_domain, sr.weight, sr.user_id
+        FROM sender_rules sr
+        JOIN email_categories ec ON sr.category_id = ec.id
+        WHERE ec.name = 'newsletters'
+        ORDER BY sr.user_id NULLS FIRST, sr.pattern
+        """)
+    ).fetchall()
     
+    # Display detailed sender rules
+    print("\n=== DETAILED SENDER RULES FOR NEWSLETTERS ===")
+    print(f"{'PATTERN':<30} | {'IS_DOMAIN':<9} | {'WEIGHT':<6} | {'USER_RULE'}")
+    print("-" * 70)
+    for rule in sender_rules:
+        print(f"{rule[0]:<30} | {str(rule[1]):<9} | {rule[2]:<6} | {'Yes' if rule[3] else 'No'}")
+
 except Exception as e:
     logger.error(f"Error checking categories: {str(e)}")
     raise
