@@ -72,11 +72,11 @@ class EmailCategorizer(Protocol):
 class LabelsBasedCategorizer:
     """Categorizer that uses Gmail labels to determine email category"""
     
-    def __init__(self, db: Session, user_id: Optional[UUID] = None):
-        """Initialize with DB session and optional user ID"""
+    def __init__(self, db: Session = None, user_id: Optional[UUID] = None, rules: Optional[dict] = None):
+        """Initialize with DB session and optional user ID or rules"""
         self.db = db
         self.user_id = user_id
-        self.rules = get_categorization_rules(db, user_id)
+        self.rules = rules if rules is not None else get_categorization_rules(db, user_id)
         
         # Map category IDs to names for easier access
         self.category_id_to_name = {
@@ -166,11 +166,11 @@ class LabelsBasedCategorizer:
 class KeywordBasedCategorizer:
     """Categorizer that uses subject line keywords to determine email category"""
     
-    def __init__(self, db: Session, user_id: Optional[UUID] = None):
-        """Initialize with DB session and optional user ID"""
+    def __init__(self, db: Session = None, user_id: Optional[UUID] = None, rules: Optional[dict] = None):
+        """Initialize with DB session and optional user ID or rules"""
         self.db = db
         self.user_id = user_id
-        self.rules = get_categorization_rules(db, user_id)
+        self.rules = rules if rules is not None else get_categorization_rules(db, user_id)
         
         # Map category IDs to names for easier access
         self.category_id_to_name = {
@@ -296,11 +296,11 @@ class KeywordBasedCategorizer:
 class SenderBasedCategorizer:
     """Categorizer that uses sender email domain to determine email category"""
     
-    def __init__(self, db: Session, user_id: Optional[UUID] = None):
-        """Initialize with DB session and optional user ID"""
+    def __init__(self, db: Session = None, user_id: Optional[UUID] = None, rules: Optional[dict] = None):
+        """Initialize with DB session and optional user ID or rules"""
         self.db = db
         self.user_id = user_id
-        self.rules = get_categorization_rules(db, user_id)
+        self.rules = rules if rules is not None else get_categorization_rules(db, user_id)
         
         # Map category IDs to names for easier access
         self.category_id_to_name = {
@@ -553,12 +553,11 @@ class SenderBasedCategorizer:
 class MLBasedCategorizer:
     """Categorizer that uses ML model to determine if an email is trash"""
     
-    def __init__(self, db: Session, user_id: Optional[UUID] = None):
-        """Initialize with DB session and optional user ID"""
+    def __init__(self, db: Session = None, user_id: Optional[UUID] = None, rules: Optional[dict] = None):
+        """Initialize with DB session and optional user ID or rules"""
         self.db = db
         self.user_id = user_id
-        # Get category rules for better feature extraction
-        self.rules = get_categorization_rules(db, user_id)
+        self.rules = rules if rules is not None else get_categorization_rules(db, user_id)
     
     def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
         """
@@ -748,35 +747,23 @@ class CompositeCategorizer:
     with priority-based resolution.
     """
     
-    def __init__(self, db: Session, user_id: Optional[UUID] = None, use_ml: bool = True):
+    def __init__(self, db: Session = None, user_id: Optional[UUID] = None, use_ml: bool = True, rules: Optional[dict] = None):
         """
-        Initialize with DB session and optional user ID
-        
-        Args:
-            db: Database session
-            user_id: Optional user ID
-            use_ml: Whether to use ML-based categorization
+        Initialize with DB session and optional user ID or rules
         """
         self.db = db
         self.user_id = user_id
         self.use_ml = use_ml
-        
-        # Create component categorizers
-        self.label_categorizer = LabelsBasedCategorizer(db, user_id)
-        self.keyword_categorizer = KeywordBasedCategorizer(db, user_id)
-        self.sender_categorizer = SenderBasedCategorizer(db, user_id)
-        
+        self.rules = rules if rules is not None else get_categorization_rules(db, user_id)
+        self.label_categorizer = LabelsBasedCategorizer(db, user_id, self.rules)
+        self.keyword_categorizer = KeywordBasedCategorizer(db, user_id, self.rules)
+        self.sender_categorizer = SenderBasedCategorizer(db, user_id, self.rules)
         if use_ml:
-            self.ml_categorizer = MLBasedCategorizer(db, user_id)
-        
-        # Get category priorities from the database
-        self.rules = get_categorization_rules(db, user_id)
+            self.ml_categorizer = MLBasedCategorizer(db, user_id, self.rules)
         self.category_priorities = {
             details["name"]: details["priority"] 
             for cat_id, details in self.rules["categories"].items()
         }
-        
-        # Initialize logger without correlation ID (will be set per email)
         self.email_logger = None
 
     @log_operation("combine_matches")
