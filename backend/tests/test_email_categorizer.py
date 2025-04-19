@@ -65,8 +65,10 @@ def build_rules_from_db_data():
 # --- Helper for direct rules dict testing ---
 class TestableRuleBasedCategorizer(RuleBasedCategorizer):
     def __init__(self, rules):
+        import warnings
+        from backend.app.utils.email_categorizer import DuplicateSenderRuleWarning
         self.rules = []
-        # flatten keywords + sender rules from rules dict
+        sender_domains = {}
         for cat_id, cat in rules.get("categories", {}).items():
             name     = cat.get("name")
             priority = cat.get("priority", 0)
@@ -83,6 +85,13 @@ class TestableRuleBasedCategorizer(RuleBasedCategorizer):
             # sender rules
             for sr in rules.get("senders", {}).get(cat_id, []):
                 typ = "domain" if sr.get("is_domain", True) else "substring"
+                domain_key = (sr["pattern"].lower(), typ)
+                if domain_key in sender_domains:
+                    warnings.warn(
+                        f"Sender rule for domain '{sr['pattern']}' and type '{typ}' exists in multiple categories: '{sender_domains[domain_key]}' and '{name}'",
+                        DuplicateSenderRuleWarning
+                    )
+                sender_domains[domain_key] = name
                 self.rules.append({
                     "type":     typ,
                     "value":    sr["pattern"],
@@ -275,4 +284,24 @@ def test_sender_rule_domain_with_display_name():
     categorizer = TestableRuleBasedCategorizer(rules)
     category, confidence, reason = categorizer.categorize(email_data)
     assert category == "newsletter"
-    assert confidence > 0 
+    assert confidence > 0
+
+def test_warn_on_duplicate_sender_rule():
+    import warnings
+    from backend.app.utils import email_categorizer
+    warnings.resetwarnings()
+    rules = {
+        "categories": {
+            "1": {"name": "promotions", "priority": 2},
+            "2": {"name": "newsletters", "priority": 1},
+        },
+        "keywords": {},
+        "senders": {
+            "1": [{"pattern": "luckybrand.com", "is_domain": True, "weight": 1}],
+            "2": [{"pattern": "luckybrand.com", "is_domain": True, "weight": 1}],
+        },
+    }
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always", email_categorizer.DuplicateSenderRuleWarning)
+        TestableRuleBasedCategorizer(rules)
+        assert any("Sender rule for domain 'luckybrand.com'" in str(warn.message) for warn in w) 

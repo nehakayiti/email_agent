@@ -4,10 +4,15 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from ..db import Base
 import uuid
+from sqlalchemy import UniqueConstraint
 
 class SenderRule(Base):
     """Model for storing sender-based email categorization rules"""
     __tablename__ = "sender_rules"
+    __table_args__ = (
+        UniqueConstraint('pattern', 'is_domain', 'user_id', name='unique_sender_rule_per_domain'),
+        {'sqlite_autoincrement': True},
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     category_id = Column(Integer, ForeignKey("email_categories.id", ondelete="CASCADE"), nullable=False)

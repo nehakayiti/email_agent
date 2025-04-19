@@ -6,6 +6,7 @@ them into an ordered list, and assigns the first matching category.
 """
 
 import logging
+import warnings
 from typing import Optional, Dict, Any, Tuple, List
 from uuid import UUID
 from sqlalchemy.orm import Session
@@ -13,6 +14,9 @@ from ..services.category_service import get_categorization_rules
 from email.utils import parseaddr
 
 logger = logging.getLogger(__name__)
+
+class DuplicateSenderRuleWarning(Warning):
+    pass
 
 class RuleBasedCategorizer:
     """
@@ -24,30 +28,21 @@ class RuleBasedCategorizer:
         self.user_id = user_id
         raw = get_categorization_rules(db, user_id)
 
-        # start with hard‑coded trash labels
-        self.rules: List[Dict[str, Any]] = [
-            {"type": "label", "value": "TRASH", "category": "trash", "priority": 0, "weight": 0, "reason": "label:TRASH"},
-            {"type": "label", "value": "SPAM",  "category": "trash", "priority": 0, "weight": 0, "reason": "label:SPAM"},
-        ]
-
         # flatten keywords + sender rules from DB
+        sender_domains = {}
+        sender_rules = []
+        keyword_rules = []
         for cat_id, cat in raw.get("categories", {}).items():
             name     = cat.get("name")
             priority = cat.get("priority", 0)
-            # keywords
-            for kw in raw.get("keywords", {}).get(cat_id, []):
-                self.rules.append({
-                    "type":     "substring",
-                    "value":    kw["keyword"],
-                    "category": name,
-                    "priority": priority,
-                    "weight":   kw.get("weight", 1),
-                    "reason":   f"keyword:{kw['keyword']}"
-                })
             # sender rules
             for sr in raw.get("senders", {}).get(cat_id, []):
                 typ = "domain" if sr.get("is_domain", True) else "substring"
-                self.rules.append({
+                domain_key = (sr["pattern"].lower(), typ)
+                if domain_key in sender_domains:
+                    warnings.warn(f"Sender rule for domain '{sr['pattern']}' and type '{typ}' exists in multiple categories: '{sender_domains[domain_key]}' and '{name}'", DuplicateSenderRuleWarning)
+                sender_domains[domain_key] = name
+                sender_rules.append({
                     "type":     typ,
                     "value":    sr["pattern"],
                     "category": name,
@@ -55,41 +50,58 @@ class RuleBasedCategorizer:
                     "weight":   sr.get("weight", 1),
                     "reason":   f"sender:{sr['pattern']}"
                 })
-
-        # sort so highest‑priority (smallest priority–weight) comes first
+            # keywords
+            for kw in raw.get("keywords", {}).get(cat_id, []):
+                keyword_rules.append({
+                    "type":     "substring",
+                    "value":    kw["keyword"],
+                    "category": name,
+                    "priority": priority,
+                    "weight":   kw.get("weight", 1),
+                    "reason":   f"keyword:{kw['keyword']}"
+                })
+        # start with hard‑coded trash labels
+        self.rules: List[Dict[str, Any]] = [
+            {"type": "label", "value": "TRASH", "category": "trash", "priority": 0, "weight": 0, "reason": "label:TRASH"},
+            {"type": "label", "value": "SPAM",  "category": "trash", "priority": 0, "weight": 0, "reason": "label:SPAM"},
+        ]
+        # Add sender rules first, then keyword rules
+        self.rules.extend(sender_rules)
+        self.rules.extend(keyword_rules)
+        # sort so highest‑priority (smallest priority–weight) comes first within each rule type
         def rule_sort_key(r):
-            # Prefer label > domain > substring for same (priority-weight)
             type_order = {"label": 0, "domain": 1, "substring": 2}
-            return (r["priority"] - r["weight"], type_order.get(r["type"], 99))
+            return (type_order.get(r["type"], 99), r["priority"] - r["weight"])
         self.rules.sort(key=rule_sort_key)
 
     def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
         """
-        Categorize an email based on the first matching rule.
-
-        Returns:
-            category_name, confidence (always 1.0), reason
+        Categorize an email so that sender rules always take precedence over keywords.
         """
         labels     = email_data.get("labels", []) or []
         subject    = (email_data.get("subject") or "").lower()
         from_email_raw = (email_data.get("from_email") or "").lower()
-        # Extract just the email address for matching
         _, from_email = parseaddr(from_email_raw)
         from_email = from_email.lower()
-
-        # Normalize labels to uppercase for fallback logic
         labels_upper = [label.upper() for label in labels]
 
-        # one‑pass through rules
+        # 1. Label rules (TRASH, SPAM)
         for r in self.rules:
             if r["type"] == "label":
                 if r["value"] in labels:
                     return r["category"], 1.0, r["reason"]
-            elif r["type"] == "domain":
-                # Match if the email ends with the domain (e.g., usgs.gov), allowing subdomains
-                if from_email.endswith(r["value"].lower()):
+
+        # 2. Sender rules (domain/substring) - always take precedence
+        for r in self.rules:
+            if r["type"] in ("domain", "substring"):
+                if r["type"] == "domain" and from_email.endswith(r["value"].lower()):
                     return r["category"], 1.0, r["reason"]
-            else:  # substring
+                if r["type"] == "substring" and r["value"].lower() in from_email:
+                    return r["category"], 1.0, r["reason"]
+
+        # 3. Keyword rules (substring in from_email or subject)
+        for r in self.rules:
+            if r["type"] == "substring":
                 if r["value"].lower() in from_email:
                     return r["category"], 1.0, r["reason"]
                 if r["value"].lower() in subject:
