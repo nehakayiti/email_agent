@@ -258,4 +258,21 @@ def test_sender_based_categorizer_patientgateway_important():
     categorizer = TestableRuleBasedCategorizer(rules=rules)
     category, confidence, reason = categorizer.categorize(email_data)
     assert category == "important"
+    assert confidence > 0
+
+# Test: Display name in from_email should match domain sender rule
+def test_sender_rule_domain_with_display_name():
+    rules = {
+        "categories": {"1": {"name": "newsletter", "priority": 10}},
+        "keywords": {},
+        "senders": {"1": [{"pattern": "techmeme.com", "is_domain": True, "weight": 1}]},
+    }
+    email_data = {
+        "labels": [],
+        "subject": "Nintendo Switch 2 pricing leak",
+        "from_email": "Techmeme <newsletter@techmeme.com>"
+    }
+    categorizer = TestableRuleBasedCategorizer(rules)
+    category, confidence, reason = categorizer.categorize(email_data)
+    assert category == "newsletter"
     assert confidence > 0 

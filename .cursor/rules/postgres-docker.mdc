@@ -1,0 +1,15 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+# Running Postgres Commands via Docker
+
+To run Postgres commands for this project, use:
+
+```
+docker exec -i postgres_db psql -U postgres -d email_agent_db
+```
+
+Replace or append your SQL as needed after the command.

@@ -1,0 +1,16 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Sender Rule Domain Matching with Display Name
+
+When a sender rule is created with `is_domain=True`, the categorizer will extract the actual email address from the `from_email` field (using Python's `email.utils.parseaddr`). This ensures that domain rules match even if `from_email` contains a display name, such as `Techmeme <newsletter@techmeme.com>`.
+
+- Implementation: [backend/app/utils/email_categorizer.py](mdc:backend/app/utils/email_categorizer.py)
+- Test: [backend/tests/test_email_categorizer.py](mdc:backend/tests/test_email_categorizer.py) (see `test_sender_rule_domain_with_display_name`)
+
+**Example:**
+- Sender rule: pattern = `techmeme.com`, is_domain = True
+- Email: from_email = `Techmeme <newsletter@techmeme.com>`
+- Result: The email is correctly categorized according to the sender rule for `techmeme.com`.

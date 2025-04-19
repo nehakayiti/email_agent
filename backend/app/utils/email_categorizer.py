@@ -10,6 +10,7 @@ from typing import Optional, Dict, Any, Tuple, List
 from uuid import UUID
 from sqlalchemy.orm import Session
 from ..services.category_service import get_categorization_rules
+from email.utils import parseaddr
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,10 @@ class RuleBasedCategorizer:
         """
         labels     = email_data.get("labels", []) or []
         subject    = (email_data.get("subject") or "").lower()
-        from_email = (email_data.get("from_email") or "").lower()
+        from_email_raw = (email_data.get("from_email") or "").lower()
+        # Extract just the email address for matching
+        _, from_email = parseaddr(from_email_raw)
+        from_email = from_email.lower()
 
         # Normalize labels to uppercase for fallback logic
         labels_upper = [label.upper() for label in labels]
@@ -86,6 +90,8 @@ class RuleBasedCategorizer:
                 if from_email.endswith(r["value"].lower()):
                     return r["category"], 1.0, r["reason"]
             else:  # substring
+                if r["value"].lower() in from_email:
+                    return r["category"], 1.0, r["reason"]
                 if r["value"].lower() in subject:
                     return r["category"], 1.0, r["reason"]
 
