@@ -19,8 +19,12 @@ import {
   type CreateCategoryRequest,
   type ClassifierStatus,
   type ModelMetrics,
+  updateSenderRulePattern,
+  updateSenderRuleWeight,
+  deleteSenderRule,
+  updateKeywordWeight,
+  deleteKeyword
 } from '@/lib/api';
-import { CategoryManage } from '@/components/ui/category-manage';
 import { KeywordForm, SenderRuleForm } from '@/components/ui/category-rule-forms';
 import { toast } from 'react-hot-toast';
 
@@ -160,6 +164,16 @@ export default function CategoriesImprovedPage() {
   const [showSenderRuleForm, setShowSenderRuleForm] = useState(false);
   const [classifierStatus, setClassifierStatus] = useState<ClassifierStatus | null>(null);
   const [loadingClassifierStatus, setLoadingClassifierStatus] = useState(false);
+  const [editingKeywordId, setEditingKeywordId] = useState<number | null>(null);
+  const [editingSenderRuleId, setEditingSenderRuleId] = useState<number | null>(null);
+  const [deletingKeywordId, setDeletingKeywordId] = useState<number | null>(null);
+  const [deletingSenderRuleId, setDeletingSenderRuleId] = useState<number | null>(null);
+  const [editKeyword, setEditKeyword] = useState('');
+  const [editKeywordWeight, setEditKeywordWeight] = useState(1);
+  const [editSenderPattern, setEditSenderPattern] = useState('');
+  const [editSenderIsDomain, setEditSenderIsDomain] = useState(true);
+  const [editSenderWeight, setEditSenderWeight] = useState(1);
+  const [editLoading, setEditLoading] = useState(false);
 
   useEffect(() => {
     fetchCategories();
@@ -230,6 +244,10 @@ export default function CategoriesImprovedPage() {
         getCategoryKeywords(category.name),
         getCategorySenderRules(category.name)
       ]);
+      
+      // Sort: user-defined first, then system-defined
+      keywords.sort((a, b) => (b.user_id ? 1 : 0) - (a.user_id ? 1 : 0));
+      senderRules.sort((a, b) => (b.user_id ? 1 : 0) - (a.user_id ? 1 : 0));
       
       setCategoryKeywords(keywords);
       setCategorySenderRules(senderRules);
@@ -362,33 +380,356 @@ export default function CategoriesImprovedPage() {
               {loadingRules ? (
                 <div className="p-4 text-center">Loading rules...</div>
               ) : (
-                <>
-                  {showKeywordForm && (
-                    <div className="mb-6">
-                      <KeywordForm 
-                        categoryName={selectedCategory.name} 
-                        onAddSuccess={refreshRules} 
-                      />
+                <div className="space-y-8">
+                  {/* Keywords Section */}
+                  <section>
+                    <div className="flex items-center mb-2">
+                      <h3 className="text-lg font-semibold mr-2">Keywords</h3>
+                      <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">{categoryKeywords.length}</span>
                     </div>
-                  )}
-                  
-                  {showSenderRuleForm && (
-                    <div className="mb-6">
-                      <SenderRuleForm 
-                        categoryName={selectedCategory.name} 
-                        onAddSuccess={refreshRules} 
-                      />
+                    {showKeywordForm && (
+                      <div className="mb-4">
+                        <KeywordForm 
+                          categoryName={selectedCategory.name} 
+                          onAddSuccess={refreshRules} 
+                        />
+                      </div>
+                    )}
+                    {categoryKeywords.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                        <span className="text-4xl mb-2">🔍</span>
+                        <span className="mb-2">No keywords defined for this category.</span>
+                        <button
+                          onClick={() => setShowKeywordForm(true)}
+                          className="mt-2 px-3 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 text-sm font-medium"
+                        >
+                          Add your first keyword
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+                        <div className="flex items-center px-4 py-2 bg-gray-100 text-xs font-semibold uppercase tracking-wide sticky top-0 z-10 shadow-sm border-b border-gray-200">
+                          <div className="flex-1">Keyword</div>
+                          <div className="w-28 text-center border-l border-gray-200">Weight</div>
+                          <div className="w-24 text-center border-l border-gray-200">Source</div>
+                          <div className="w-24 text-right border-l border-gray-200">Actions</div>
+                        </div>
+                        {categoryKeywords.map((keyword) => (
+                          <div
+                            key={keyword.id}
+                            className={`group flex items-center px-4 py-2 border-t border-gray-100 transition-colors relative ${editingKeywordId === keyword.id ? 'bg-yellow-50 border-l-4 border-yellow-400' : 'hover:bg-gray-50 hover:border-l-4 hover:border-indigo-400'}`}
+                          >
+                            {editingKeywordId === keyword.id ? (
+                              <>
+                                <input
+                                  type="text"
+                                  value={editKeyword}
+                                  onChange={e => setEditKeyword(e.target.value)}
+                                  className="flex-1 border rounded px-2 py-1 mr-2 text-base font-semibold"
+                                />
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={editKeywordWeight}
+                                  onChange={e => setEditKeywordWeight(Number(e.target.value))}
+                                  className="w-20 border rounded px-2 py-1 text-center mr-2 text-base"
+                                />
+                                <div className="w-24 text-center"></div>
+                                <div className="w-24 flex justify-end gap-2">
+                                  <button
+                                    onClick={async () => {
+                                      setEditLoading(true);
+                                      try {
+                                        await updateKeywordWeight(keyword.id, editKeywordWeight);
+                                        toast.success('Keyword updated');
+                                        setEditingKeywordId(null);
+                                        refreshRules();
+                                      } catch (err) {
+                                        toast.error('Failed to update keyword');
+                                      } finally {
+                                        setEditLoading(false);
+                                      }
+                                    }}
+                                    className="text-green-700 hover:text-green-900 font-bold"
+                                    disabled={editLoading}
+                                    title="Save changes"
+                                  >
+                                    💾
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingKeywordId(null)}
+                                    className="text-gray-500 hover:text-gray-700 font-bold"
+                                    disabled={editLoading}
+                                    title="Cancel"
+                                  >
+                                    ✖️
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex-1 flex items-center gap-2 font-semibold text-gray-900 text-base truncate">
+                                  <span className="font-mono">{keyword.keyword}</span>
+                                </div>
+                                <div className="w-28 flex justify-center border-l border-gray-200">
+                                  <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-medium shadow-sm" title="Keyword weight">
+                                    <span>⚖️</span> {keyword.weight}
+                                  </span>
+                                </div>
+                                <div className="w-24 flex justify-center border-l border-gray-200">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium shadow-sm ${keyword.user_id ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}
+                                    title={keyword.user_id ? 'User-defined' : 'System-defined'}
+                                  >
+                                    <span>{keyword.user_id ? '👤' : '⚙️'}</span> {keyword.user_id ? 'User' : 'System'}
+                                  </span>
+                                </div>
+                                <div className="w-24 flex justify-end gap-2 border-l border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => {
+                                      setEditingKeywordId(keyword.id);
+                                      setEditKeyword(keyword.keyword);
+                                      setEditKeywordWeight(keyword.weight);
+                                    }}
+                                    className="text-indigo-500 hover:text-indigo-700"
+                                    title="Edit keyword"
+                                  >
+                                    ✏️
+                                  </button>
+                                  {deletingKeywordId === keyword.id ? (
+                                    <>
+                                      <button
+                                        onClick={async () => {
+                                          setEditLoading(true);
+                                          try {
+                                            await deleteKeyword(keyword.id);
+                                            toast.success('Keyword deleted');
+                                            setDeletingKeywordId(null);
+                                            refreshRules();
+                                          } catch (err) {
+                                            toast.error('Failed to delete keyword');
+                                          } finally {
+                                            setEditLoading(false);
+                                          }
+                                        }}
+                                        className="text-red-600 hover:text-red-800 font-bold"
+                                        disabled={editLoading}
+                                        title="Confirm delete"
+                                      >
+                                        ✔️
+                                      </button>
+                                      <button
+                                        onClick={() => setDeletingKeywordId(null)}
+                                        className="text-gray-500 hover:text-gray-700 font-bold"
+                                        disabled={editLoading}
+                                        title="Cancel delete"
+                                      >
+                                        ✖️
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={() => setDeletingKeywordId(keyword.id)}
+                                      className="text-red-500 hover:text-red-700"
+                                      title="Delete keyword"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Sender Rules Section */}
+                  <section>
+                    <div className="flex items-center mb-2">
+                      <h3 className="text-lg font-semibold mr-2">Sender Rules</h3>
+                      <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-medium">{categorySenderRules.length}</span>
                     </div>
-                  )}
-                  
-                  <CategoryManage 
-                    category={selectedCategory}
-                    senderRules={categorySenderRules}
-                    keywords={categoryKeywords}
-                    onDelete={handleCategoryDeleted}
-                    onRefresh={refreshRules}
-                  />
-                </>
+                    {showSenderRuleForm && (
+                      <div className="mb-4">
+                        <SenderRuleForm 
+                          categoryName={selectedCategory.name} 
+                          onAddSuccess={refreshRules} 
+                        />
+                      </div>
+                    )}
+                    {categorySenderRules.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                        <span className="text-4xl mb-2">📬</span>
+                        <span className="mb-2">No sender rules defined for this category.</span>
+                        <button
+                          onClick={() => setShowSenderRuleForm(true)}
+                          className="mt-2 px-3 py-1 bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 text-sm font-medium"
+                        >
+                          Add your first sender rule
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-gray-200 bg-white overflow-hidden mt-8">
+                        <div className="flex items-center px-4 py-2 bg-gray-100 text-xs font-semibold uppercase tracking-wide sticky top-0 z-10 shadow-sm border-b border-gray-200">
+                          <div className="flex-1">Pattern</div>
+                          <div className="w-28 text-center border-l border-gray-200">Type</div>
+                          <div className="w-28 text-center border-l border-gray-200">Weight</div>
+                          <div className="w-24 text-center border-l border-gray-200">Source</div>
+                          <div className="w-24 text-right border-l border-gray-200">Actions</div>
+                        </div>
+                        {categorySenderRules.map((rule) => (
+                          <div
+                            key={rule.id}
+                            className={`group flex items-center px-4 py-2 border-t border-gray-100 transition-colors relative ${editingSenderRuleId === rule.id ? 'bg-yellow-50 border-l-4 border-yellow-400' : 'hover:bg-gray-50 hover:border-l-4 hover:border-indigo-400'}`}
+                          >
+                            {editingSenderRuleId === rule.id ? (
+                              <>
+                                <input
+                                  type="text"
+                                  value={editSenderPattern}
+                                  onChange={e => setEditSenderPattern(e.target.value)}
+                                  className="flex-1 border rounded px-2 py-1 mr-2 text-base font-semibold"
+                                />
+                                <select
+                                  value={editSenderIsDomain ? 'domain' : 'substring'}
+                                  onChange={e => setEditSenderIsDomain(e.target.value === 'domain')}
+                                  className="w-24 border rounded px-2 py-1 text-center mr-2 text-base"
+                                >
+                                  <option value="domain">Domain</option>
+                                  <option value="substring">Substring</option>
+                                </select>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={10}
+                                  value={editSenderWeight}
+                                  onChange={e => setEditSenderWeight(Number(e.target.value))}
+                                  className="w-24 border rounded px-2 py-1 text-center mr-2 text-base"
+                                />
+                                <div className="w-24 text-center"></div>
+                                <div className="w-24 flex justify-end gap-2">
+                                  <button
+                                    onClick={async () => {
+                                      setEditLoading(true);
+                                      try {
+                                        await updateSenderRulePattern(rule.id, editSenderPattern, editSenderIsDomain);
+                                        await updateSenderRuleWeight(rule.id, editSenderWeight);
+                                        toast.success('Sender rule updated');
+                                        setEditingSenderRuleId(null);
+                                        refreshRules();
+                                      } catch (err) {
+                                        toast.error('Failed to update sender rule');
+                                      } finally {
+                                        setEditLoading(false);
+                                      }
+                                    }}
+                                    className="text-green-700 hover:text-green-900 font-bold"
+                                    disabled={editLoading}
+                                    title="Save changes"
+                                  >
+                                    💾
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingSenderRuleId(null)}
+                                    className="text-gray-500 hover:text-gray-700 font-bold"
+                                    disabled={editLoading}
+                                    title="Cancel"
+                                  >
+                                    ✖️
+                                  </button>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex-1 flex items-center gap-2 font-semibold text-gray-900 text-base truncate">
+                                  <span className="font-mono">{rule.pattern}</span>
+                                </div>
+                                <div className="w-28 flex justify-center border-l border-gray-200">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium shadow-sm ${rule.is_domain ? 'bg-orange-100 text-orange-800' : 'bg-gray-100 text-gray-800'}`}
+                                    title={rule.is_domain ? 'Domain match' : 'Substring match'}
+                                  >
+                                    <span>{rule.is_domain ? '🌐' : '#'}</span> {rule.is_domain ? 'Domain' : 'Substring'}
+                                  </span>
+                                </div>
+                                <div className="w-28 flex justify-center border-l border-gray-200">
+                                  <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 font-medium shadow-sm" title="Sender rule weight">
+                                    <span>⚖️</span> {rule.weight}
+                                  </span>
+                                </div>
+                                <div className="w-24 flex justify-center border-l border-gray-200">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium shadow-sm ${rule.user_id ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}
+                                    title={rule.user_id ? 'User-defined' : 'System-defined'}
+                                  >
+                                    <span>{rule.user_id ? '👤' : '⚙️'}</span> {rule.user_id ? 'User' : 'System'}
+                                  </span>
+                                </div>
+                                <div className="w-24 flex justify-end gap-2 border-l border-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    onClick={() => {
+                                      setEditingSenderRuleId(rule.id);
+                                      setEditSenderPattern(rule.pattern);
+                                      setEditSenderIsDomain(rule.is_domain);
+                                      setEditSenderWeight(rule.weight);
+                                    }}
+                                    className="text-indigo-500 hover:text-indigo-700"
+                                    title="Edit sender rule"
+                                  >
+                                    ✏️
+                                  </button>
+                                  {deletingSenderRuleId === rule.id ? (
+                                    <>
+                                      <button
+                                        onClick={async () => {
+                                          setEditLoading(true);
+                                          try {
+                                            await deleteSenderRule(rule.id);
+                                            toast.success('Sender rule deleted');
+                                            setDeletingSenderRuleId(null);
+                                            refreshRules();
+                                          } catch (err) {
+                                            toast.error('Failed to delete sender rule');
+                                          } finally {
+                                            setEditLoading(false);
+                                          }
+                                        }}
+                                        className="text-red-600 hover:text-red-800 font-bold"
+                                        disabled={editLoading}
+                                        title="Confirm delete"
+                                      >
+                                        ✔️
+                                      </button>
+                                      <button
+                                        onClick={() => setDeletingSenderRuleId(null)}
+                                        className="text-gray-500 hover:text-gray-700 font-bold"
+                                        disabled={editLoading}
+                                        title="Cancel delete"
+                                      >
+                                        ✖️
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      onClick={() => setDeletingSenderRuleId(rule.id)}
+                                      className="text-red-500 hover:text-red-700"
+                                      title="Delete sender rule"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                </div>
               )}
             </div>
           ) : (
