@@ -798,7 +798,6 @@ async def update_sender_rule_pattern(
 ):
     """
     Update a sender rule's pattern and domain flag.
-    
     For user-created rules, updates the rule directly.
     For system rules, creates a user override with the new pattern and domain flag,
     first deleting any existing user overrides to prevent duplication.
@@ -811,7 +810,27 @@ async def update_sender_rule_pattern(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Sender rule with ID {rule_id} not found"
             )
-        
+
+        # Check for duplicate sender rule (excluding the current rule)
+        duplicate = db.query(SenderRule).filter(
+            SenderRule.pattern == rule_data.pattern,
+            SenderRule.is_domain == rule_data.is_domain,
+            SenderRule.user_id == current_user.id,
+            SenderRule.id != rule_id
+        ).first()
+        if duplicate:
+            # Get the category info for the duplicate
+            category = db.query(EmailCategory).filter(EmailCategory.id == duplicate.category_id).first()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": "A sender rule for this domain or pattern already exists.",
+                    "category": category.name if category else None,
+                    "category_display_name": category.display_name if category else None
+                },
+                headers={"X-Error": "DuplicateSenderRule"}
+            )
+
         # For user rules, update directly
         if rule.user_id == current_user.id:
             rule.pattern = rule_data.pattern
@@ -819,7 +838,7 @@ async def update_sender_rule_pattern(
             db.commit()
             db.refresh(rule)
             return rule
-        
+
         # For system rules, create a user override with original weight but new pattern
         if rule.user_id is None:
             # First, delete any existing user overrides for this rule to prevent duplicates
@@ -834,7 +853,7 @@ async def update_sender_rule_pattern(
                     )
                 )
             ).delete()
-            
+
             # Create new override
             new_rule = SenderRule(
                 category_id=rule.category_id,
@@ -847,7 +866,7 @@ async def update_sender_rule_pattern(
             db.commit()
             db.refresh(new_rule)
             return new_rule
-        
+
         # Not a system rule or user's rule
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

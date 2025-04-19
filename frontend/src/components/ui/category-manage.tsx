@@ -29,6 +29,7 @@ export function CategoryManage({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingSenderId, setDeletingSenderId] = useState<number | null>(null);
   const [deletingKeywordId, setDeletingKeywordId] = useState<number | null>(null);
+  const [patternError, setPatternError] = useState<string | null>(null);
 
   const handleUpdateSenderRuleWeight = async (ruleId: number, weight: number) => {
     try {
@@ -58,23 +59,53 @@ export function CategoryManage({
   const handleUpdateSenderRulePattern = async (ruleId: number, pattern: string, isDomain: boolean) => {
     try {
       setUpdating(true);
+      setPatternError(null);
       const updatedRule = await updateSenderRulePattern(ruleId, pattern, isDomain);
-      
-      // Determine if this was an in-place update or a new override rule
       const isNewRule = updatedRule.id !== ruleId;
       if (isNewRule) {
         toast.success("A new override rule has been created with the updated pattern.");
       } else {
         toast.success("Sender rule pattern has been updated successfully.");
       }
-      
-      // After updating a rule pattern, refresh the entire list
       await onRefresh();
-      
       setEditingSenderPatternId(null);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error updating sender rule pattern:", error);
-      toast.error(error instanceof Error ? error.message : "Failed to update sender rule pattern");
+      // Support FastAPI error format: error.message is string, but error.response?.detail may be object
+      let categoryDisplayName = '';
+      let detail = '';
+      let message = '';
+      if (error && error.response && error.response.detail) {
+        // If detail is an object (FastAPI custom error)
+        if (typeof error.response.detail === 'object') {
+          message = error.response.detail.message || '';
+          categoryDisplayName = error.response.detail.category_display_name || '';
+        } else {
+          // If detail is a string
+          message = error.response.detail;
+        }
+      } else if (error && error.message) {
+        // Fallback: try to parse JSON from error.message if possible
+        try {
+          const parsed = JSON.parse(error.message);
+          message = parsed.message || parsed.detail || '';
+          categoryDisplayName = parsed.category_display_name || '';
+        } catch {
+          message = error.message;
+        }
+      }
+      if (categoryDisplayName) {
+        setPatternError(
+          `A sender rule for this domain or pattern already exists in the "${categoryDisplayName}" category. Please edit or remove it there, or choose a different value.`
+        );
+      } else if (message && (message.includes('already exists') || message.includes('unique constraint'))) {
+        setPatternError(
+          'A sender rule for this domain or pattern already exists. Please choose a different value or edit the existing rule.'
+        );
+      } else {
+        setPatternError('Failed to update sender rule pattern. Please try again.');
+      }
+      toast.error(message || 'Failed to update sender rule pattern');
     } finally {
       setUpdating(false);
     }
@@ -338,6 +369,21 @@ export function CategoryManage({
               <li key={rule.id} className="p-3">
                 {editingSenderPatternId === rule.id ? (
                   <div className="mb-3">
+                    {/* Error message for pattern update */}
+                    {patternError && (
+                      <div className="mb-2 p-3 bg-red-100 border border-red-400 text-red-700 rounded flex items-start justify-between">
+                        <span>
+                          <strong>Error:</strong> {patternError}
+                        </span>
+                        <button
+                          onClick={() => setPatternError(null)}
+                          className="ml-4 text-red-700 hover:text-red-900 font-bold"
+                          aria-label="Dismiss error"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    )}
                     <div className="flex items-center space-x-2 mb-2">
                       <input 
                         type="text"
@@ -368,7 +414,7 @@ export function CategoryManage({
                         Save
                       </button>
                       <button
-                        onClick={() => setEditingSenderPatternId(null)}
+                        onClick={() => { setEditingSenderPatternId(null); setPatternError(null); }}
                         className="px-2 py-1 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 text-xs"
                       >
                         Cancel

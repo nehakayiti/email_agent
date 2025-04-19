@@ -114,10 +114,17 @@ export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = 
             }
 
             const errorData = await response.json().catch(() => null);
-            throw new Error(
-                errorData?.detail || 
-                `API error: ${response.status} ${response.statusText}`
-            );
+            if (errorData?.detail) {
+                if (typeof errorData.detail === 'object') {
+                    // Attach the detail object to the error for downstream handling
+                    const err = new Error(errorData.detail.message || 'API error');
+                    (err as any).response = { detail: errorData.detail };
+                    throw err;
+                } else {
+                    throw new Error(errorData.detail);
+                }
+            }
+            throw new Error(`API error: ${response.status} ${response.statusText}`);
         }
 
         const data = await response.json();
