@@ -8,7 +8,6 @@ alwaysApply: true
 
 ## General
 
-- Don't run terminal commands unless explicitly asked for
 - Follow user requirements to the letter
 - Write correct, secure, and efficient code
 - Focus on readability over premature optimization
