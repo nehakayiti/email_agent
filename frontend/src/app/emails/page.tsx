@@ -8,6 +8,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { EmailCard } from '@/components/ui/email-card';
 import { EMAIL_SYNC_COMPLETED_EVENT } from '@/components/layout/main-layout';
 import { toast, Toaster } from 'react-hot-toast';
+import { SyncStatusBar } from '@/components/ui/sync-status-bar';
 
 // Add the API function to fix trash consistency
 const fixTrashConsistency = async () => {
@@ -67,6 +68,9 @@ export default function EmailsPage() {
     const [isFixingTrash, setIsFixingTrash] = useState(false);
     const [showTrashNotification, setShowTrashNotification] = useState(true);
     const [mounted, setMounted] = useState(false);
+    const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+    const [lastSync, setLastSync] = useState<Date | null>(null);
+    const [syncError, setSyncError] = useState<string | null>(null);
     
     // Get category from URL parameters
     const categoryParam = searchParams?.get('category') ?? null;
@@ -358,6 +362,44 @@ export default function EmailsPage() {
         }
     }, [categoryParam]);
 
+    // New: Sync handler
+    const handleSyncNow = async () => {
+        setSyncStatus('syncing');
+        setSyncError(null);
+        try {
+            // Get the authentication token from localStorage
+            const token = localStorage.getItem('token');
+            if (!token) throw new Error('Authentication token not found');
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+            const response = await fetch(`${apiUrl}/emails/sync`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                },
+            });
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => null);
+                const errorMessage = errorData?.detail || `API error: ${response.status} ${response.statusText}`;
+                setSyncStatus('error');
+                setSyncError(errorMessage);
+                return;
+            }
+            setSyncStatus('success');
+            setLastSync(new Date());
+            setSyncError(null);
+            // Optionally, refresh emails after sync
+            setPage(1);
+            setEmails([]);
+            setHasMore(true);
+            setInitialLoadComplete(false);
+            fetchEmails(1, true);
+        } catch (error) {
+            setSyncStatus('error');
+            setSyncError(error instanceof Error ? error.message : 'Unknown error');
+        }
+    };
+
     useEffect(() => { setMounted(true); }, []);
     if (!mounted) return null;
 
@@ -410,6 +452,15 @@ export default function EmailsPage() {
         <div className="px-4 py-8">
             <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
             <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
+                {/* Sync Status Bar */}
+                <SyncStatusBar
+                    status={syncStatus}
+                    lastSync={lastSync}
+                    error={syncError}
+                    onSync={handleSyncNow}
+                    onRetry={handleSyncNow}
+                    onLogin={handleAuthError}
+                />
                 {/* Show prominent notification in trash view */}
                 {categoryParam?.toLowerCase() === 'trash' && showTrashNotification && (
                     <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">

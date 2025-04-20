@@ -134,7 +134,10 @@ export function mapLabelsToComponents(
     return 0;
   });
   
-  return sortedLabels
+  // Deduplicate labels to avoid duplicate React keys
+  const uniqueLabels = Array.from(new Set(sortedLabels));
+  
+  return uniqueLabels
     .filter(label => {
       if (!showSystem && systemLabels.includes(label)) return false;
       // Don't show category labels here unless explicitly requested

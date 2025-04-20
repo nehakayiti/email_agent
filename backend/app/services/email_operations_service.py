@@ -198,7 +198,7 @@ async def execute_operation(
         if operation.operation_type == OperationType.DELETE:
             # Move to trash
             logger.info(f"[EA→GMAIL] Trashing email: {email_desc}")
-            result = await gmail.update_email_labels(
+            result = gmail.update_email_labels(
                 credentials,
                 email.gmail_id,
                 add_labels=['TRASH'],
@@ -218,7 +218,7 @@ async def execute_operation(
             add_labels = data.get('add_labels', ['TRASH'])
             remove_labels = data.get('remove_labels', ['INBOX'])
             
-            result = await gmail.update_email_labels(
+            result = gmail.update_email_labels(
                 credentials,
                 email.gmail_id,
                 add_labels=add_labels,
@@ -234,7 +234,7 @@ async def execute_operation(
         elif operation.operation_type == OperationType.ARCHIVE:
             # Archive email (remove from inbox)
             logger.info(f"[EA→GMAIL] Archiving email: {email_desc}")
-            result = await gmail.update_email_labels(
+            result = gmail.update_email_labels(
                 credentials,
                 email.gmail_id,
                 remove_labels=['INBOX']
@@ -268,7 +268,7 @@ async def execute_operation(
                 # Log detailed information about the operation
                 logger.info(f"[EA→GMAIL] Gmail ID: {email.gmail_id}, Add labels: {add_labels}, Remove labels: {remove_labels}")
                 
-                result = await gmail.update_email_labels(
+                result = gmail.update_email_labels(
                     credentials,
                     email.gmail_id,
                     add_labels=add_labels,

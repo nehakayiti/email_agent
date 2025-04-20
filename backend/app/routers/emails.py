@@ -24,6 +24,7 @@ from ..models.email_categorization_decision import EmailCategorizationDecision
 from ..models.categorization_feedback import CategorizationFeedback
 from ..models.email_category import EmailCategory
 from ..models.sender_rule import SenderRule
+from ..models.sync_details import SyncDetails, SyncDirection, SyncType, SyncStatus
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -95,6 +96,27 @@ async def sync_emails(
         duration = (end_time - start_time).total_seconds()
         logger.info(f"[API] Sync completed in {duration:.2f} seconds")
         logger.info(f"[API] Sync result: {result}")
+        
+        # Insert SyncDetails record
+        sync_details = SyncDetails(
+            user_id=current_user.id,
+            account_email=current_user.email,
+            direction=SyncDirection.GMAIL_TO_EA,  # or infer from context
+            sync_type=SyncType.MANUAL,  # or infer if automatic
+            sync_started_at=start_time,
+            sync_completed_at=end_time,
+            duration_sec=duration,
+            status=SyncStatus.SUCCESS if result.get("status") == "success" else SyncStatus.ERROR,
+            error_message=result.get("message") if result.get("status") == "error" else None,
+            emails_synced=result.get("sync_count", 0),
+            changes_detected=result.get("changes_detected", 0),
+            changes_applied=result.get("changes_applied", 0),
+            pending_ea_changes=result.get("pending_ea_changes", []),
+            backend_version="v1.2.3",  # or use a version constant
+            data_freshness_sec=60  # or calculate if available
+        )
+        db.add(sync_details)
+        db.commit()
         
         # Find new emails for display (if any were synced)
         if result.get("new_email_count", 0) > 0:
@@ -894,18 +916,32 @@ async def update_category_endpoint(
                 operation_data["add_labels"] = ["TRASH"]
                 if 'INBOX' in current_labels:
                     operation_data["remove_labels"] = ["INBOX"]
+                email_operations_service.create_operation(
+                    db=db,
+                    user=current_user,
+                    email=email,
+                    operation_type=OperationType.TRASH,
+                    operation_data=operation_data
+                )
             elif normalized_category == 'archive':
                 operation_data["remove_labels"] = ["INBOX", "TRASH"]
+                email_operations_service.create_operation(
+                    db=db,
+                    user=current_user,
+                    email=email,
+                    operation_type=OperationType.UPDATE_CATEGORY,
+                    operation_data=operation_data
+                )
             else:
                 operation_data["add_labels"] = ["INBOX"]
                 operation_data["remove_labels"] = ["TRASH"]
-            email_operations_service.create_operation(
-                db=db,
-                user=current_user,
-                email=email,
-                operation_type=OperationType.UPDATE_CATEGORY,
-                operation_data=operation_data
-            )
+                email_operations_service.create_operation(
+                    db=db,
+                    user=current_user,
+                    email=email,
+                    operation_type=OperationType.UPDATE_CATEGORY,
+                    operation_data=operation_data
+                )
 
         db.commit()
         

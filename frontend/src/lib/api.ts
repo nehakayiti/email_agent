@@ -850,4 +850,12 @@ export async function updateSenderRulePattern(ruleId: number, pattern: string, i
     throw new Error('Failed to update sender rule pattern');
   }
   return response;
+}
+
+export async function getLatestSyncDetails(): Promise<any | null> {
+    return fetchWithAuth('/sync/details/latest');
+}
+
+export async function getSyncHistory(limit: number = 3): Promise<any[] | null> {
+    return fetchWithAuth(`/sync/details/?limit=${limit}`);
 } 

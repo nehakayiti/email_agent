@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings, get_settings
 # Import routers from __init__.py
-from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router, ml_router, impersonate
+from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router, ml_router, impersonate, sync_details
 from .db import engine, Base
 # Import models to ensure they're registered with SQLAlchemy
 from .models.user import User
@@ -130,6 +130,7 @@ app.include_router(users_router, prefix="/users", tags=["users"])
 app.include_router(emails_router, prefix="/emails", tags=["emails"])
 app.include_router(email_management_router) 
 app.include_router(impersonate.router)
+app.include_router(sync_details.router)
 
 # Add analytics router with explicit prefix and tags
 app.include_router(

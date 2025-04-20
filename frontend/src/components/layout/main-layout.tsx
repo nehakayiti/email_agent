@@ -22,9 +22,10 @@ import {
   Cog6ToothIcon
 } from '@heroicons/react/24/outline';
 import { isAuthenticated, handleAuthError, logout, initiateGoogleLogin } from '@/lib/auth';
-import { triggerEmailSync, Category } from '@/lib/api';
+import { triggerEmailSync, Category, getLatestSyncDetails, getSyncHistory } from '@/lib/api';
 import { useCategoryContext } from '@/lib/category-context';
 import { toast } from 'react-hot-toast';
+import { SyncStatusBar } from '@/components/ui/sync-status-bar';
 
 // Define types for navigation items
 type NavItem = {
@@ -195,6 +196,30 @@ function LogoutButton({ handleLogout, isLoggingOut }: { handleLogout: () => Prom
   );
 }
 
+// Define types for sync details and history
+interface SyncHistoryEntry {
+  sync_completed_at: string;
+  direction: string;
+  status: string;
+  emails_synced: number;
+  changes_applied: number;
+  error_message?: string;
+}
+interface SyncDetails {
+  sync_completed_at: string;
+  direction: string;
+  duration_sec: number;
+  emails_synced: number;
+  changes_detected: number;
+  changes_applied: number;
+  pending_ea_changes: string[];
+  error_message?: string;
+  sync_type: string;
+  account_email: string;
+  backend_version: string;
+  data_freshness_sec: number;
+}
+
 export default function MainLayout({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
@@ -205,6 +230,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [syncMessage, setSyncMessage] = useState('');
   const [isAuthError, setIsAuthError] = useState(false);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [syncDetails, setSyncDetails] = useState<SyncDetails | null>(null);
+  const [syncHistory, setSyncHistory] = useState<SyncHistoryEntry[]>([]);
+  const [syncDetailsLoading, setSyncDetailsLoading] = useState(true);
+  const [syncDetailsError, setSyncDetailsError] = useState<string | null>(null);
   
   // Use the CategoryContext instead of fetching categories directly
   const { categories, refreshCategories } = useCategoryContext();
@@ -231,6 +260,29 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       window.removeEventListener(EMAIL_SYNC_COMPLETED_EVENT, handleSyncCompleted);
     };
   }, [refreshCategories]);
+
+  // Fetch sync details on mount and after sync
+  useEffect(() => {
+    async function fetchSyncDetails() {
+      setSyncDetailsLoading(true);
+      setSyncDetailsError(null);
+      try {
+        const latest = await getLatestSyncDetails();
+        const history = await getSyncHistory(3);
+        setSyncDetails(latest);
+        setSyncHistory(history || []);
+      } catch (err) {
+        setSyncDetailsError('Failed to load sync details');
+      } finally {
+        setSyncDetailsLoading(false);
+      }
+    }
+    fetchSyncDetails();
+    // Listen for sync completion event
+    const handler = () => fetchSyncDetails();
+    window.addEventListener(EMAIL_SYNC_COMPLETED_EVENT, handler);
+    return () => window.removeEventListener(EMAIL_SYNC_COMPLETED_EVENT, handler);
+  }, []);
 
   const handleSync = async () => {
     if (isSyncing || !isAuthenticated()) return;
@@ -359,6 +411,31 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const mainNavItems = baseNavigation.filter(item => item.section === 'main');
   const filterNavItems = baseNavigation.filter(item => item.section === 'filters');
   const toolNavItems = baseNavigation.filter(item => item.section === 'tools');
+
+  // Compose the details object for SyncStatusBar
+  const details: any = syncDetails && !syncDetailsLoading ? {
+    lastSync: syncDetails.sync_completed_at ? new Date(syncDetails.sync_completed_at) : null,
+    direction: syncDetails.direction,
+    durationSec: syncDetails.duration_sec,
+    emailsSynced: syncDetails.emails_synced,
+    changesDetected: syncDetails.changes_detected,
+    changesApplied: syncDetails.changes_applied,
+    pendingEAChanges: syncDetails.pending_ea_changes,
+    syncHistory: syncHistory.map(h => ({
+      time: h.sync_completed_at ? new Date(h.sync_completed_at) : null,
+      direction: h.direction,
+      result: h.status,
+      emailsSynced: h.emails_synced,
+      changes: h.changes_applied,
+      error: h.error_message,
+    })),
+    lastError: syncDetails.error_message,
+    nextScheduledSync: null, // (optional, if available)
+    lastSyncType: syncDetails.sync_type,
+    accountEmail: syncDetails.account_email,
+    backendVersion: syncDetails.backend_version,
+    dataFreshnessSec: syncDetails.data_freshness_sec,
+  } : undefined;
 
   useEffect(() => { setMounted(true); }, []);
   if (!mounted) return null;
@@ -571,24 +648,20 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             <h2 className="text-lg font-medium text-gray-900">
               {/* greeting }, Sunny! */}
             </h2>
-            
             <div className="flex items-center space-x-3">
-              {syncMessage && (
-                <span className={`text-sm font-medium px-3 py-1 rounded-md ${
-                  syncStatus === 'error' 
-                    ? 'text-red-800 bg-red-100' 
-                    : syncStatus === 'success'
-                      ? 'text-green-800 bg-green-100'
-                      : 'text-gray-800 bg-gray-100'
-                }`}>
-                  {syncMessage}
-                </span>
-              )}
-              
-              {isAuthenticated() && (
-                <SyncButton handleSync={handleSync} isSyncing={isSyncing} />
-              )}
-
+              <SyncStatusBar
+                status={
+                  isSyncing ? 'syncing' :
+                  syncStatus === 'error' ? 'error' :
+                  syncStatus === 'success' ? 'success' : 'idle'
+                }
+                lastSync={details?.lastSync || lastSyncTime}
+                error={syncMessage || syncDetailsError || undefined}
+                onSync={handleSync}
+                onRetry={handleSync}
+                onLogin={handleAuthError}
+                details={details}
+              />
               {isAuthenticated() ? (
                 <LogoutButton handleLogout={handleLogout} isLoggingOut={isLoggingOut} />
               ) : (
