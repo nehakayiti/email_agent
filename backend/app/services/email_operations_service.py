@@ -11,6 +11,8 @@ from ..models.user import User
 from ..models.email_operation import EmailOperation, OperationType, OperationStatus
 from . import gmail
 from ..utils.naive_bayes_classifier import record_trash_event
+from ..services.sync_recording import record_sync_details
+from ..config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -317,21 +319,36 @@ async def process_pending_operations(
 ) -> Dict[str, Any]:
     """
     Process pending operations for a user
-    
-    Args:
-        db: Database session
-        user: User model instance
-        credentials: User's Gmail API credentials
-        max_operations: Maximum number of operations to process in one batch
-        
-    Returns:
-        Dictionary with processing results
     """
-    # Get pending operations
     operations = get_pending_operations(db, user.id, limit=max_operations)
-    
+    results = {
+        "success": 0,
+        "failure": 0,
+        "retry": 0
+    }
+    start_time = datetime.now()
     if not operations:
         logger.info(f"[OPS] No pending operations for user {user.id}")
+        # Record a no-op EA→Gmail sync with status SUCCESS or WARNING
+        end_time = datetime.now()
+        from ..models.sync_details import SyncDirection, SyncType, SyncStatus
+        from ..services.sync_recording import record_sync_details
+        record_sync_details(
+            db=db,
+            user=user,
+            direction=SyncDirection.EA_TO_GMAIL,
+            sync_type=SyncType.MANUAL,
+            sync_started_at=start_time,
+            sync_completed_at=end_time,
+            duration_sec=(end_time - start_time).total_seconds(),
+            status=SyncStatus.SUCCESS,
+            error_message=None,
+            emails_synced=0,
+            changes_detected=0,
+            changes_applied=0,
+            pending_ea_changes=[],
+            data_freshness_sec=None
+        )
         return {
             "status": "success",
             "message": "No pending operations",
@@ -340,29 +357,15 @@ async def process_pending_operations(
             "failure_count": 0,
             "retry_count": 0
         }
-    
     logger.info(f"[OPS] Found {len(operations)} pending operations for user {user.id}")
     logger.info(f"[OPS] Processing {len(operations)} pending operations for user {user.id}")
-    
-    # Process each operation
-    results = {
-        "success": 0,
-        "failure": 0,
-        "retry": 0
-    }
-    
     for operation in operations:
         operation_id = operation.id
         operation_type = operation.operation_type
         logger.info(f"[OPS] Processing operation {operation_id}: {operation_type}")
-        
         try:
-            # Execute the operation
             result = await execute_operation(db, operation, credentials)
-            
-            # Check the operation status after execution
             refreshed_operation = db.query(EmailOperation).filter(EmailOperation.id == operation_id).first()
-            
             if refreshed_operation.status == OperationStatus.COMPLETED:
                 results["success"] += 1
                 logger.info(f"[OPS] Operation {operation_id} completed successfully")
@@ -378,13 +381,32 @@ async def process_pending_operations(
             logger.error(f"[OPS] Error processing operation {operation_id}: {str(e)}", exc_info=True)
             mark_operation_failed(db, operation, str(e))
             results["failure"] += 1
-    
-    # Return summary
+    end_time = datetime.now()
+    duration = (end_time - start_time).total_seconds()
+    from ..models.sync_details import SyncDirection, SyncType, SyncStatus
+    from ..services.sync_recording import record_sync_details
+    status = SyncStatus.SUCCESS if results["failure"] == 0 else SyncStatus.ERROR
+    error_message = None if status == SyncStatus.SUCCESS else "Some operations failed"
+    record_sync_details(
+        db=db,
+        user=user,
+        direction=SyncDirection.EA_TO_GMAIL,
+        sync_type=SyncType.MANUAL,
+        sync_started_at=start_time,
+        sync_completed_at=end_time,
+        duration_sec=duration,
+        status=status,
+        error_message=error_message,
+        emails_synced=results["success"],
+        changes_detected=results["success"] + results["failure"],
+        changes_applied=results["success"],
+        pending_ea_changes=[],
+        data_freshness_sec=None
+    )
     logger.info(
         f"[OPS] Processed {len(operations)} operations for user {user.id}: "
         f"{results['success']} succeeded, {results['failure']} failed, {results['retry']} retrying"
     )
-    
     return {
         "status": "success",
         "message": f"Processed {len(operations)} operations",

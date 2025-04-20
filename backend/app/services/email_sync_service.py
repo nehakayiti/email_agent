@@ -15,6 +15,9 @@ from ..services import email_operations_service
 from ..utils.email_categorizer import categorize_email, categorize_email_from_labels
 from ..services import email_classifier_service
 from ..core.logging_config import configure_logging
+from ..config import settings
+from ..models.sync_details import SyncDetails, SyncDirection, SyncType, SyncStatus
+from .sync_recording import record_sync_details
 
 # Configure logging if this module is run directly
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from ..models.user import User
 from ..services import gmail
 # Remove the individual function imports
 from ..services.email_processor import process_and_store_emails
-from ..services.email_sync_service import sync_emails_since_last_fetch
+from ..services.email_sync_service import sync_emails_since_last_fetch, record_sync_details
 from ..dependencies import get_current_user
 import logging
 from ..models.email_operation import EmailOperation, OperationType, OperationStatus
@@ -97,12 +97,12 @@ async def sync_emails(
         logger.info(f"[API] Sync completed in {duration:.2f} seconds")
         logger.info(f"[API] Sync result: {result}")
         
-        # Insert SyncDetails record
-        sync_details = SyncDetails(
-            user_id=current_user.id,
-            account_email=current_user.email,
-            direction=SyncDirection.GMAIL_TO_EA,  # or infer from context
-            sync_type=SyncType.MANUAL,  # or infer if automatic
+        # Use the new utility to record sync details
+        record_sync_details(
+            db=db,
+            user=current_user,
+            direction=SyncDirection.GMAIL_TO_EA,
+            sync_type=SyncType.MANUAL,  # Could be dynamic if needed
             sync_started_at=start_time,
             sync_completed_at=end_time,
             duration_sec=duration,
@@ -112,11 +112,8 @@ async def sync_emails(
             changes_detected=result.get("changes_detected", 0),
             changes_applied=result.get("changes_applied", 0),
             pending_ea_changes=result.get("pending_ea_changes", []),
-            backend_version="v1.2.3",  # or use a version constant
-            data_freshness_sec=60  # or calculate if available
+            data_freshness_sec=60  # Could be dynamic if needed
         )
-        db.add(sync_details)
-        db.commit()
         
         # Find new emails for display (if any were synced)
         if result.get("new_email_count", 0) > 0:
