@@ -66,6 +66,7 @@ export default function EmailsPage() {
     const [scrollRestored, setScrollRestored] = useState(false);
     const [isFixingTrash, setIsFixingTrash] = useState(false);
     const [showTrashNotification, setShowTrashNotification] = useState(true);
+    const [mounted, setMounted] = useState(false);
     
     // Get category from URL parameters
     const categoryParam = searchParams?.get('category') ?? null;
@@ -356,6 +357,9 @@ export default function EmailsPage() {
             setShowTrashNotification(false);
         }
     }, [categoryParam]);
+
+    useEffect(() => { setMounted(true); }, []);
+    if (!mounted) return null;
 
     if (loading) {
         return (

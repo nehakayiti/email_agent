@@ -196,6 +196,7 @@ function LogoutButton({ handleLogout, isLoggingOut }: { handleLogout: () => Prom
 }
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
@@ -358,6 +359,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const mainNavItems = baseNavigation.filter(item => item.section === 'main');
   const filterNavItems = baseNavigation.filter(item => item.section === 'filters');
   const toolNavItems = baseNavigation.filter(item => item.section === 'tools');
+
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
 
   return (
     <div className="min-h-screen bg-gray-50">

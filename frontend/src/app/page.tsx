@@ -7,10 +7,12 @@ import { isAuthenticated, handleAuthError } from '@/lib/auth';
 
 export default function Home() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    setMounted(true);
     // Use a flag to prevent multiple checks in a short time
     let isCheckingAuth = false;
     
@@ -49,6 +51,8 @@ export default function Home() {
       handleAuthError();
     }
   };
+
+  if (!mounted) return null;
 
   if (isLoading) {
     return (
