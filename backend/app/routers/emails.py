@@ -31,6 +31,23 @@ router = APIRouter()
 class CategoryUpdate(BaseModel):
     category: str
 
+# Utility function for atomic category/label update
+def set_email_category_and_labels(email, new_category):
+    old_category = email.category
+    email.category = new_category
+    labels = set(email.labels or [])
+    if new_category == 'trash':
+        labels.add('TRASH')
+        labels.discard('INBOX')
+    elif new_category == 'archive':
+        labels.discard('INBOX')
+        labels.discard('TRASH')
+    else:
+        labels.add('INBOX')
+        labels.discard('TRASH')
+    email.labels = list(labels)
+    return old_category != new_category
+
 @router.post("/sync")
 async def sync_emails(
     use_current_date: bool = False,
@@ -415,30 +432,56 @@ async def get_emails(
     
     if parsed_date_to:
         query_obj = query_obj.filter(Email.received_at <= parsed_date_to)
-    
-    # Handle trash-related filtering
+
+    # Determine folder logic
+    folder = (folder or '').lower() if folder else None
     is_trash_view = category and category.lower() == 'trash'
-    
-    # Don't show emails in trash by default unless explicitly asked for trash category
-    # or show_all is true
+    is_archive_view = category and category.lower() == 'archive'
+    is_all_mails_view = folder == 'all' or (category and category.lower() == 'all')
+    is_inbox_view = folder == 'inbox' or (category and category.lower() == 'inbox')
+
     if show_all:
         # Include all emails when show_all is true
         pass
     elif is_trash_view:
-        # Special case for trash view - show emails with either TRASH label or trash category
-        if label and label == 'TRASH':
-            # We want emails that either have the TRASH label OR are categorized as trash
-            query_obj = query_obj.filter(
-                or_(
-                    Email.labels.contains(['TRASH']),
-                    Email.category == 'trash'
-                )
+        # Trash: category = 'trash' OR 'TRASH' in labels
+        query_obj = query_obj.filter(
+            or_(
+                Email.category == 'trash',
+                Email.labels.contains(['TRASH'])
             )
-        else:
-            # Just filter on TRASH label
-            query_obj = query_obj.filter(Email.labels.contains(['TRASH']))
+        )
+    elif is_archive_view:
+        # Archive: category = 'archive'
+        query_obj = query_obj.filter(Email.category == 'archive')
+    elif is_all_mails_view:
+        # All Mails: everything except Trash
+        query_obj = query_obj.filter(
+            and_(
+                Email.category != 'trash',
+                ~Email.labels.contains(['TRASH'])
+            )
+        )
+    elif is_inbox_view:
+        # Inbox: everything except Trash and Archive
+        query_obj = query_obj.filter(
+            and_(
+                Email.category != 'trash',
+                Email.category != 'archive',
+                ~Email.labels.contains(['TRASH'])
+            )
+        )
+    elif category:
+        # For other categories, show emails where category matches and not in trash
+        query_obj = query_obj.filter(
+            and_(
+                Email.category == category,
+                Email.category != 'trash',
+                ~Email.labels.contains(['TRASH'])
+            )
+        )
     else:
-        # For non-trash views, exclude emails with TRASH label
+        # Default: exclude emails in trash
         query_obj = query_obj.filter(~Email.labels.contains(['TRASH']))
     
     if important is not None:
@@ -460,10 +503,6 @@ async def get_emails(
     # Apply label filter except for the special trash case handled above
     if label and not (is_trash_view and label == 'TRASH'):
         query_obj = query_obj.filter(Email.labels.contains([label]))
-    
-    # Apply category filter
-    if category and not is_trash_view:
-        query_obj = query_obj.filter(Email.category == category)
     
     # Get total count for pagination metadata
     total_count = query_obj.count()
@@ -840,134 +879,42 @@ async def update_category_endpoint(
                 detail=f"Invalid category. Must be one of: {', '.join(valid_categories)}"
             )
         
-        # Store old category for comparison and feedback
-        old_category = email.category
-        
-        # Get the current categorization decision if it exists
-        current_decision = db.query(EmailCategorizationDecision).filter(
-            EmailCategorizationDecision.email_id == email_id
-        ).first()
-        
-        # Store feedback about the category change
-        if old_category != normalized_category:
-            feedback = CategorizationFeedback(
-                email_id=email_id,
-                user_id=current_user.id,
-                original_category=old_category,
-                new_category=normalized_category,
-                feedback_timestamp=datetime.utcnow(),
-                feedback_metadata={
-                    "subject": email.subject,
-                    "sender": email.from_email,
-                    "original_confidence": current_decision.confidence_score if current_decision else None
-                }
-            )
-            db.add(feedback)
-            
-            # Update the categorization decision with the user's choice
-            if current_decision:
-                current_decision.category_to = normalized_category
-                current_decision.confidence_score = 1.0  # User-selected categories get max confidence
-                current_decision.decision_type = "user_override"
-                current_decision.updated_at = datetime.utcnow()
-            else:
-                new_decision = EmailCategorizationDecision(
-                    email_id=email_id,
-                    category_to=normalized_category,
-                    confidence_score=1.0,
-                    decision_type="user_override",
-                    decision_factors={"user_selected": True},
-                    created_at=datetime.utcnow()
-                )
-                db.add(new_decision)
-                
-            # Create or update user-specific sender rule based on the email domain
-            if email.from_email and '@' in email.from_email:
-                try:
-                    # Get the domain from the email address
-                    _, domain = email.from_email.lower().split('@', 1)
-                    
-                    # Get the category ID
-                    category_id = db.query(EmailCategory.id).filter(EmailCategory.name == normalized_category).scalar()
-                    
-                    if category_id:
-                        # Check if a user rule already exists for this domain and category
-                        existing_rule = db.query(SenderRule).filter(
-                            SenderRule.user_id == current_user.id,
-                            SenderRule.category_id == category_id,
-                            SenderRule.pattern == domain,
-                            SenderRule.is_domain == True
-                        ).first()
-                        
-                        if existing_rule:
-                            # Update existing rule's weight
-                            existing_rule.weight = 3  # High weight for user rules
-                            logger.info(f"[API] Updated user sender rule for domain {domain} to category {normalized_category}")
-                        else:
-                            # Create new user rule with high weight
-                            new_rule = SenderRule(
-                                category_id=category_id,
-                                user_id=current_user.id,
-                                pattern=domain,
-                                is_domain=True,
-                                weight=3,  # High weight for user rules
-                                created_at=datetime.utcnow()
-                            )
-                            db.add(new_rule)
-                            logger.info(f"[API] Created user sender rule for domain {domain} to category {normalized_category}")
-                except Exception as e:
-                    logger.warning(f"[API] Failed to create/update sender rule: {str(e)}")
-                    # Continue with the category update even if rule creation fails
-        
-        # Update the category
-        email.category = normalized_category
-        
+        # Update the category and labels using the unified utility
+        category_changed = set_email_category_and_labels(email, normalized_category)
+
         # Add a needs_label_update flag if we changed category - this will be used during sync
-        if old_category != normalized_category:
+        if category_changed:
             current_labels = set(email.labels or [])
             current_labels.add("EA_NEEDS_LABEL_UPDATE")
             email.labels = list(current_labels)
-        
-        # Special handling for trash category - ensure TRASH label is always present
-        if normalized_category == 'trash':
-            current_labels = set(email.labels or [])
-            
-            # Add TRASH label if not already present
-            if 'TRASH' not in current_labels:
-                current_labels.add('TRASH')
-                logger.info(f"[API] Added TRASH label to email {email_id}")
-            
-            # Remove INBOX label if present
-            if 'INBOX' in current_labels:
-                current_labels.remove('INBOX')
-                logger.info(f"[API] Removed INBOX label from email {email_id} because it's being moved to trash")
-                
-            email.labels = list(current_labels)
-        
-        # If moving out of trash category, remove the TRASH label
-        elif old_category == 'trash' or 'TRASH' in (email.labels or []):
-            current_labels = set(email.labels or [])
-            
-            if 'TRASH' in current_labels:
-                current_labels.remove('TRASH')
-                logger.info(f"[API] Removed TRASH label from email {email_id} because category changed from trash to '{normalized_category}'")
-                email.labels = list(current_labels)
-        
+
+            # Always create a sync operation for Gmail
+            operation_data = {}
+            if normalized_category == 'trash':
+                operation_data["add_labels"] = ["TRASH"]
+                if 'INBOX' in current_labels:
+                    operation_data["remove_labels"] = ["INBOX"]
+            elif normalized_category == 'archive':
+                operation_data["remove_labels"] = ["INBOX", "TRASH"]
+            else:
+                operation_data["add_labels"] = ["INBOX"]
+                operation_data["remove_labels"] = ["TRASH"]
+            email_operations_service.create_operation(
+                db=db,
+                user=current_user,
+                email=email,
+                operation_type=OperationType.UPDATE_CATEGORY,
+                operation_data=operation_data
+            )
+
         db.commit()
-        
-        # Get the updated decision for the response
-        updated_decision = db.query(EmailCategorizationDecision).filter(
-            EmailCategorizationDecision.email_id == email_id
-        ).first()
         
         return {
             "status": "success",
             "message": "Category updated successfully. Changes will sync to Gmail during next email sync.",
             "email_id": str(email.id),
             "category": normalized_category,
-            "labels": email.labels,
-            "confidence_score": updated_decision.confidence_score if updated_decision else None,
-            "decision_factors": updated_decision.decision_factors if updated_decision else None
+            "labels": email.labels
         }
     except HTTPException:
         db.rollback()
@@ -1177,104 +1124,6 @@ async def archive_email_endpoint(
         db.rollback()
         logger.error(f"[API] Error archiving/unarchiving email: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to archive/unarchive email: {str(e)}")
-
-@router.post("/fix-trash-consistency")
-async def fix_trash_consistency_endpoint(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """
-    Fix inconsistencies between 'trash' category and 'TRASH' label for the current user's emails
-    
-    This endpoint finds and fixes:
-    1. Emails with category='trash' but missing TRASH label
-    2. Emails with TRASH label but not categorized as 'trash'
-    
-    This ensures all emails are consistently labeled and categorized for trash.
-    """
-    try:
-        logger.info(f"[API] Fixing trash consistency for user {current_user.id}")
-        
-        # Import email operations models only when needed to avoid circular dependencies
-        from ..models.email import Email
-        
-        # Get trash category from database
-        trash_category = db.query(EmailCategory).filter(
-            EmailCategory.name == 'trash',
-            EmailCategory.is_system == True
-        ).first()
-        
-        if not trash_category:
-            raise HTTPException(
-                status_code=500,
-                detail="System trash category not found"
-            )
-        
-        # Case 1: Emails with category='trash' but missing TRASH label
-        category_trash_no_label = db.query(Email).filter(
-            and_(
-                Email.user_id == current_user.id,
-                Email.category == trash_category.name,
-                ~Email.labels.contains(['TRASH'])
-            )
-        ).all()
-        
-        logger.info(f"[API] Found {len(category_trash_no_label)} emails with 'trash' category but missing TRASH label")
-        
-        # Fix them
-        for email in category_trash_no_label:
-            current_labels = set(email.labels or [])
-            current_labels.add('TRASH')
-            
-            # Remove INBOX label if present (it's contradictory to being in trash)
-            if 'INBOX' in current_labels:
-                current_labels.remove('INBOX')
-                logger.info(f"[API] Removed INBOX label from trash email {email.id}")
-                
-            email.labels = list(current_labels)
-            logger.info(f"[API] Added TRASH label to email {email.id}")
-        
-        # Case 2: Emails with TRASH label but not categorized as 'trash'
-        label_trash_wrong_category = db.query(Email).filter(
-            and_(
-                Email.user_id == current_user.id,
-                Email.labels.contains(['TRASH']),
-                Email.category != trash_category.name
-            )
-        ).all()
-        
-        logger.info(f"[API] Found {len(label_trash_wrong_category)} emails with TRASH label but wrong category")
-        
-        # Fix them
-        for email in label_trash_wrong_category:
-            logger.info(f"[API] Changed category from '{email.category}' to '{trash_category.name}' for email {email.id}")
-            email.category = trash_category.name
-            
-            # Remove INBOX label if present
-            current_labels = set(email.labels or [])
-            if 'INBOX' in current_labels:
-                current_labels.remove('INBOX')
-                email.labels = list(current_labels)
-                logger.info(f"[API] Removed INBOX label from trash email {email.id}")
-        
-        # Commit all changes
-        total_fixed = len(category_trash_no_label) + len(label_trash_wrong_category)
-        if total_fixed > 0:
-            db.commit()
-            logger.info(f"[API] Successfully fixed {total_fixed} emails with trash inconsistencies")
-        
-        return {
-            "status": "success",
-            "message": f"Fixed {total_fixed} emails with trash inconsistencies",
-            "fixed_count": total_fixed
-        }
-    except Exception as e:
-        db.rollback()
-        logger.error(f"[API] Error fixing trash consistency: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fix trash consistency: {str(e)}"
-        )
 
 @router.post("/empty-trash")
 async def empty_trash(

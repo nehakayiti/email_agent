@@ -119,12 +119,17 @@ export default function TrashPage() {
 
     // Add a handler for labels updated
     const handleLabelsUpdated = (updatedEmail: Email) => {
-        // Update the emails list with the updated email
-        setEmails(prevEmails => 
-            prevEmails.map(email => 
-                email.id === updatedEmail.id ? updatedEmail : email
-            )
-        );
+        // Remove the email from Trash if it is no longer in Trash (category or label)
+        if (updatedEmail.category !== 'trash' && !updatedEmail.labels.includes('TRASH')) {
+            setEmails(prevEmails => prevEmails.filter(email => email.id !== updatedEmail.id));
+        } else {
+            // Otherwise, update the email in the list
+            setEmails(prevEmails => 
+                prevEmails.map(email => 
+                    email.id === updatedEmail.id ? updatedEmail : email
+                )
+            );
+        }
     };
 
     // Function to handle emptying the trash
