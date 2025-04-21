@@ -97,7 +97,21 @@ async def sync_emails(
         logger.info(f"[API] Sync completed in {duration:.2f} seconds")
         logger.info(f"[API] Sync result: {result}")
         
-        # Use the new utility to record sync details
+        # Patch: treat 'warning' with "No changes detected" as SUCCESS, not ERROR
+        sync_status = result.get("status")
+        sync_message = result.get("message", "")
+        if sync_status == "success":
+            db_status = SyncStatus.SUCCESS
+            db_error_message = None
+        elif sync_status == "warning" and "no changes detected" in sync_message.lower():
+            db_status = SyncStatus.SUCCESS
+            db_error_message = None
+        elif sync_status == "error":
+            db_status = SyncStatus.ERROR
+            db_error_message = sync_message
+        else:
+            db_status = SyncStatus.ERROR
+            db_error_message = sync_message
         record_sync_details(
             db=db,
             user=current_user,
@@ -106,8 +120,8 @@ async def sync_emails(
             sync_started_at=start_time,
             sync_completed_at=end_time,
             duration_sec=duration,
-            status=SyncStatus.SUCCESS if result.get("status") == "success" else SyncStatus.ERROR,
-            error_message=result.get("message") if result.get("status") == "error" else None,
+            status=db_status,
+            error_message=db_error_message,
             emails_synced=result.get("sync_count", 0),
             changes_detected=result.get("changes_detected", 0),
             changes_applied=result.get("changes_applied", 0),

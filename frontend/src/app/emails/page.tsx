@@ -452,15 +452,6 @@ export default function EmailsPage() {
         <div className="px-4 py-8">
             <Toaster position="top-right" toastOptions={{ duration: 6000 }} />
             <div className="w-full max-w-3xl mx-auto sm:px-2 md:px-4">
-                {/* Sync Status Bar */}
-                <SyncStatusBar
-                    status={syncStatus}
-                    lastSync={lastSync}
-                    error={syncError}
-                    onSync={handleSyncNow}
-                    onRetry={handleSyncNow}
-                    onLogin={handleAuthError}
-                />
                 {/* Show prominent notification in trash view */}
                 {categoryParam?.toLowerCase() === 'trash' && showTrashNotification && (
                     <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">

@@ -218,6 +218,7 @@ interface SyncDetails {
   account_email: string;
   backend_version: string;
   data_freshness_sec: number;
+  status?: string;
 }
 
 export default function MainLayout({ children }: { children: React.ReactNode }) {
@@ -421,20 +422,25 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     changesDetected: syncDetails.changes_detected,
     changesApplied: syncDetails.changes_applied,
     pendingEAChanges: syncDetails.pending_ea_changes,
-    syncHistory: syncHistory.map(h => ({
-      time: h.sync_completed_at ? new Date(h.sync_completed_at) : null,
-      direction: h.direction,
-      result: h.status,
-      emailsSynced: h.emails_synced,
-      changes: h.changes_applied,
-      error: h.error_message,
-    })),
+    syncHistory: syncHistory.map(h => {
+      // Treat 'warning' with 'No changes detected' as 'success'
+      const isNoChanges = h.status === 'warning' && h.error_message && h.error_message.toLowerCase().includes('no changes detected');
+      return {
+        time: h.sync_completed_at ? new Date(h.sync_completed_at) : null,
+        direction: h.direction,
+        result: (h.status === 'success' || isNoChanges) ? 'success' : (h.status === 'error' ? 'error' : h.status),
+        emailsSynced: h.emails_synced,
+        changes: h.changes_applied,
+        error: (h.status === 'error' && h.error_message) ? h.error_message : undefined,
+      };
+    }),
     lastError: syncDetails.error_message,
     nextScheduledSync: null, // (optional, if available)
     lastSyncType: syncDetails.sync_type,
     accountEmail: syncDetails.account_email,
     backendVersion: syncDetails.backend_version,
     dataFreshnessSec: syncDetails.data_freshness_sec,
+    status: (syncDetails.status === 'success' || (syncDetails.status === 'warning' && syncDetails.error_message && syncDetails.error_message.toLowerCase().includes('no changes detected'))) ? 'success' : (syncDetails.status === 'error' ? 'error' : syncDetails.status),
   } : undefined;
 
   useEffect(() => { setMounted(true); }, []);
@@ -652,11 +658,11 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
               <SyncStatusBar
                 status={
                   isSyncing ? 'syncing' :
-                  syncStatus === 'error' ? 'error' :
-                  syncStatus === 'success' ? 'success' : 'idle'
+                  details?.status === 'error' ? 'error' :
+                  details?.status === 'success' ? 'success' : 'idle'
                 }
                 lastSync={details?.lastSync || lastSyncTime}
-                error={syncMessage || syncDetailsError || undefined}
+                error={details?.lastError || syncDetailsError || undefined}
                 onSync={handleSync}
                 onRetry={handleSync}
                 onLogin={handleAuthError}

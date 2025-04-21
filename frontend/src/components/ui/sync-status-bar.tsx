@@ -58,6 +58,77 @@ function isAuthError(error?: string | null): boolean {
 export function SyncStatusBar({ status, lastSync, error, onSync, onRetry, onLogin, details, loading, errorMsg }: SyncStatusBarProps & { loading?: boolean; errorMsg?: string }) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  // Cadence state (in minutes)
+  const [cadence, setCadence] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage?.getItem('syncCadence');
+      return stored ? Number(stored) : 3;
+    }
+    return 3;
+  });
+  // Next scheduled sync timestamp
+  const [nextSync, setNextSync] = useState<Date | null>(null);
+  // Track if sync is in progress
+  const [isSyncing, setIsSyncing] = useState(false);
+  // Track last sync request time (local, not from backend)
+  const [lastSyncRequestedAt, setLastSyncRequestedAt] = useState<number>(Date.now());
+  // Track last sync type
+  const [lastSyncType, setLastSyncType] = useState<'Manual' | 'Automatic'>('Manual');
+  // Live countdown state
+  const [countdown, setCountdown] = useState<string>('');
+
+  // Timer effect for auto sync (fixed logic)
+  useEffect(() => {
+    if (!onSync) return;
+    if (isSyncing || status === 'syncing') return;
+    const now = Date.now();
+    const msSinceLast = now - lastSyncRequestedAt;
+    const msUntilNext = Math.max(0, cadence * 60 * 1000 - msSinceLast);
+    setNextSync(new Date(now + msUntilNext));
+    const timer = setTimeout(() => {
+      setIsSyncing(true);
+      setLastSyncRequestedAt(Date.now());
+      setLastSyncType('Automatic');
+      onSync();
+    }, msUntilNext);
+    return () => clearTimeout(timer);
+  }, [cadence, lastSyncRequestedAt, onSync, isSyncing, status]);
+
+  // Live countdown effect
+  useEffect(() => {
+    if (!nextSync) {
+      setCountdown('N/A');
+      return;
+    }
+    const updateCountdown = () => {
+      const now = new Date();
+      const diff = Math.floor((nextSync.getTime() - now.getTime()) / 1000);
+      if (diff <= 0) {
+        setCountdown('Syncing now');
+      } else if (diff < 60) {
+        setCountdown(`${diff} second${diff !== 1 ? 's' : ''}`);
+      } else if (diff < 3600) {
+        setCountdown(`${Math.floor(diff / 60)} minute${Math.floor(diff / 60) !== 1 ? 's' : ''} ${diff % 60 ? (diff % 60) + ' sec' : ''}`);
+      } else {
+        setCountdown(`${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) !== 1 ? 's' : ''}`);
+      }
+    };
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [nextSync]);
+
+  // Reset isSyncing after sync completes
+  useEffect(() => {
+    if (status !== 'syncing') setIsSyncing(false);
+  }, [status]);
+
+  // Persist cadence to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage?.setItem('syncCadence', String(cadence));
+    }
+  }, [cadence]);
 
   // Debug logs
   useEffect(() => {
@@ -129,6 +200,19 @@ export function SyncStatusBar({ status, lastSync, error, onSync, onRetry, onLogi
       );
   }
 
+  // Manual sync handler (update lastSyncRequestedAt and type)
+  const handleManualSync = () => {
+    setIsSyncing(true);
+    setLastSyncRequestedAt(Date.now());
+    setLastSyncType('Manual');
+    onSync?.();
+  };
+
+  // Helper for next scheduled sync display (now uses live countdown)
+  function formatNextSyncTime() {
+    return countdown;
+  }
+
   return (
     <div className="relative">
       <button
@@ -144,19 +228,31 @@ export function SyncStatusBar({ status, lastSync, error, onSync, onRetry, onLogi
         {lastSync && (
           <span className="text-xs text-gray-500 ml-1">{formatRelativeTime(lastSync)}</span>
         )}
+        {/* Live countdown on main bar, only if not session expired */}
+        {countdown && countdown !== 'N/A' && status !== 'error' && !isAuthError(error) && (
+          <span className="text-xs text-blue-500 ml-3">| Next check in: {countdown}</span>
+        )}
       </button>
       {popoverOpen && (
         <SyncDetailsPopover
-          details={details}
+          details={{
+            ...details,
+            nextScheduledSync: nextSync,
+            cadence,
+            lastSyncType: lastSyncType,
+          }}
           onClose={() => setPopoverOpen(false)}
           status={status}
           error={error}
-          onSync={onSync}
+          onSync={handleManualSync}
           onRetry={onRetry}
           onLogin={onLogin}
           popoverRef={popoverRef as React.RefObject<HTMLDivElement>}
           loading={loading}
           errorMsg={errorMsg}
+          cadence={cadence}
+          setCadence={setCadence}
+          formatNextSyncTime={formatNextSyncTime}
         />
       )}
     </div>
@@ -172,7 +268,7 @@ function formatRelativeTime(date: Date) {
   return `${Math.floor(diff / 86400)} day${Math.floor(diff / 86400) !== 1 ? 's' : ''} ago`;
 }
 
-function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, onLogin, popoverRef, loading, errorMsg }: {
+type SyncDetailsPopoverProps = {
   details?: any;
   onClose: () => void;
   status: 'idle' | 'syncing' | 'success' | 'error';
@@ -183,7 +279,12 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
   popoverRef: React.RefObject<HTMLDivElement>;
   loading?: boolean;
   errorMsg?: string;
-}) {
+  cadence: number;
+  setCadence: (n: number) => void;
+  formatNextSyncTime: () => string;
+};
+
+function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, onLogin, popoverRef, loading, errorMsg, cadence, setCadence, formatNextSyncTime }: SyncDetailsPopoverProps) {
   if (loading) {
     return (
       <div ref={popoverRef} className="absolute right-0 mt-2 w-96 bg-white border border-gray-200 rounded-lg shadow-lg z-50 p-4 flex items-center justify-center" role="dialog" tabIndex={-1}>
@@ -214,60 +315,60 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
         </span>
       </div>
       <ul className="text-sm text-gray-700 space-y-2 divide-y divide-gray-100 pb-2">
-        <li className="flex items-center gap-2 pt-2">
-          <ArrowPathIcon className="h-4 w-4 text-blue-500" />
-          <span><strong>Direction:</strong> {details.direction}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="This shows which way your changes are being synced.">Direction</span>
+          <span>{details.direction === 'EA → Gmail' ? 'Changes from Email Agent are sent to Gmail.' : details.direction}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <ClockIcon className="h-4 w-4 text-gray-500" />
-          <span><strong>Last sync:</strong> {details.lastSync ? formatRelativeTime(details.lastSync) : 'Never'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="The last time your emails were checked for updates.">Last checked</span>
+          <span>{details.lastSync ? formatRelativeTime(details.lastSync) : 'Never'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <BoltIcon className="h-4 w-4 text-yellow-500" />
-          <span><strong>Duration:</strong> {details.durationSec != null ? `${details.durationSec.toFixed(1)} sec` : '-'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="How long the last check took.">Check duration</span>
+          <span>{details.durationSec != null ? `${details.durationSec.toFixed(1)} seconds` : '-'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <InboxIcon className="h-4 w-4 text-green-500" />
-          <span><strong>Emails synced:</strong> {details.emailsSynced ?? '-'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="How many emails were looked at during the last check.">Emails checked</span>
+          <span>{details.emailsSynced ?? '-'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <InformationCircleIcon className="h-4 w-4 text-blue-400" />
-          <span><strong>Changes detected:</strong> {details.changesDetected ?? '-'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="Number of new or changed emails found.">Updates found</span>
+          <span>{details.changesDetected ?? '-'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <ArrowUpTrayIcon className="h-4 w-4 text-indigo-500" />
-          <span><strong>Changes applied:</strong> {details.changesApplied ?? '-'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="How many emails were updated in Gmail.">Emails updated</span>
+          <span>{details.changesApplied ?? '-'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <ArrowDownTrayIcon className="h-4 w-4 text-indigo-500" />
-          <span><strong>Pending EA changes:</strong> {details.pendingEAChanges?.length ? details.pendingEAChanges.join(', ') : 'None'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="Emails waiting to be updated next time.">Waiting to update</span>
+          <span>{details.pendingEAChanges?.length ? details.pendingEAChanges.join(', ') : 'None'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <CalendarDaysIcon className="h-4 w-4 text-gray-500" />
-          <span><strong>Next scheduled sync:</strong> {details.nextScheduledSync ? formatRelativeTime(details.nextScheduledSync) : 'N/A'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="How long until your emails are checked again.">Next check in</span>
+          <span>{formatNextSyncTime()}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <BoltIcon className="h-4 w-4 text-yellow-500" />
-          <span><strong>Last sync type:</strong> {details.lastSyncType}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="How often your emails are checked automatically.">Check frequency</span>
+          <span>Every {cadence} minute{cadence !== 1 ? 's' : ''}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <UserIcon className="h-4 w-4 text-gray-700" />
-          <span><strong>Account:</strong> {details.accountEmail}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="Shows if you started the check or if it happened automatically.">How was last check started?</span>
+          <span>{details.lastSyncType === 'Manual' ? 'You clicked "Check Now"' : 'Automatic (checked for you)'}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <ServerStackIcon className="h-4 w-4 text-gray-700" />
-          <span><strong>Backend version:</strong> {details.backendVersion}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="The email account being checked.">Account</span>
+          <span>{details.accountEmail}</span>
         </li>
-        <li className="flex items-center gap-2 pt-2">
-          <ClockIcon className="h-4 w-4 text-gray-500" />
-          <span><strong>Data freshness:</strong> {details.dataFreshnessSec != null ? formatRelativeTime(new Date(Date.now() - (details.dataFreshnessSec * 1000))) : '-'}</span>
+        <li className="flex flex-col pt-2">
+          <span className="font-semibold" title="The version of the app you're using.">App version</span>
+          <span>{details.backendVersion}</span>
         </li>
       </ul>
       {/* Error details */}
       {details.lastError && (
         <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 flex items-start gap-2">
           <ExclamationTriangleIcon className="h-4 w-4 mt-0.5 text-red-500" />
-          <span><strong>Last error:</strong> {details.lastError}</span>
+          <span><strong>Last error:</strong> {details.lastError} <span className="text-gray-500">(If this keeps happening, try again or check your connection.)</span></span>
         </div>
       )}
       {/* Sync history */}
@@ -278,14 +379,12 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
           </div>
           <ul className="text-xs text-gray-600 space-y-1 max-h-24 overflow-y-auto">
             {details.syncHistory.slice(0, 3).map((entry: any, idx: number) => (
-              <li key={idx} className="flex items-center gap-2">
-                <ClockIcon className="h-3 w-3 text-gray-400" />
-                <span>{formatRelativeTime(entry.time)}</span>
-                <span className="ml-1">{entry.direction}</span>
-                <span className={`ml-1 ${entry.result === 'success' ? 'text-green-600' : 'text-red-600'}`}>{entry.result}</span>
-                <span className="ml-1">{entry.emailsSynced} emails</span>
-                <span className="ml-1">{entry.changes} changes</span>
-                {entry.error && <span className="ml-1 text-red-500">{entry.error}</span>}
+              <li key={idx} className="flex flex-col gap-0.5 border-b border-gray-100 pb-1 mb-1">
+                <span>
+                  <span className="font-semibold">{formatRelativeTime(entry.time)}</span> — {entry.direction} — {entry.result === 'success' ? 'All good' : 'Error'}
+                  {entry.result === 'error' && entry.error && <span className="text-red-500 ml-1">({entry.error})</span>}
+                </span>
+                <span className="text-gray-500">{entry.result === 'success' ? (entry.emailsSynced === 0 ? 'No new emails or changes.' : `${entry.emailsSynced} emails checked, ${entry.changes} updated.`) : 'There was a problem during this check.'}</span>
               </li>
             ))}
           </ul>
@@ -298,7 +397,7 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
             className="px-4 py-2 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition"
             onClick={onSync}
           >
-            Sync Now
+            Check Now
           </button>
         )}
         {status === 'syncing' && (
@@ -306,7 +405,7 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
             className="px-4 py-2 rounded bg-blue-400 text-white text-sm font-medium cursor-not-allowed flex items-center gap-2"
             disabled
           >
-            <ArrowPathIcon className="h-4 w-4 animate-spin" /> Syncing…
+            <ArrowPathIcon className="h-4 w-4 animate-spin" /> Checking…
           </button>
         )}
         {status === 'error' && !isAuthError && onRetry && (
@@ -314,7 +413,7 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
             className="px-4 py-2 rounded bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition ml-2"
             onClick={onRetry}
           >
-            Retry
+            Try Again
           </button>
         )}
         {status === 'error' && isAuthError && onLogin && (
@@ -325,6 +424,27 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
             Log In
           </button>
         )}
+      </div>
+      {/* Cadence slider */}
+      <div className="mt-4">
+        <label htmlFor="cadence-slider" className="block text-xs font-medium text-gray-700 mb-1">How often to check for new emails</label>
+        <div className="flex items-center gap-3">
+          <input
+            id="cadence-slider"
+            type="range"
+            min={1}
+            max={5}
+            step={1}
+            value={cadence}
+            onChange={e => setCadence(Number(e.target.value))}
+            className="w-32 accent-blue-500"
+            aria-valuenow={cadence}
+            aria-valuemin={1}
+            aria-valuemax={5}
+          />
+          <span className="text-sm text-gray-700">{cadence} minute{cadence !== 1 ? 's' : ''}</span>
+        </div>
+        <p className="text-xs text-gray-500 mt-1">Your emails will be checked automatically every {cadence} minute{cadence !== 1 ? 's' : ''}. Move the slider to change how often this happens.</p>
       </div>
     </div>
   );
