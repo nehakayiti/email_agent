@@ -11,6 +11,7 @@ from backend.app.services.email_sync_service import sync_emails_since_last_fetch
 from unittest.mock import patch
 from datetime import timezone
 import uuid
+from backend.app.utils.email_utils import set_email_category_and_labels
 
 @pytest.fixture
 def db_session():
@@ -123,3 +124,42 @@ def test_trash_keyword_categorization(db_session, test_user):
     reprocess_emails(db_session, test_user.id, include_reprocessed=True)
     db_session.refresh(email)
     assert email.category == 'trash', f"Expected 'trash', got '{email.category}'" 
+
+def test_set_email_category_and_labels_consistency():
+    from backend.app.utils.email_utils import set_email_category_and_labels
+    class DummyEmail:
+        def __init__(self, labels, category=None):
+            self.labels = labels
+            self.category = category
+    # Trash: should add TRASH, remove INBOX
+    email = DummyEmail(labels=["INBOX", "SOME_OTHER_LABEL"], category="primary")
+    changed = set_email_category_and_labels(email, "trash")
+    assert changed is True
+    assert email.category == "trash"
+    assert "TRASH" in email.labels
+    assert "INBOX" not in email.labels
+    # Archive: should remove INBOX and TRASH
+    email = DummyEmail(labels=["INBOX", "TRASH", "OTHER"], category="trash")
+    changed = set_email_category_and_labels(email, "archive")
+    assert changed is True
+    assert email.category == "archive"
+    assert "INBOX" not in email.labels
+    assert "TRASH" not in email.labels
+    # Important: should add INBOX, remove TRASH
+    email = DummyEmail(labels=["TRASH", "OTHER"], category="archive")
+    changed = set_email_category_and_labels(email, "important")
+    assert changed is True
+    assert email.category == "important"
+    assert "INBOX" in email.labels
+    assert "TRASH" not in email.labels
+    # Idempotency: no change if already correct
+    email = DummyEmail(labels=["TRASH"], category="trash")
+    changed = set_email_category_and_labels(email, "trash")
+    assert changed is False
+    assert email.category == "trash"
+    assert email.labels.count("TRASH") == 1
+    # No duplicate labels
+    email = DummyEmail(labels=["INBOX", "INBOX", "TRASH", "TRASH"], category="primary")
+    set_email_category_and_labels(email, "important")
+    assert email.labels.count("INBOX") == 1
+    assert email.labels.count("TRASH") == 0 

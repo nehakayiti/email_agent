@@ -342,9 +342,6 @@ def reprocess_emails(
     
     logger.info(f"[REPROCESS] Processing {total_emails} emails in {total_batches} batches of {batch_size}")
     
-    # Use a local import to avoid circular dependencies
-    from ..services.email_sync_service import categorize_email_from_labels
-    
     for batch_num in range(total_batches):
         offset = batch_num * batch_size
         batch_query = query.order_by(Email.received_at.desc()).offset(offset).limit(batch_size)
@@ -378,11 +375,20 @@ def reprocess_emails(
                     # Use the full categorization logic instead of just label-based
                     new_category = categorize_email(email_data, db, user_id)
                     
-                    # Update email category if changed
+                    # Always enforce label/category consistency
+                    # Ensure labels is a list before updating
+                    if isinstance(email.labels, str):
+                        try:
+                            email.labels = json.loads(email.labels)
+                        except Exception:
+                            email.labels = [email.labels]
+                    set_email_category_and_labels(email, new_category)
+                    logger.info(f"[REPROCESS] Email {email.id} labels after fix: {email.labels}")
                     if new_category != old_category:
-                        email.category = new_category
                         category_changes[new_category] = category_changes.get(new_category, 0) + 1
-                        logger.info(f"[REPROCESS] Email {email.id} category changed: {old_category} → {new_category}")
+                        logger.info(f"[REPROCESS] Email {email.id} category changed: {old_category} → {new_category} and labels updated for consistency")
+                    else:
+                        logger.info(f"[REPROCESS] Email {email.id} category unchanged ({new_category}), labels updated for consistency")
                 except Exception as e:
                     logger.error(f"[REPROCESS] Error categorizing email {email.id}: {str(e)}")
             else:

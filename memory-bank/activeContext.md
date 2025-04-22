@@ -53,3 +53,13 @@ We've implemented a significant upgrade to the category management interface wit
    - Implement drag-and-drop for priority adjustment
    - Create visualization of category distribution
    - Enhance ML classifier integration with the category management UI 
+
+## Label/Category Consistency Fix (Apr 2025)
+
+- Fixed a critical issue where reprocessing did not enforce label/category consistency for all emails due to a dynamic import error.
+- The import of `set_email_category_and_labels` is now at the top of the file, ensuring the function is always available during reprocessing.
+- Reprocessing now guarantees:
+  - Trash emails have only the `TRASH` label (not `INBOX`)
+  - Archive emails have neither `INBOX` nor `TRASH`
+  - All other categories have `INBOX` but not `TRASH`
+- This fix is robust for all category transitions and legacy drift, and is confirmed by database and UI validation. 

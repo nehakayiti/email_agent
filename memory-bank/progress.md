@@ -55,4 +55,12 @@
 3. **Feb 2023**: Basic category management and email viewing
    - Email detail view with content rendering
    - Basic category management UI
-   - System categories initialization 
+   - System categories initialization
+
+4. **Apr 2025**: Robust label/category consistency enforcement
+   - Fixed a critical import error that prevented label fixes during reprocessing
+   - Now, reprocessing guarantees:
+     - Trash emails have only the TRASH label (not INBOX)
+     - Archive emails have neither INBOX nor TRASH
+     - All other categories have INBOX but not TRASH
+   - Confirmed by database and UI validation 
