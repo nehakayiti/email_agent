@@ -15,6 +15,7 @@ import math
 import json
 from ..services.email_classifier_service import email_classifier_service
 from ..utils.filter_utils import apply_email_filters
+from ..utils.email_utils import set_email_category_and_labels
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,8 @@ def process_and_store_emails(
                     category=category,
                     importance_score=importance
                 )
+                # Ensure category/label consistency for new emails
+                set_email_category_and_labels(email, category)
                 db.add(email)
                 # Mark as new for counting purposes
                 email._is_new = True

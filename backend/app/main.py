@@ -23,32 +23,6 @@ logger.info("Starting Email Agent API")
 app_logger = logging.getLogger('app')
 app_logger.setLevel(logging.DEBUG)
 
-# Create a file handler for important operations like email syncing
-import os
-from logging.handlers import RotatingFileHandler
-
-# Create logs directory if it doesn't exist
-os.makedirs('logs', exist_ok=True)
-
-# Add a rotating file handler for sync operations
-sync_handler = RotatingFileHandler(
-    'logs/email_sync.log',
-    maxBytes=10*1024*1024,  # 10MB
-    backupCount=5
-)
-sync_handler.setLevel(logging.INFO)
-sync_handler.setFormatter(logging.Formatter(
-    '%(levelname)s: %(asctime)s - %(name)s - %(message)s',
-    '%Y-%m-%d %H:%M:%S'
-))
-
-# Add the handler to specific loggers
-for logger_name in ['app.services.email_sync_service', 'app.services.gmail', 
-                   'app.services.email_processor', 'app.routers.emails']:
-    logger = logging.getLogger(logger_name)
-    logger.addHandler(sync_handler)
-    logger.setLevel(logging.DEBUG)
-
 logger = logging.getLogger(__name__)
 logger.debug("Starting application initialization")
 

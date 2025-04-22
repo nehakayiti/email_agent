@@ -12,6 +12,8 @@ import {
   BoltIcon,
   InformationCircleIcon
 } from '@heroicons/react/24/outline';
+import { updateSyncCadence } from '@/lib/api';
+import { toast } from 'react-hot-toast';
 
 interface SyncHistoryEntry {
   time: Date;
@@ -59,13 +61,25 @@ export function SyncStatusBar({ status, lastSync, error, onSync, onRetry, onLogi
   const [popoverOpen, setPopoverOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   // Cadence state (in minutes)
-  const [cadence, setCadence] = useState<number>(() => {
+  const [cadence, setCadenceState] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const stored = window.localStorage?.getItem('syncCadence');
       return stored ? Number(stored) : 3;
     }
     return 3;
   });
+  const setCadence = async (n: number) => {
+    try {
+      const result = await updateSyncCadence(n);
+      if (result && typeof result.sync_cadence === 'number') {
+        setCadenceState(result.sync_cadence);
+      } else {
+        throw new Error('Failed to update sync cadence');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to update sync cadence');
+    }
+  };
   // Next scheduled sync timestamp
   const [nextSync, setNextSync] = useState<Date | null>(null);
   // Track if sync is in progress
@@ -81,6 +95,7 @@ export function SyncStatusBar({ status, lastSync, error, onSync, onRetry, onLogi
   useEffect(() => {
     if (!onSync) return;
     if (isSyncing || status === 'syncing') return;
+    if (cadence === 0) return; // Prevent infinite loop when sync is off
     const now = Date.now();
     const msSinceLast = now - lastSyncRequestedAt;
     const msUntilNext = Math.max(0, cadence * 60 * 1000 - msSinceLast);
@@ -432,19 +447,26 @@ function SyncDetailsPopover({ details, onClose, status, error, onSync, onRetry, 
           <input
             id="cadence-slider"
             type="range"
-            min={1}
+            min={0}
             max={5}
             step={1}
             value={cadence}
             onChange={e => setCadence(Number(e.target.value))}
             className="w-32 accent-blue-500"
             aria-valuenow={cadence}
-            aria-valuemin={1}
+            aria-valuemin={0}
             aria-valuemax={5}
           />
-          <span className="text-sm text-gray-700">{cadence} minute{cadence !== 1 ? 's' : ''}</span>
+          <span className="text-sm text-gray-700">
+            {cadence === 0 ? <span className="text-red-600 font-semibold">Off</span> : `${cadence} minute${cadence !== 1 ? 's' : ''}`}
+          </span>
         </div>
-        <p className="text-xs text-gray-500 mt-1">Your emails will be checked automatically every {cadence} minute{cadence !== 1 ? 's' : ''}. Move the slider to change how often this happens.</p>
+        <p className="text-xs text-gray-500 mt-1">
+          {cadence === 0
+            ? <span>Automatic sync is <span className="text-red-600 font-semibold">off</span>. Emails will not be checked automatically.</span>
+            : <>Your emails will be checked automatically every {cadence} minute{cadence !== 1 ? 's' : ''}. Move the slider to change how often this happens.</>
+          }
+        </p>
       </div>
     </div>
   );

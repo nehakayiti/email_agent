@@ -11,7 +11,7 @@ import sys
 
 def configure_logging(
     log_dir="logs",
-    log_level=logging.INFO,
+    log_level=None,
     log_file_name="email_agent.log",
     console_output=True
 ):
@@ -20,10 +20,29 @@ def configure_logging(
     
     Args:
         log_dir: Directory to store log files
-        log_level: Logging level (default: INFO)
+        log_level: Logging level (default: INFO, can be set via LOG_LEVEL env)
         log_file_name: Name of the log file
         console_output: Whether to output logs to console
+    
+    Environment Variables:
+        LOG_LEVEL: Set log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        LOGGING_ENABLED: Set to '0' or 'false' to disable logging
     """
+    # Check if logging is disabled
+    if os.environ.get("LOGGING_ENABLED", "1").lower() in ("0", "false", "no"):
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.CRITICAL)
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        return root_logger
+
+    # Allow log level override via env
+    env_log_level = os.environ.get("LOG_LEVEL")
+    if env_log_level:
+        log_level = getattr(logging, env_log_level.upper(), logging.INFO)
+    elif log_level is None:
+        log_level = logging.INFO
+    
     # Create logs directory if it doesn't exist
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)

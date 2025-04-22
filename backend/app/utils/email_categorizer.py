@@ -76,7 +76,7 @@ class RuleBasedCategorizer:
 
     def categorize(self, email_data: Dict[str, Any]) -> Tuple[str, float, str]:
         """
-        Categorize an email so that sender rules always take precedence over keywords.
+        Categorize an email using rules. Returns (category, confidence, reason).
         """
         labels     = email_data.get("labels", []) or []
         subject    = (email_data.get("subject") or "").lower()
@@ -89,22 +89,37 @@ class RuleBasedCategorizer:
         for r in self.rules:
             if r["type"] == "label":
                 if r["value"] in labels:
+                    logger.info(f"[EMAIL_CAT] Rule match: type=label, value={r['value']}, category={r['category']}, reason={r['reason']}")
                     return r["category"], 1.0, r["reason"]
 
-        # 2. Sender rules (domain/substring) - always take precedence
+        # 2. Trash keyword rules (subject or from_email) - take precedence over sender rules for other categories
         for r in self.rules:
-            if r["type"] in ("domain", "substring"):
-                if r["type"] == "domain" and from_email.endswith(r["value"].lower()):
-                    return r["category"], 1.0, r["reason"]
-                if r["type"] == "substring" and r["value"].lower() in from_email:
-                    return r["category"], 1.0, r["reason"]
-
-        # 3. Keyword rules (substring in from_email or subject)
-        for r in self.rules:
-            if r["type"] == "substring":
+            if r["type"] == "substring" and r["category"] == "trash":
                 if r["value"].lower() in from_email:
+                    logger.info(f"[EMAIL_CAT] Rule match: type=trash-body, value={r['value']}, category=trash, reason=body trash keyword match | Body: {subject[:40]}")
                     return r["category"], 1.0, r["reason"]
                 if r["value"].lower() in subject:
+                    logger.info(f"[EMAIL_CAT] Rule match: type=trash-subject, value={r['value']}, category=trash, reason=subject trash keyword match | Subject: {subject}")
+                    return r["category"], 1.0, r["reason"]
+
+        # 3. Sender rules (domain/substring) - for non-trash categories
+        for r in self.rules:
+            if r["type"] in ("domain", "substring") and r["category"] != "trash":
+                if r["type"] == "domain" and from_email.endswith(r["value"].lower()):
+                    logger.info(f"[EMAIL_CAT] Rule match: type=domain, value={r['value']}, category={r['category']}, reason=domain match | From: {from_email}")
+                    return r["category"], 1.0, r["reason"]
+                if r["type"] == "substring" and r["value"].lower() in from_email:
+                    logger.info(f"[EMAIL_CAT] Rule match: type=sender, value={r['value']}, category={r['category']}, reason=sender match | From: {from_email}")
+                    return r["category"], 1.0, r["reason"]
+
+        # 4. Keyword rules (substring in from_email or subject) for non-trash categories
+        for r in self.rules:
+            if r["type"] == "substring" and r["category"] != "trash":
+                if r["value"].lower() in from_email:
+                    logger.info(f"[EMAIL_CAT] Rule match: type=body, value={r['value']}, category={r['category']}, reason=body keyword match | Body: {subject[:40]}")
+                    return r["category"], 1.0, r["reason"]
+                if r["value"].lower() in subject:
+                    logger.info(f"[EMAIL_CAT] Rule match: type=subject, value={r['value']}, category={r['category']}, reason=subject keyword match | Subject: {subject}")
                     return r["category"], 1.0, r["reason"]
 
         # fallback: archive if removed from inbox, else important
@@ -127,8 +142,8 @@ def categorize_email(
     try:
         logger.info("[EMAIL_CAT] Starting categorization")
         categorizer = RuleBasedCategorizer(db, user_id)
-        category, _, _ = categorizer.categorize(email_data)
-        logger.info(f"[EMAIL_CAT] Result: {category}")
+        category, confidence, reason = categorizer.categorize(email_data)
+        logger.info(f"[EMAIL_CAT] Result: {category} | Reason: {reason} | Subject: '{email_data.get('subject', '')[:40]}' | From: {email_data.get('from_email', '')}")
         return category
     except Exception as e:
         logger.error(f"[EMAIL_CAT] Error: {e}", exc_info=True)

@@ -485,6 +485,8 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
         deleted_ids = history_result.get("deleted_ids", [])
         label_changes = history_result.get("label_changes", {})
         
+        emails_checked = len(new_emails_raw)  # Track all emails fetched from Gmail
+        
         # If we got a valid history ID back, process the results
         if new_history_id and new_history_id != email_sync.last_history_id:
             logger.info(f"History ID changed: {email_sync.last_history_id} → {new_history_id}")
@@ -540,6 +542,7 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
                 "new_email_count": new_email_count,
                 "deleted_email_count": deleted_email_count,
                 "label_changes_count": label_changes_count,
+                "emails_checked": emails_checked,
                 "sync_started_at": sync_start_timestamp,
                 "user_id": user_id,
                 "sync_method": "history",
@@ -575,6 +578,7 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
                     "operations_processed": operations_processed,
                     "operations_succeeded": operations_succeeded,
                     "operations_failed": operations_failed,
+                    "emails_checked": 0,
                     "sync_started_at": sync_start_timestamp,
                     "user_id": user_id,
                     "sync_method": "operations_only",
@@ -595,6 +599,7 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
                     "status": "warning",
                     "message": "No changes detected since last sync",
                     "sync_count": 0,
+                    "emails_checked": 0,
                     "sync_started_at": sync_start_timestamp,
                     "user_id": user_id,
                     "sync_method": "history_no_changes",
@@ -715,6 +720,7 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
         "new_email_count": new_email_count,
         "deleted_email_count": deleted_email_count,
         "label_changes_count": label_changes_count,
+        "emails_checked": emails_checked if 'emails_checked' in locals() else 0,
         "sync_started_at": sync_start_timestamp,
         "user_id": str(user_id),
         "sync_method": "history"

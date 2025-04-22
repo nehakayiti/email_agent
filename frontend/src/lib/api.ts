@@ -858,4 +858,14 @@ export async function getLatestSyncDetails(): Promise<any | null> {
 
 export async function getSyncHistory(limit: number = 3): Promise<any[] | null> {
     return fetchWithAuth(`/sync/details/?limit=${limit}`);
+}
+
+export async function updateSyncCadence(cadence: number): Promise<{ sync_cadence: number } | null> {
+    return await fetchWithAuth<{ sync_cadence: number }>(
+        '/emails/sync-cadence',
+        {
+            method: 'PATCH',
+            body: JSON.stringify({ cadence }),
+        }
+    );
 } 

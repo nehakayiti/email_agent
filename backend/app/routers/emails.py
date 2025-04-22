@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, conint
 from sqlalchemy import or_, and_
 
 from ..models.email import Email
@@ -25,6 +25,7 @@ from ..models.categorization_feedback import CategorizationFeedback
 from ..models.email_category import EmailCategory
 from ..models.sender_rule import SenderRule
 from ..models.sync_details import SyncDetails, SyncDirection, SyncType, SyncStatus
+from ..utils.email_utils import set_email_category_and_labels
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -32,22 +33,8 @@ router = APIRouter()
 class CategoryUpdate(BaseModel):
     category: str
 
-# Utility function for atomic category/label update
-def set_email_category_and_labels(email, new_category):
-    old_category = email.category
-    email.category = new_category
-    labels = set(email.labels or [])
-    if new_category == 'trash':
-        labels.add('TRASH')
-        labels.discard('INBOX')
-    elif new_category == 'archive':
-        labels.discard('INBOX')
-        labels.discard('TRASH')
-    else:
-        labels.add('INBOX')
-        labels.discard('TRASH')
-    email.labels = list(labels)
-    return old_category != new_category
+class SyncCadenceUpdateRequest(BaseModel):
+    cadence: conint(ge=0, le=1440)  # 0 = off, up to 24 hours
 
 @router.post("/sync")
 async def sync_emails(
@@ -1218,4 +1205,21 @@ async def empty_trash(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to empty trash: {str(e)}"
-        ) 
+        )
+
+@router.patch("/sync-cadence")
+async def update_sync_cadence(
+    req: SyncCadenceUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Update the user's sync cadence (in minutes). 0 disables auto-sync."""
+    email_sync = db.query(EmailSync).filter(EmailSync.user_id == current_user.id).first()
+    if not email_sync:
+        email_sync = EmailSync(user_id=current_user.id, sync_cadence=req.cadence)
+        db.add(email_sync)
+    else:
+        email_sync.sync_cadence = req.cadence
+    db.commit()
+    db.refresh(email_sync)
+    return {"sync_cadence": email_sync.sync_cadence} 
