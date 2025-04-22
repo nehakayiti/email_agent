@@ -900,7 +900,10 @@ async def update_category_endpoint(
             )
         
         # Update the category and labels using the unified utility
-        category_changed = set_email_category_and_labels(email, normalized_category)
+        try:
+            category_changed = set_email_category_and_labels(email, normalized_category, db)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=str(ve))
 
         # Add a needs_label_update flag if we changed category - this will be used during sync
         if category_changed:

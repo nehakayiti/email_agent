@@ -39,7 +39,7 @@ def process_and_store_emails(
     new_emails_count = 0
     updated_emails_count = 0
     
-    logger.info(f"[PROCESSOR] Starting to process {len(emails)} emails for user {user.id}")
+    logger.info(f"[PROCESSOR] Processing {len(emails)} emails for user {user.id}")
     
     for i, email_data in enumerate(emails):
         try:
@@ -48,8 +48,7 @@ def process_and_store_emails(
             from_email = email_data.get('from_email', 'unknown')
             received_at = email_data.get('received_at', 'unknown')
             
-            logger.info(f"[PROCESSOR] Processing email {i+1}/{len(emails)}: ID={gmail_id}, "
-                       f"Subject='{subject}...', From={from_email}, Received={received_at}")
+            logger.debug(f"[PROCESSOR] Email {i+1}/{len(emails)}: ID={gmail_id}, Subject='{subject}...', From={from_email}, Received={received_at}")
             
             # Check if email already exists
             existing_email = db.query(Email).filter(
@@ -58,7 +57,7 @@ def process_and_store_emails(
             ).first()
             
             if existing_email:
-                logger.info(f"[PROCESSOR] Email {gmail_id} already exists, updating")
+                logger.debug(f"[PROCESSOR] Email {gmail_id} already exists, updating")
                 # Update existing email
                 for key, value in email_data.items():
                     if key == 'received_at':
@@ -71,13 +70,11 @@ def process_and_store_emails(
                 email._is_new = False
                 updated_emails_count += 1
             else:
-                logger.info(f"[PROCESSOR] Email {gmail_id} is new, creating")
+                logger.debug(f"[PROCESSOR] Email {gmail_id} is new, creating")
                 # Create new email
                 category = categorize_email(email_data, db, user.id)
+                email_data['category'] = category  # Prevent double categorization
                 importance = calculate_importance(email_data, db, user.id)
-                
-                logger.info(f"[PROCESSOR] Categorized as '{category}' with importance {importance}")
-                
                 email = Email(
                     user_id=user.id,
                     gmail_id=email_data['gmail_id'],
@@ -92,29 +89,21 @@ def process_and_store_emails(
                     category=category,
                     importance_score=importance
                 )
-                # Ensure category/label consistency for new emails
-                set_email_category_and_labels(email, category)
+                set_email_category_and_labels(email, category, db)
                 db.add(email)
-                # Mark as new for counting purposes
                 email._is_new = True
                 new_emails_count += 1
-            
             processed_emails.append(email)
-            
         except Exception as e:
             logger.error(f"[PROCESSOR] Error processing email {email_data.get('gmail_id', 'unknown')}: {str(e)}", exc_info=True)
             continue
-    
     try:
-        logger.info(f"[PROCESSOR] Committing {len(processed_emails)} emails to database")
         db.commit()
-        logger.info(f"[PROCESSOR] Successfully processed {len(processed_emails)} emails "
-                   f"({new_emails_count} new, {updated_emails_count} updated)")
+        logger.info(f"[PROCESSOR] Processed {len(processed_emails)} emails (new: {new_emails_count}, updated: {updated_emails_count}) for user {user.id}")
     except Exception as e:
         logger.error(f"[PROCESSOR] Error committing emails to database: {str(e)}", exc_info=True)
         db.rollback()
         raise
-        
     return processed_emails
 
 def categorize_email(
@@ -148,7 +137,7 @@ def categorize_email(
     gmail_id = email_data.get('gmail_id', 'unknown')
     subject = email_data.get('subject', '')
     
-    logger.info(f"[CATEGORIZER] Categorizing email {gmail_id} with subject '{subject}'")
+    logger.debug(f"[CATEGORIZER] Categorizing email {gmail_id} (subject: '{subject[:40]}')")
     
     # Use the categorization function from email_categorizer - now using modular approach
     category = categorize_email_function(email_data, db, user_id)
@@ -292,75 +281,34 @@ def reprocess_emails(
         Dictionary with reprocessing statistics
     """
     start_time = datetime.now(timezone.utc)
-    logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
-    logger.info(f"║                  STARTING EMAIL REPROCESSING                             ║")
-    logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-    logger.info(f"User ID: {user_id}")
-    logger.info(f"Filters: {filter_params}")
-    logger.info(f"Include already reprocessed: {include_reprocessed}")
-    
-    # Try to load the classifier model for this user
-    classifier_loaded = email_classifier_service.load_trash_classifier(user_id)
-    if classifier_loaded:
-        logger.info(f"[REPROCESS] Successfully loaded email classifier model for user {user_id}")
-    else:
-        logger.warning(f"[REPROCESS] No classifier model available for user {user_id}, using default categorization")
-    
-    # Build the base query
-    query = db.query(Email).filter(Email.user_id == user_id)
-    
-    # Skip already reprocessed emails unless explicitly requested
-    if not include_reprocessed:
-        query = query.filter(or_(
-            Email.last_reprocessed_at.is_(None),
-            Email.is_dirty.is_(True)
-        ))
-    
-    # Apply additional filters if provided
+    logger.info(f"[REPROCESS] Starting reprocessing for user {user_id}")
     if filter_params:
-        logger.info(f"[REPROCESS] Applying filters to emails: {filter_params}")
+        logger.info(f"[REPROCESS] Filters: {filter_params}")
+    classifier_loaded = email_classifier_service.load_trash_classifier(user_id)
+    if not classifier_loaded:
+        logger.warning(f"[REPROCESS] No classifier model for user {user_id}, using rules-based categorization")
+    query = db.query(Email).filter(Email.user_id == user_id)
+    if not include_reprocessed:
+        query = query.filter(or_(Email.last_reprocessed_at.is_(None), Email.is_dirty.is_(True)))
+    if filter_params:
         query = apply_email_filters(query, filter_params)
-    
-    # Get count of emails to process
     total_emails = query.count()
-    logger.info(f"[REPROCESS] Found {total_emails} emails to reprocess")
-    
+    logger.info(f"[REPROCESS] {total_emails} emails to reprocess")
     if total_emails == 0:
-        logger.info(f"[REPROCESS] No emails to reprocess, exiting early")
-        return {
-            "status": "success",
-            "message": "No emails to reprocess",
-            "reprocessed_count": 0,
-            "duration": 0
-        }
-    
-    # Process emails in batches to avoid memory issues
+        logger.info(f"[REPROCESS] No emails to reprocess. Exiting.")
+        return {"status": "success", "message": "No emails to reprocess", "reprocessed_count": 0, "duration": 0}
     batch_size = 100
     total_batches = math.ceil(total_emails / batch_size)
     reprocessed_count = 0
     category_changes = {}
-    
-    logger.info(f"[REPROCESS] Processing {total_emails} emails in {total_batches} batches of {batch_size}")
-    
     for batch_num in range(total_batches):
         offset = batch_num * batch_size
         batch_query = query.order_by(Email.received_at.desc()).offset(offset).limit(batch_size)
         batch_emails = batch_query.all()
-        
-        logger.info(f"[REPROCESS] Processing batch {batch_num + 1}/{total_batches} ({len(batch_emails)} emails)")
-        
-        # Process each email in the batch
         for email in batch_emails:
             old_category = email.category
-            
-            # Reprocess the email
-            logger.debug(f"[REPROCESS] Reprocessing email {email.id} (Gmail ID: {email.gmail_id})")
-            logger.debug(f"[REPROCESS] Current category: {old_category}")
-            
-            # If we have labels, use them to categorize
             if email.labels:
                 try:
-                    # Create full email data for better categorization
                     email_data = {
                         'id': email.id,
                         'gmail_id': email.gmail_id,
@@ -370,54 +318,26 @@ def reprocess_emails(
                         'snippet': email.snippet,
                         'is_read': email.is_read
                     }
-                    
-                    logger.info(f"[CLASSIFICATION] Classifying email {email.id} using modular categorizer")
-                    # Use the full categorization logic instead of just label-based
                     new_category = categorize_email(email_data, db, user_id)
-                    
-                    # Always enforce label/category consistency
-                    # Ensure labels is a list before updating
                     if isinstance(email.labels, str):
                         try:
                             email.labels = json.loads(email.labels)
                         except Exception:
                             email.labels = [email.labels]
-                    set_email_category_and_labels(email, new_category)
-                    logger.info(f"[REPROCESS] Email {email.id} labels after fix: {email.labels}")
+                    set_email_category_and_labels(email, new_category, db)
                     if new_category != old_category:
                         category_changes[new_category] = category_changes.get(new_category, 0) + 1
-                        logger.info(f"[REPROCESS] Email {email.id} category changed: {old_category} → {new_category} and labels updated for consistency")
-                    else:
-                        logger.info(f"[REPROCESS] Email {email.id} category unchanged ({new_category}), labels updated for consistency")
+                        logger.info(f"[REPROCESS] Email {email.id} category changed: {old_category} → {new_category}")
+                    elif logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(f"[REPROCESS] Email {email.id} category unchanged ({new_category})")
                 except Exception as e:
                     logger.error(f"[REPROCESS] Error categorizing email {email.id}: {str(e)}")
-            else:
-                logger.debug(f"[REPROCESS] Email {email.id} has no labels, skipping categorization")
-                
-            # Mark as clean and store reprocessing timestamp
             email.is_dirty = False
             email.last_reprocessed_at = datetime.now(timezone.utc)
             reprocessed_count += 1
-        
-        # Commit each batch separately
         db.commit()
-        logger.info(f"[REPROCESS] Batch {batch_num + 1} completed - {reprocessed_count}/{total_emails} emails processed")
-    
-    # Log category changes stats
-    if category_changes:
-        logger.info(f"[REPROCESS] Category changes:")
-        for category, count in category_changes.items():
-            logger.info(f"  - {category}: {count} emails")
-    
-    # Calculate duration
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
-    
-    logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
-    logger.info(f"║                  EMAIL REPROCESSING COMPLETED                            ║")
-    logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
-    logger.info(f"Reprocessed {reprocessed_count} emails in {duration:.2f} seconds")
-    logger.info(f"Average time per email: {(duration / reprocessed_count if reprocessed_count else 0):.4f} seconds")
-    
+    logger.info(f"[REPROCESS] Completed reprocessing {reprocessed_count} emails in {duration:.2f}s. Category changes: {category_changes}")
     return {
         "status": "success",
         "message": f"Reprocessed {reprocessed_count} emails",

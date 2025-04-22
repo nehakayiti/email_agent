@@ -131,35 +131,52 @@ def test_set_email_category_and_labels_consistency():
         def __init__(self, labels, category=None):
             self.labels = labels
             self.category = category
+    class DummyDB:
+        def query(self, model):
+            class Q:
+                def all(self_inner):
+                    class Cat:
+                        def __init__(self, name):
+                            self.name = name
+                    return [Cat('trash'), Cat('archive'), Cat('important')]
+            return Q()
+    db = DummyDB()
     # Trash: should add TRASH, remove INBOX
     email = DummyEmail(labels=["INBOX", "SOME_OTHER_LABEL"], category="primary")
-    changed = set_email_category_and_labels(email, "trash")
+    changed = set_email_category_and_labels(email, "trash", db)
     assert changed is True
     assert email.category == "trash"
     assert "TRASH" in email.labels
     assert "INBOX" not in email.labels
     # Archive: should remove INBOX and TRASH
     email = DummyEmail(labels=["INBOX", "TRASH", "OTHER"], category="trash")
-    changed = set_email_category_and_labels(email, "archive")
+    changed = set_email_category_and_labels(email, "archive", db)
     assert changed is True
     assert email.category == "archive"
     assert "INBOX" not in email.labels
     assert "TRASH" not in email.labels
     # Important: should add INBOX, remove TRASH
     email = DummyEmail(labels=["TRASH", "OTHER"], category="archive")
-    changed = set_email_category_and_labels(email, "important")
+    changed = set_email_category_and_labels(email, "important", db)
     assert changed is True
     assert email.category == "important"
     assert "INBOX" in email.labels
     assert "TRASH" not in email.labels
     # Idempotency: no change if already correct
     email = DummyEmail(labels=["TRASH"], category="trash")
-    changed = set_email_category_and_labels(email, "trash")
+    changed = set_email_category_and_labels(email, "trash", db)
     assert changed is False
     assert email.category == "trash"
     assert email.labels.count("TRASH") == 1
     # No duplicate labels
     email = DummyEmail(labels=["INBOX", "INBOX", "TRASH", "TRASH"], category="primary")
-    set_email_category_and_labels(email, "important")
+    set_email_category_and_labels(email, "important", db)
     assert email.labels.count("INBOX") == 1
-    assert email.labels.count("TRASH") == 0 
+    assert email.labels.count("TRASH") == 0
+    # Invalid category should raise ValueError
+    email = DummyEmail(labels=["INBOX"], category="primary")
+    try:
+        set_email_category_and_labels(email, "not_a_real_category", db)
+        assert False, "Expected ValueError for invalid category"
+    except ValueError as ve:
+        assert "Invalid category" in str(ve) 
