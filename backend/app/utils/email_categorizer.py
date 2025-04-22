@@ -131,17 +131,19 @@ class RuleBasedCategorizer:
 def categorize_email(
     email_data: Dict[str, Any],
     db: Session,
-    user_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None,
+    categorizer: 'RuleBasedCategorizer' = None
 ) -> str:
     """
     Helper function to categorize an email from a data dictionary.
-
+    If a categorizer instance is provided, use it; otherwise, instantiate one.
     Returns:
         Category string.
     """
     try:
         logger.info("[EMAIL_CAT] Starting categorization")
-        categorizer = RuleBasedCategorizer(db, user_id)
+        if categorizer is None:
+            categorizer = RuleBasedCategorizer(db, user_id)
         category, confidence, reason = categorizer.categorize(email_data)
         logger.info(f"[EMAIL_CAT] Result: {category} | Reason: {reason} | Subject: '{email_data.get('subject', '')[:40]}' | From: {email_data.get('from_email', '')}")
         return category

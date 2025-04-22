@@ -108,79 +108,74 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
     """
     if not label_changes:
         return 0
-    
+
+    from backend.app.utils.email_categorizer import RuleBasedCategorizer, categorize_email
+    categorizer = RuleBasedCategorizer(db, user.id)
+    # Collect all labels used in rules for relevance check
+    rule_labels = set()
+    for rule in categorizer.rules:
+        if rule["type"] == "label":
+            rule_labels.add(rule["value"].upper())
+    # Always consider INBOX and TRASH as relevant
+    rule_labels.update(["INBOX", "TRASH"])
+
+    def is_relevant_label_change(added, removed):
+        # Only recategorize if any added/removed label is relevant
+        for label in (added or []) + (removed or []):
+            if label.upper() in rule_labels:
+                return True
+        return False
+
     updated_count = 0
     for gmail_id, changes in label_changes.items():
-        # Find the email in our database
         email = db.query(Email).filter(
             Email.user_id == user.id,
             Email.gmail_id == gmail_id
         ).first()
-        
         if not email:
             logger.debug(f"[GMAIL→EA] Email {gmail_id} not found in database, skipping label update")
             continue
-        
-        # Format a descriptive email identifier for logs
         email_desc = f"'{email.subject[:40]}...' ({gmail_id})"
-        
-        # Prepare user-friendly label change description
         added_labels = changes.get('added', [])
         removed_labels = changes.get('removed', [])
-        
         label_desc = []
         if added_labels:
             label_desc.append(f"added {added_labels}")
         if removed_labels:
             label_desc.append(f"removed {removed_labels}")
-        
         change_desc = " & ".join(label_desc)
         logger.info(f"[GMAIL→EA] Processing label changes ({change_desc}): {email_desc}")
-            
-        # Handle label changes and update our database
         changed = False
         current_labels = set(email.labels or [])
-        
-        # Add new labels
-        for label in changes.get('added', []):
+        for label in added_labels:
             if label not in current_labels:
                 current_labels.add(label)
                 changed = True
-        
-        # Remove labels
-        for label in changes.get('removed', []):
+        for label in removed_labels:
             if label in current_labels:
                 current_labels.remove(label)
                 changed = True
-        
         if changed:
-            # Update the email's labels
             email.labels = list(current_labels)
-            
-            # Create email data dict for categorization
-            email_data = {
-                'id': email.id,
-                'gmail_id': email.gmail_id,
-                'labels': list(current_labels),
-                'subject': email.subject,
-                'from_email': email.from_email,
-                'snippet': email.snippet,
-                'is_read': email.is_read
-            }
-            
-            # Recategorize using our modular categorizer
-            new_category = categorize_email(email_data, db, user.id)
-            
-            if email.category != new_category:
-                logger.info(f"[GMAIL→EA] Recategorized email from '{email.category}' to '{new_category}' after label changes: {email_desc}")
-                email.category = new_category
-            
+            # Only recategorize if relevant label changed
+            if is_relevant_label_change(added_labels, removed_labels):
+                email_data = {
+                    'id': email.id,
+                    'gmail_id': email.gmail_id,
+                    'labels': list(current_labels),
+                    'subject': email.subject,
+                    'from_email': email.from_email,
+                    'snippet': email.snippet,
+                    'is_read': email.is_read
+                }
+                new_category = categorize_email(email_data, db, user.id, categorizer=categorizer)
+                if email.category != new_category:
+                    logger.info(f"[GMAIL→EA] Recategorized email from '{email.category}' to '{new_category}' after label changes: {email_desc}")
+                    email.category = new_category
             updated_count += 1
-    
     if updated_count > 0:
         db.commit()
         logger.info(f"[GMAIL→EA] Updated {updated_count} emails due to label changes")
-        
     return updated_count
 
 def mark_emails_deleted(db: Session, user: User, deleted_gmail_ids: List[str]) -> int:

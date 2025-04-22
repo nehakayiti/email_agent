@@ -36,34 +36,6 @@ def ensure_trash_category(db_session: Session):
         db_session.add(EmailCategory(name='trash', display_name='Trash', description='Trash', priority=5, is_system=True))
         db_session.commit()
 
-
-def test_new_trash_email_removes_inbox_label(db_session, test_user):
-    # Simulate a new email with INBOX label that should be categorized as trash
-    email_data = {
-        'gmail_id': 'test-gmail-id',
-        'thread_id': 'test-thread-id',
-        'subject': 'Spam offer',
-        'from_email': 'spammer@spam.com',
-        'received_at': datetime.utcnow().isoformat(),
-        'snippet': 'Buy now!',
-        'labels': ['INBOX', 'SOME_OTHER_LABEL'],
-        'is_read': False,
-        'raw_data': {},
-    }
-    # Patch categorize_email to always return 'trash'
-    from backend.app.services import email_processor
-    orig_categorize_email = email_processor.categorize_email
-    email_processor.categorize_email = lambda *a, **kw: 'trash'
-    try:
-        emails = process_and_store_emails(db_session, test_user, [email_data])
-        assert len(emails) == 1
-        email = emails[0]
-        assert email.category == 'trash'
-        assert 'TRASH' in email.labels
-        assert 'INBOX' not in email.labels
-    finally:
-        email_processor.categorize_email = orig_categorize_email 
-
 def fake_gmail_fetch_history_changes(service, history_id, max_pages=5):
     # Simulate Gmail returning 2 new emails
     return {

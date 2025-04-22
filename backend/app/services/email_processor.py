@@ -8,7 +8,7 @@ from ..models.user import User
 from ..models.email_category import EmailCategory
 from email.utils import parsedate_to_datetime
 import dateutil.parser
-from ..utils.email_categorizer import determine_category, categorize_email as categorize_email_function
+from ..utils.email_categorizer import determine_category, categorize_email as categorize_email_util, RuleBasedCategorizer
 from uuid import UUID
 import time
 import math
@@ -72,7 +72,7 @@ def process_and_store_emails(
             else:
                 logger.debug(f"[PROCESSOR] Email {gmail_id} is new, creating")
                 # Create new email
-                category = categorize_email(email_data, db, user.id)
+                category = categorize_email_util(email_data, db, user.id)
                 email_data['category'] = category  # Prevent double categorization
                 importance = calculate_importance(email_data, db, user.id)
                 email = Email(
@@ -140,7 +140,7 @@ def categorize_email(
     logger.debug(f"[CATEGORIZER] Categorizing email {gmail_id} (subject: '{subject[:40]}')")
     
     # Use the categorization function from email_categorizer - now using modular approach
-    category = categorize_email_function(email_data, db, user_id)
+    category = categorize_email_util(email_data, db, user_id)
     
     logger.info(f"[CATEGORIZER] Email {gmail_id} categorized as '{category}'")
     return category
@@ -191,7 +191,7 @@ def calculate_importance(
     if not category:
         # Only call categorize_email if we don't have a category already
         logger.debug(f"[IMPORTANCE] No category available, categorizing email {gmail_id}")
-        category = categorize_email(email_data, db, user_id)
+        category = categorize_email_util(email_data, db, user_id)
         # Store category in email_data to avoid future recategorization
         email_data['category'] = category
     
@@ -297,18 +297,37 @@ def reprocess_emails(
     if total_emails == 0:
         logger.info(f"[REPROCESS] No emails to reprocess. Exiting.")
         return {"status": "success", "message": "No emails to reprocess", "reprocessed_count": 0, "duration": 0}
+    
+    # Process emails in batches to avoid memory issues
     batch_size = 100
     total_batches = math.ceil(total_emails / batch_size)
     reprocessed_count = 0
     category_changes = {}
+
+    # Instantiate categorizer once for the batch
+    categorizer = RuleBasedCategorizer(db, user_id)
+
+    logger.info(f"[REPROCESS] Processing {total_emails} emails in {total_batches} batches of {batch_size}")
+
     for batch_num in range(total_batches):
         offset = batch_num * batch_size
         batch_query = query.order_by(Email.received_at.desc()).offset(offset).limit(batch_size)
         batch_emails = batch_query.all()
+
+        logger.info(f"[REPROCESS] Processing batch {batch_num + 1}/{total_batches} ({len(batch_emails)} emails)")
+
+        # Process each email in the batch
         for email in batch_emails:
             old_category = email.category
+
+            # Reprocess the email
+            logger.debug(f"[REPROCESS] Reprocessing email {email.id} (Gmail ID: {email.gmail_id})")
+            logger.debug(f"[REPROCESS] Current category: {old_category}")
+
+            # If we have labels, use them to categorize
             if email.labels:
                 try:
+                    # Create full email data for better categorization
                     email_data = {
                         'id': email.id,
                         'gmail_id': email.gmail_id,
@@ -318,7 +337,13 @@ def reprocess_emails(
                         'snippet': email.snippet,
                         'is_read': email.is_read
                     }
-                    new_category = categorize_email(email_data, db, user_id)
+
+                    logger.info(f"[CLASSIFICATION] Classifying email {email.id} using modular categorizer")
+                    # Use the cached categorizer instance
+                    new_category = categorize_email_util(email_data, db, user_id, categorizer=categorizer)
+
+                    # Always enforce label/category consistency
+                    # Ensure labels is a list before updating
                     if isinstance(email.labels, str):
                         try:
                             email.labels = json.loads(email.labels)
@@ -327,15 +352,23 @@ def reprocess_emails(
                     set_email_category_and_labels(email, new_category, db)
                     if new_category != old_category:
                         category_changes[new_category] = category_changes.get(new_category, 0) + 1
-                        logger.info(f"[REPROCESS] Email {email.id} category changed: {old_category} → {new_category}")
-                    elif logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"[REPROCESS] Email {email.id} category unchanged ({new_category})")
+                        logger.info(f"[REPROCESS] Email {email.id} category changed: {old_category} → {new_category} and labels updated for consistency")
+                    else:
+                        logger.debug(f"[REPROCESS] Email {email.id} category unchanged ({new_category}), labels updated for consistency")
                 except Exception as e:
                     logger.error(f"[REPROCESS] Error categorizing email {email.id}: {str(e)}")
+            else:
+                logger.debug(f"[REPROCESS] Email {email.id} has no labels, skipping categorization")
+
+            # Mark as clean and store reprocessing timestamp
             email.is_dirty = False
             email.last_reprocessed_at = datetime.now(timezone.utc)
             reprocessed_count += 1
+
+        # Commit each batch separately
         db.commit()
+        logger.info(f"[REPROCESS] Batch {batch_num + 1} completed - {reprocessed_count}/{total_emails} emails processed")
+
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     logger.info(f"[REPROCESS] Completed reprocessing {reprocessed_count} emails in {duration:.2f}s. Category changes: {category_changes}")
     return {
