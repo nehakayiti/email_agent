@@ -73,10 +73,12 @@ def test_trash_keyword_categorization(db_session, test_user):
         trash_category = EmailCategory(name='trash', display_name='Trash', description='Trash', priority=5, is_system=True)
         db_session.add(trash_category)
         db_session.commit()
-    # Add trash keyword
-    keyword = CategoryKeyword(category_id=trash_category.id, keyword='test 123', is_regex=False, weight=1)
-    db_session.add(keyword)
-    db_session.commit()
+    # Only add trash keyword if it does not already exist
+    existing = db_session.query(CategoryKeyword).filter_by(category_id=trash_category.id, keyword='test 123').first()
+    if not existing:
+        keyword = CategoryKeyword(category_id=trash_category.id, keyword='test 123', is_regex=False, weight=1)
+        db_session.add(keyword)
+        db_session.commit()
     # Add email with subject 'test 123'
     email = Email(
         user_id=test_user.id,
@@ -152,3 +154,50 @@ def test_set_email_category_and_labels_consistency():
         assert False, "Expected ValueError for invalid category"
     except ValueError as ve:
         assert "Invalid category" in str(ve) 
+
+@pytest.mark.asyncio
+async def test_sync_operation_end_to_end(db_session, test_user):
+    from backend.app.services import gmail as gmail_mod
+    from backend.app.models.email import Email
+
+    # Simulate Gmail returning 1 new email and 1 label change
+    def fake_fetch_history_changes(service, history_id, max_pages=5):
+        return {
+            "new_history_id": "history-id-2",
+            "new_emails": [
+                {
+                    "gmail_id": "sync-id-1",
+                    "thread_id": "sync-t1",
+                    "subject": "Sync Test Email",
+                    "from_email": "testsender@example.com",
+                    "received_at": datetime.now(timezone.utc).isoformat(),
+                    "snippet": "This is a sync test.",
+                    "labels": ["INBOX"],
+                    "is_read": False,
+                    "raw_data": {},
+                }
+            ],
+            "deleted_ids": [],
+            "label_changes": {}
+        }
+
+    with patch.object(gmail_mod, 'get_gmail_service', return_value=None), \
+         patch.object(gmail_mod, 'fetch_history_changes', side_effect=fake_fetch_history_changes):
+        # Patch process_pending_operations to do nothing
+        from backend.app.services import email_operations_service
+        async def fake_process_pending_operations(db, user, credentials):
+            return {"processed_count": 0, "success_count": 0, "failure_count": 0, "retry_count": 0}
+        email_operations_service.process_pending_operations = fake_process_pending_operations
+
+        # Run the sync
+        from backend.app.services.email_sync_service import sync_emails_since_last_fetch
+        result = await sync_emails_since_last_fetch(db_session, test_user)
+        assert result["status"] == "success"
+        assert result["new_email_count"] == 1
+        assert result["sync_count"] >= 1
+
+        # Check the email is in the database
+        email = db_session.query(Email).filter_by(gmail_id="sync-id-1").first()
+        assert email is not None
+        assert email.subject == "Sync Test Email"
+        assert email.from_email == "testsender@example.com" 

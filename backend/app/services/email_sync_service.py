@@ -1,3 +1,4 @@
+from googleapiclient.errors import HttpError
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
@@ -12,7 +13,7 @@ import logging
 import time
 from uuid import UUID
 from ..services import email_operations_service
-from ..utils.email_categorizer import categorize_email, categorize_email_from_labels
+from ..utils.email_categorizer import RuleBasedCategorizer, categorize_email
 from ..services import email_classifier_service
 from ..core.logging_config import configure_logging
 from ..config import settings
@@ -109,7 +110,6 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
     if not label_changes:
         return 0
 
-    from backend.app.utils.email_categorizer import RuleBasedCategorizer, categorize_email
     categorizer = RuleBasedCategorizer(db, user.id)
     # Collect all labels used in rules for relevance check
     rule_labels = set()
@@ -345,6 +345,62 @@ def process_pending_category_updates(db: Session, user: User) -> int:
         logger.info(f"[SYNC] Successfully updated {updated_count} emails with pending category changes")
     
     return updated_count
+
+async def perform_full_sync(db: Session, user: User) -> Dict[str, Any]:
+    """
+    Perform a full sync of all emails from Gmail.
+    This is used when the historyId is invalid or a full sync is forced.
+    """
+    sync_start_time = datetime.now(timezone.utc)
+    logger.info(f"╔══════════════════════════════════════════════════════════════════════════╗")
+    logger.info(f"║                  PERFORMING FULL SYNC                                    ║")
+    logger.info(f"╚══════════════════════════════════════════════════════════════════════════╝")
+    logger.info(f"User: {user.email}")
+
+    # Fetch all emails from Gmail
+    try:
+        # We need to get the latest historyId after fetching all emails.
+        # The Gmail API doesn't directly provide a way to get the current historyId
+        # without a history.list call. So, we'll fetch emails and then get the
+        # historyId from the most recent email.
+        all_emails_raw = await gmail.fetch_emails_from_gmail(user.credentials, max_results=10000) # A large number to get all emails
+
+        if not all_emails_raw:
+            logger.warning("[SYNC] No emails found during full sync.")
+            return {"status": "success", "message": "No emails found to sync.", "sync_count": 0}
+
+        # Get the latest historyId from the most recent email
+        latest_history_id = all_emails_raw[0].get('raw_data', {}).get('historyId')
+
+        # Process and store the emails
+        processed_emails = process_and_store_emails(db, user, all_emails_raw)
+        new_email_count = len(processed_emails)
+
+        # Update the sync checkpoint
+        email_sync = get_or_create_email_sync(db, user)
+        email_sync.last_history_id = latest_history_id
+        email_sync.last_fetched_at = sync_start_time
+        db.commit()
+
+        sync_duration = (datetime.now(timezone.utc) - sync_start_time).total_seconds()
+        logger.info(f"[SYNC] Full sync completed in {sync_duration:.2f} seconds. Processed {new_email_count} emails.")
+
+        return {
+            "status": "success",
+            "message": f"Successfully performed a full sync, processing {new_email_count} emails.",
+            "sync_count": new_email_count,
+            "sync_method": "full_sync"
+        }
+
+    except Exception as e:
+        logger.error(f"[SYNC] Error during full sync: {str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Full sync failed: {str(e)}",
+            "sync_count": 0,
+            "sync_method": "full_sync_error"
+        }
+
 
 async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date: bool = False, force_full_sync: bool = False) -> Dict[str, Any]:
     """
@@ -604,31 +660,25 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
                         "sync_duration_seconds": sync_duration
                     }
                 }
-    except Exception as e:
-        error_msg = str(e)
-        if "Invalid startHistoryId" in error_msg or "Start history ID is too old" in error_msg:
-            logger.warning(f"[SYNC] History ID {email_sync.last_history_id} is invalid or too old: {error_msg}")
-            # Clear the history ID
+    except HttpError as e:
+        if e.resp.status == 404:
+            logger.warning(f"[SYNC] History ID {email_sync.last_history_id} not found. Triggering a full sync.")
             email_sync.last_history_id = None
             db.commit()
-            return {
-                "status": "error", 
-                "message": f"History ID is invalid or too old, please retry to initialize a new history ID",
-                "sync_count": 0,
-                "sync_started_at": sync_start_timestamp,
-                "user_id": str(user_id),
-                "sync_method": "history_reset"
-            }
+            return await perform_full_sync(db, user)
         else:
-            logger.error(f"[SYNC] Error using history-based approach: {error_msg}", exc_info=True)
-            return {
-                "status": "error", 
-                "message": f"History sync error: {error_msg}",
-                "sync_count": 0,
-                "sync_started_at": sync_start_timestamp,
-                "user_id": str(user_id),
-                "sync_method": "error"
-            }
+            logger.error(f"[SYNC] HTTP error during history sync: {str(e)}", exc_info=True)
+            return {"status": "error", "message": f"HTTP error during sync: {str(e)}", "sync_count": 0}
+    except Exception as e:
+        logger.error(f"[SYNC] Error using history-based approach: {str(e)}", exc_info=True)
+        return {
+            "status": "error", 
+            "message": f"History sync error: {str(e)}",
+            "sync_count": 0,
+            "sync_started_at": sync_start_timestamp,
+            "user_id": str(user_id),
+            "sync_method": "error"
+        }
     
     # Process deleted emails
     if deleted_email_ids:

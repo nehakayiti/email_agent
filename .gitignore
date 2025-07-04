@@ -119,6 +119,9 @@ celerybeat-schedule.*
 .env
 .venv
 test.env
+.env.local
+.env.local.*
+.env.example
 env/
 venv/
 ENV/

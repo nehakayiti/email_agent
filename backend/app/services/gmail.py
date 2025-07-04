@@ -174,6 +174,9 @@ async def fetch_history_changes(service, history_id, max_pages=5):
             "label_changes": label_changes
         }
     
+    except HttpError as e:
+        logger.error(f"[GMAIL] HttpError fetching history changes: {str(e)}", exc_info=True)
+        raise e
     except Exception as e:
         logger.error(f"[GMAIL] Error fetching history changes: {str(e)}", exc_info=True)
         raise
@@ -525,39 +528,18 @@ def process_message_data(msg: Dict[str, Any]) -> Dict[str, Any]:
     
     return email_data
 
-def fetch_emails_from_gmail(
+async def fetch_emails_from_gmail(
     credentials: Dict[str, Any], 
     max_results: int = 100, 
-    query: str = None,
-    reference_email_id: str = None
+    query: str = None
 ) -> List[Dict[str, Any]]:
     """
     Fetch emails using the Gmail API and process them.
-    Falls back to the traditional list/get approach if history sync fails.
-    """
-    logger.info("[GMAIL] Creating Gmail service with credentials")
+    """ 
+    logger.info(f"[GMAIL] Fetching emails with max_results={max_results}, query='{query}'")
     service = create_gmail_service(credentials)
     
-    start_history_id = None
-    if reference_email_id:
-        logger.info(f"[GMAIL] Using reference email ID: {reference_email_id}")
-        start_history_id = get_message_history_id(service, reference_email_id)
-        if start_history_id:
-            logger.info(f"[GMAIL] Obtained history ID {start_history_id} from reference email")
-    
-    if start_history_id:
-        logger.info(f"[GMAIL] Using history API with history ID: {start_history_id}")
-        try:
-            new_emails, _, _, new_history_id = sync_gmail_changes(credentials, start_history_id)
-            logger.info(f"[GMAIL] Retrieved {len(new_emails)} emails via history API")
-            return new_emails
-        except Exception as e:
-            logger.error(f"[GMAIL] Error with history API: {str(e)}", exc_info=True)
-            logger.info("[GMAIL] Falling back to traditional approach")
-    
-    logger.info(f"[GMAIL] Using traditional approach with maxResults={max_results}, query='{query}'")
     params = {'userId': 'me', 'maxResults': min(max_results, 500)}
-    
     if query:
         params['q'] = query
     else:
