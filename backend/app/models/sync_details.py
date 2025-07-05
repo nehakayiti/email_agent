@@ -1,9 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, Enum, Text, JSON
-from sqlalchemy.ext.declarative import declarative_base
 import enum
 from sqlalchemy.dialects.postgresql import UUID
-
-Base = declarative_base()
+from ..db import Base
 
 class SyncDirection(str, enum.Enum):
     GMAIL_TO_EA = 'Gmail → EA'

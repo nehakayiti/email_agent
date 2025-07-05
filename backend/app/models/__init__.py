@@ -6,4 +6,5 @@ from .categorization_feedback import CategorizationFeedback
 from .email_categorization_decision import EmailCategorizationDecision
 from .email_operation import EmailOperation
 from .email_trash_event import EmailTrashEvent
-from .email_sync import EmailSync 
+from .email_sync import EmailSync
+from .sync_details import SyncDetails 
