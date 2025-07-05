@@ -8,7 +8,7 @@ from ..models.user import User
 from ..models.email_category import EmailCategory
 from email.utils import parsedate_to_datetime
 import dateutil.parser
-from ..utils.email_categorizer import determine_category, categorize_email as categorize_email_util, RuleBasedCategorizer
+from ..utils.email_categorizer import categorize_email as categorize_email_util, RuleBasedCategorizer
 from uuid import UUID
 import time
 import math

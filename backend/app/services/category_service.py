@@ -2,7 +2,7 @@
 Service for managing email categories and categorization rules.
 """
 import logging
-from typing import Dict, List, Set, Optional, Any, Tuple, Union
+from typing import Dict, List, Optional, Any, Tuple
 from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_

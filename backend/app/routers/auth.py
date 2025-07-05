@@ -11,7 +11,6 @@ from ..utils.google import get_userinfo
 from starlette.requests import Request
 import logging
 import requests
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.sql import func
 
 logger = logging.getLogger(__name__)

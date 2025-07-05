@@ -438,7 +438,7 @@ def _fetch_email_details_in_batches(service, email_ids, batch_size=20):
         for j, msg_id in enumerate(batch_ids):
             request_id = f"msg{j}"
             def create_callback(request_id, msg_id):
-                def callback(id_, response, exception):
+                def callback(response, exception):
                     if exception is not None:
                         logger.warning(f"[GMAIL] Error fetching message {msg_id}: {str(exception)}")
                         batch_errors[msg_id] = str(exception)

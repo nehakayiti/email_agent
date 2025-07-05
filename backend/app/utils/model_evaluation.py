@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from uuid import UUID
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score
-from sklearn.model_selection import KFold, cross_val_score, cross_validate
+from sklearn.model_selection import KFold
 from .naive_bayes_classifier import classify_email, load_classifier_model
 
 logger = logging.getLogger(__name__)
