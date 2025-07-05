@@ -1,0 +1,203 @@
+The Revised, Rock-Solid Roadmap
+
+  This is the prioritized, step-by-step approach to make this project
+  complete, robust, and staging-ready.
+
+  TODO #1: Foundational Integration Testing & Environment
+
+
+   * Description: This is the bedrock for everything else. We will establish
+     a fully isolated test environment, including a dedicated test Gmail
+     account and a separate test database. All automated tests will run
+     against this environment, providing end-to-end validation without flaky
+     mocks. This gives us a safety net to refactor and build with confidence.
+
+   * Instructions for Coding Agents:
+       1. Environment Setup:
+           * Create backend/.env.test and populate it with credentials for a
+             new, dedicated test Gmail account and a new test database URL
+             (e.g., email_agent_db_test).
+           * Modify backend/pytest.ini to use pytest-dotenv and specify that
+             pytest should only load variables from .env.test.
+       2. Test Database Fixture:
+           * In backend/tests/conftest.py, create a session-scoped pytest
+             fixture that:
+               * Connects to the test database.
+               * Drops all tables to ensure a clean state.
+               * Runs alembic upgrade head to apply all migrations.
+               * Yields the database session to the tests.
+               * Cleans up the database after the test session.
+       3. Gmail Seeding Script:
+           * Create backend/scripts/seed_test_gmail.py. This script will
+             take a list of predefined email structures (subject, body,
+             sender, labels) and use the Gmail API to create them in the
+             test Gmail account. This makes our tests deterministic.
+   * Acceptance Criteria:
+       * Running pytest never touches the development database or your
+         primary Gmail account.
+       * A test can be written that programmatically sends an email to the
+         test Gmail account, triggers the sync service, and asserts the
+         email's content and category are correctly stored in the test
+         database.
+   * Tests to Write:
+       * test_full_sync_from_seeded_gmail: Seeds 5 emails, runs a full sync,
+         and verifies all 5 are in the test DB.
+       * test_label_update_syncs_to_gmail: Programmatically updates an
+         email's labels in the test DB, runs the operation processor, and
+         uses the Gmail API to confirm the label was updated in the test
+         Gmail account.
+
+  TODO #2: Refactor Core Services for Modularity & Testability
+
+
+   * Description: This is the critical architectural improvement. We will
+     dismantle the monolithic email_sync_service.py and break its
+     responsibilities into smaller, single-purpose services. This makes the
+     system easier to understand, maintain, and test independently.
+   * Instructions for Coding Agents:
+       1. Create New Service Files: Create the following new files in
+          backend/app/services/:
+           * gmail_service.py: Contains only the logic for interacting with
+             the Gmail API (e.g., fetch_history, get_message,
+             update_labels). This service knows nothing about our database.
+           * processing_service.py: Contains the logic for taking raw email
+             data from the API and creating/updating Email model instances
+             in the database.
+           * categorization_service.py: Consolidate all categorization logic
+             here.
+       2. Refactor `email_sync_service.py`:
+           * The sync_emails_since_last_fetch function will be rewritten to
+             be a simple orchestrator. It will call the gmail_service to get
+             data, then pass that data to the processing_service and
+             categorization_service. Its own logic will be minimal.
+   * Acceptance Criteria:
+       * The email_sync_service.py file is significantly smaller and
+         primarily calls other services.
+       * The new services (gmail_service, processing_service) have clear,
+         single responsibilities.
+       * All existing integration tests from TODO #1 must pass after the
+         refactor, proving no functionality was broken.
+   * Tests to Write:
+       * Unit tests can now be written for individual services, e.g.,
+         test_categorize_email_with_rules in isolation.
+       * The existing integration tests will serve as the primary regression
+         suite for this refactor.
+
+  TODO #3: Implement the Action Engine with "Dry Run" by Design
+
+
+   * Description: Now, on a solid foundation, we build the agent's brain.
+     This engine will apply actions (ARCHIVE, TRASH) based on category
+     rules. It will be built with a "dry run" mode from the start to ensure
+     user trust.
+   * Instructions for Coding Agents:
+       1. Extend `EmailCategory` Model: Add action (String) and
+          action_delay_days (Integer) fields to the email_categories table
+          via an Alembic migration.
+       2. Create `ActionEngineService`:
+           * Create backend/app/services/action_engine_service.py.
+           * The main function process_category_actions(db, user, dry_run: 
+             bool) will:
+               * Find emails in categories that have an action configured
+                 and are older than action_delay_days.
+               * If dry_run is True, it creates records in a new
+                 proposed_actions table.
+               * If dry_run is False, it creates the real EmailOperation to
+                 be processed.
+       3. API and Frontend for Review:
+           * Build the API endpoints and a simple frontend table to list
+             proposed_actions and allow the user to "approve" them, which
+             converts them into real operations.
+   * Acceptance Criteria:
+       * Running the engine in dry run mode generates proposals that are
+         viewable in the UI.
+       * Approving a proposal correctly creates the corresponding
+         EmailOperation.
+       * Running the engine in execute mode directly creates
+         EmailOperations.
+   * Tests to Write (Integration):
+       * test_action_engine_proposes_archive_action: Configures a category
+         for archiving, seeds an old email, runs the engine in dry run mode,
+         and asserts a ProposedAction is created.
+       * test_action_engine_executes_trash_action: Configures a category for
+         trash, seeds an old email, runs the engine in execute mode, and
+         asserts an EmailOperation of type TRASH is created.
+
+  TODO #4: Implement Autonomous Operation & Enhanced Observability
+
+
+   * Description: Make the agent truly autonomous and provide a clear view
+     into its activities. We will use a scheduler to run jobs automatically
+     and build a dashboard to monitor performance.
+   * Instructions for Coding Agents:
+       1. Integrate `APScheduler`: Add it to the project and create a jobs.py
+          file. Define jobs that call the sync and action engine services for
+          all users on a schedule (e.g., sync every 15 mins, actions every
+          hour).
+       2. Build Analytics Backend: Enhance routers/analytics.py to provide
+          aggregated data from the sync_details and email_operations tables
+          (e.g., syncs per day, actions taken, error rates).
+       3. Build Frontend Dashboard: Create a new page in the Next.js app that
+          visualizes the data from the analytics backend, showing sync
+          history, actions taken, and system health at a glance.
+   * Acceptance Criteria:
+       * The application logs show the jobs running automatically.
+       * The frontend dashboard displays accurate, up-to-date information on
+         the agent's activities.
+   * Tests to Write (Integration):
+       * test_analytics_endpoints: Seed the database with various SyncDetails
+         and EmailOperation records, then call the analytics endpoints and
+         assert the aggregated data is correct.
+
+--------------------------------
+Session Summary: Progress on TODO #1 - Foundational Integration Testing & 
+  Environment
+
+
+  Overall Goal of TODO #1: To establish a fully isolated and reliable test
+  environment for the backend, enabling robust integration testing against
+  real services (test Gmail account, test database) without relying on
+  flaky mocks. This is the critical prerequisite for building confidence
+  and proceeding with further development.
+
+  What We Have Completed:
+
+
+   1. Dedicated Test Gmail Account: You have successfully created a separate
+      Gmail account for testing purposes.
+   2. Test Environment Configuration File (`backend/.env.test`): This file has
+       been created and updated with the GOOGLE_CLIENT_ID,
+      GOOGLE_CLIENT_SECRET, GOOGLE_ACCESS_TOKEN, and GOOGLE_REFRESH_TOKEN for
+      your dedicated test Gmail account. The DATABASE_URL is also configured
+      to point to a separate test database (email_agent_db_test).
+   3. Pytest Configuration: pytest.ini has been configured to use
+      pytest-dotenv to load backend/.env.test for tests.
+   4. Test Database Fixture (`backend/tests/conftest.py`): A pytest fixture
+      has been implemented to:
+       * Connect to the email_agent_db_test.
+       * Drop all tables before each test session for a clean state.
+       * Directly create all necessary tables using SQLAlchemy's
+         Base.metadata.create_all() (bypassing Alembic for test setup, as
+         requested).
+       * Provide a database session for tests.
+   5. Gmail Seeding Script (`backend/scripts/seed_test_gmail.py`): A script
+      has been created to programmatically send emails to your test Gmail
+      account.
+   6. Temporary Token Generation Scripts Cleaned Up: The get_tokens.py and
+      exchange_code_for_tokens.py scripts have been successfully used to
+      obtain the necessary tokens and then deleted.
+
+  What Remains to Be Done for TODO #1:
+
+
+   1. Successful Execution of Test Database Fixture: The pytest 
+      backend/tests/test_db_fixture.py test is currently failing due to
+      environment variable loading order issues with Pydantic's Settings class
+       during pytest execution. This needs to be resolved to confirm the test
+      database setup is fully functional.
+   2. Integrate Gmail Seeding into Tests: Once the database fixture is
+      stable, we need to write a test that utilizes seed_test_gmail.py to
+      populate the test Gmail account and then verifies the sync process.
+   3. Write First Integration Test (`test_full_sync_integration`): This will
+      be the ultimate validation of our testing foundation.
+
