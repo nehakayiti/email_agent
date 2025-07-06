@@ -31,6 +31,12 @@ def upgrade() -> None:
     
     # Fix email_syncs.updated_at default
     op.execute("ALTER TABLE email_syncs ALTER COLUMN updated_at SET DEFAULT NOW();")
+    
+    # Fix email_operations.created_at default
+    op.execute("ALTER TABLE email_operations ALTER COLUMN created_at SET DEFAULT NOW();")
+    
+    # Fix email_operations.updated_at default
+    op.execute("ALTER TABLE email_operations ALTER COLUMN updated_at SET DEFAULT NOW();")
 
 
 def downgrade() -> None:
@@ -39,3 +45,5 @@ def downgrade() -> None:
     op.execute("ALTER TABLE users ALTER COLUMN created_at DROP DEFAULT;")
     op.execute("ALTER TABLE email_syncs ALTER COLUMN created_at DROP DEFAULT;")
     op.execute("ALTER TABLE email_syncs ALTER COLUMN updated_at DROP DEFAULT;")
+    op.execute("ALTER TABLE email_operations ALTER COLUMN created_at DROP DEFAULT;")
+    op.execute("ALTER TABLE email_operations ALTER COLUMN updated_at DROP DEFAULT;")
