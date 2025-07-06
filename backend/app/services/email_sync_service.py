@@ -359,11 +359,15 @@ async def perform_full_sync(db: Session, user: User) -> Dict[str, Any]:
 
     # Fetch all emails from Gmail
     try:
+        # Create a callback to update credentials when refreshed
+        def on_credentials_refresh(updated_credentials):
+            update_user_credentials(db, user, updated_credentials)
+        
         # We need to get the latest historyId after fetching all emails.
         # The Gmail API doesn't directly provide a way to get the current historyId
         # without a history.list call. So, we'll fetch emails and then get the
         # historyId from the most recent email.
-        all_emails_raw = await gmail.fetch_emails_from_gmail(user.credentials, max_results=10000) # A large number to get all emails
+        all_emails_raw = await gmail.fetch_emails_from_gmail(user.credentials, max_results=10000, on_credentials_refresh=on_credentials_refresh) # A large number to get all emails
 
         if not all_emails_raw:
             logger.warning("[SYNC] No emails found during full sync.")
@@ -520,9 +524,18 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
     history_id = email_sync.last_history_id
     logger.info(f"Using history ID: {history_id}")
     
+    # If no history ID is available, perform a full sync
+    if not history_id:
+        logger.info(f"No history ID available, performing full sync")
+        return await perform_full_sync(db, user)
+    
     # Fetch changes from Gmail
     try:
-        gmail_service = await gmail.get_gmail_service(credentials)
+        # Create a callback to update credentials when refreshed
+        def on_credentials_refresh(updated_credentials):
+            update_user_credentials(db, fresh_user, updated_credentials)
+        
+        gmail_service = await gmail.get_gmail_service(credentials, on_credentials_refresh)
         
         # Fetch history changes
         history_result = await gmail.fetch_history_changes(
@@ -679,3 +692,16 @@ async def sync_emails_since_last_fetch(db: Session, user: User, use_current_date
             "user_id": str(user_id),
             "sync_method": "error"
         } 
+
+def update_user_credentials(db: Session, user: User, updated_credentials: Dict[str, Any]) -> None:
+    """
+    Update user's credentials in the database with refreshed tokens.
+    """
+    try:
+        user.credentials = updated_credentials
+        db.commit()
+        logger.info(f"[SYNC] Updated credentials for user {user.email}")
+    except Exception as e:
+        logger.error(f"[SYNC] Failed to update credentials for user {user.email}: {str(e)}")
+        db.rollback()
+        raise 

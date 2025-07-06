@@ -22,19 +22,23 @@ def _hash_credentials(credentials_dict: Dict[str, Any]) -> str:
     # Only use the refresh_token, client_id and client_secret for the hash
     # since the access token changes after refresh
     key_parts = [
-        credentials_dict.get('refresh_token', ''),
-        credentials_dict.get('client_id', ''),
-        credentials_dict.get('client_secret', '')
+        credentials_dict.get('refresh_token', '') or '',
+        credentials_dict.get('client_id', '') or '',
+        credentials_dict.get('client_secret', '') or ''
     ]
     hash_input = '|'.join(key_parts)
     return hashlib.md5(hash_input.encode()).hexdigest()
 
-async def get_gmail_service(credentials_dict: Dict[str, Any]):
+async def get_gmail_service(credentials_dict: Dict[str, Any], on_credentials_refresh: Optional[callable] = None):
     """
     Async wrapper for create_gmail_service.
     Creates a Gmail API service instance from stored credentials.
+    
+    Args:
+        credentials_dict: Dictionary containing OAuth credentials
+        on_credentials_refresh: Optional callback function called when credentials are refreshed
     """
-    return create_gmail_service(credentials_dict)
+    return create_gmail_service(credentials_dict, on_credentials_refresh)
 
 async def fetch_history_changes(service, history_id, max_pages=5):
     """
@@ -181,21 +185,23 @@ async def fetch_history_changes(service, history_id, max_pages=5):
         logger.error(f"[GMAIL] Error fetching history changes: {str(e)}", exc_info=True)
         raise
 
-def create_gmail_service(credentials_dict: Dict[str, Any]):
+def create_gmail_service(credentials_dict: Dict[str, Any], on_credentials_refresh: Optional[callable] = None):
     """
-    Create a Gmail API service instance from stored credentials.
-    Refreshes the token if needed.
-    Uses caching to reduce credential refreshes.
+    Create a Gmail service with automatic token refresh and caching.
+    
+    Args:
+        credentials_dict: Dictionary containing OAuth credentials
+        on_credentials_refresh: Optional callback function called when credentials are refreshed
+                               Should accept the updated credentials_dict as parameter
     """
     try:
-        # Check if we have a cached service for these credentials
+        now = datetime.now()
         creds_hash = _hash_credentials(credentials_dict)
-        now = datetime.now(timezone.utc)
         
+        # Check cache first
         if creds_hash in _service_cache:
-            service, expiry = _service_cache[creds_hash]
-            if now < expiry:
-                # Cache hit, use cached service
+            service, expiry_time = _service_cache[creds_hash]
+            if now < expiry_time:
                 logger.debug(f"[GMAIL] Using cached Gmail service")
                 return service
             else:
@@ -217,6 +223,14 @@ def create_gmail_service(credentials_dict: Dict[str, Any]):
             logger.info("[GMAIL] Credentials expired, refreshing token")
             credentials.refresh(Request())
             credentials_dict['token'] = credentials.token
+            
+            # Call the callback function if provided
+            if on_credentials_refresh:
+                try:
+                    on_credentials_refresh(credentials_dict)
+                    logger.info("[GMAIL] Credentials updated in database")
+                except Exception as e:
+                    logger.error(f"[GMAIL] Failed to update credentials in database: {str(e)}")
         
         service = build('gmail', 'v1', credentials=credentials, cache_discovery=False)
         
@@ -277,7 +291,8 @@ def retry_with_backoff(func, max_retries=5, base_delay=1, jitter=True):
 
 def sync_gmail_changes(
     credentials: Dict[str, Any],
-    last_history_id: str
+    last_history_id: str,
+    on_credentials_refresh: Optional[callable] = None
 ) -> Tuple[List[Dict[str, Any]], List[str], Dict[str, Dict[str, List[str]]], str]:
     """
     Sync changes using Gmail's history API since the provided history ID.
@@ -288,7 +303,7 @@ def sync_gmail_changes(
       - Label changes (dictionary mapping message IDs to {'added': [...], 'removed': [...]})
       - New history ID (string)
     """
-    service = create_gmail_service(credentials)
+    service = create_gmail_service(credentials, on_credentials_refresh)
     
     new_emails = []
     deleted_message_ids = []
@@ -438,7 +453,7 @@ def _fetch_email_details_in_batches(service, email_ids, batch_size=20):
         for j, msg_id in enumerate(batch_ids):
             request_id = f"msg{j}"
             def create_callback(request_id, msg_id):
-                def callback(response, exception):
+                def callback(request_id, response, exception):
                     if exception is not None:
                         logger.warning(f"[GMAIL] Error fetching message {msg_id}: {str(exception)}")
                         batch_errors[msg_id] = str(exception)
@@ -531,13 +546,20 @@ def process_message_data(msg: Dict[str, Any]) -> Dict[str, Any]:
 async def fetch_emails_from_gmail(
     credentials: Dict[str, Any], 
     max_results: int = 100, 
-    query: str = None
+    query: str = None,
+    on_credentials_refresh: Optional[callable] = None
 ) -> List[Dict[str, Any]]:
     """
     Fetch emails using the Gmail API and process them.
+    
+    Args:
+        credentials: Dictionary containing OAuth credentials
+        max_results: Maximum number of emails to fetch
+        query: Optional Gmail search query
+        on_credentials_refresh: Optional callback function called when credentials are refreshed
     """ 
     logger.info(f"[GMAIL] Fetching emails with max_results={max_results}, query='{query}'")
-    service = create_gmail_service(credentials)
+    service = create_gmail_service(credentials, on_credentials_refresh)
     
     params = {'userId': 'me', 'maxResults': min(max_results, 500)}
     if query:
@@ -571,7 +593,8 @@ def update_email_labels(
     credentials: Dict[str, Any],
     gmail_id: str,
     add_labels: List[str] = None,
-    remove_labels: List[str] = None
+    remove_labels: List[str] = None,
+    on_credentials_refresh: Optional[callable] = None
 ) -> Dict[str, Any]:
     """
     Update email labels.
@@ -586,7 +609,7 @@ def update_email_labels(
         change_desc = " & ".join(label_actions)
         logger.info(f"[GMAIL] Updating labels ({change_desc}) for message {gmail_id}")
         
-        service = create_gmail_service(credentials)
+        service = create_gmail_service(credentials, on_credentials_refresh)
         body = {}
         if add_labels:
             body['addLabelIds'] = add_labels
@@ -626,7 +649,8 @@ def update_email_labels(
 def check_deleted_emails(
     credentials: Dict[str, Any],
     gmail_ids: List[str],
-    force_full_check: bool = False
+    force_full_check: bool = False,
+    on_credentials_refresh: Optional[callable] = None
 ) -> Dict[str, bool]:
     """
     Check if emails have been deleted from Gmail.
@@ -635,7 +659,7 @@ def check_deleted_emails(
     if not gmail_ids:
         return {}
         
-    service = create_gmail_service(credentials)
+    service = create_gmail_service(credentials, on_credentials_refresh)
     total_ids = len(gmail_ids)
     deleted_statuses = {}
     
@@ -730,14 +754,15 @@ def _check_deleted_emails_batch(
 def setup_push_notifications(
     credentials: Dict[str, Any],
     webhook_url: str,
-    topic_name: str = None
+    topic_name: str = None,
+    on_credentials_refresh: Optional[callable] = None
 ) -> Dict[str, Any]:
     """
     Set up Gmail push notifications to the given webhook URL.
     """
     try:
         logger.info(f"[GMAIL] Setting up push notifications to {webhook_url}")
-        service = create_gmail_service(credentials)
+        service = create_gmail_service(credentials, on_credentials_refresh)
         
         if not topic_name:
             unique_id = f"{int(time.time())}_{random.randint(1000, 9999)}"
@@ -760,13 +785,13 @@ def setup_push_notifications(
         logger.error(f"[GMAIL] Error setting up push notifications: {str(e)}", exc_info=True)
         raise
 
-def stop_push_notifications(credentials: Dict[str, Any]) -> Dict[str, Any]:
+def stop_push_notifications(credentials: Dict[str, Any], on_credentials_refresh: Optional[callable] = None) -> Dict[str, Any]:
     """
     Stop Gmail push notifications.
     """
     try:
         logger.info("[GMAIL] Stopping push notifications")
-        service = create_gmail_service(credentials)
+        service = create_gmail_service(credentials, on_credentials_refresh)
         service.users().stop(userId='me').execute()
         logger.info("[GMAIL] Successfully stopped push notifications")
         return {"status": "success", "message": "Push notifications stopped successfully"}
@@ -774,13 +799,13 @@ def stop_push_notifications(credentials: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(f"[GMAIL] Error stopping push notifications: {str(e)}", exc_info=True)
         raise
 
-def get_gmail_profile(credentials: Dict[str, Any]) -> Dict[str, Any]:
+def get_gmail_profile(credentials: Dict[str, Any], on_credentials_refresh: Optional[callable] = None) -> Dict[str, Any]:
     """
     Retrieve the Gmail profile information.
     """
     try:
         logger.info("[GMAIL] Retrieving Gmail profile")
-        service = create_gmail_service(credentials)
+        service = create_gmail_service(credentials, on_credentials_refresh)
         profile = service.users().getProfile(userId='me').execute()
         logger.info(f"[GMAIL] Profile retrieved: {profile}")
         return profile
