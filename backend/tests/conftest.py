@@ -156,10 +156,11 @@ def setup_test_db():
     # Optional: Drop the test database after the session
     # drop_database(url)
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def db_session(setup_test_db):
     """
-    Provides a session for the entire test session.
+    Provides a fresh database session for each test function.
+    This ensures complete isolation between tests.
     """
     connection = test_engine.connect()
     transaction = connection.begin()
@@ -175,10 +176,9 @@ def db_session(setup_test_db):
 def db(db_session):
     """
     Provides a transactional scope for each test function.
+    This is now an alias for db_session since we're using function-scoped sessions.
     """
-    db_session.begin_nested()
     yield db_session
-    db_session.rollback()
 
 @pytest.fixture(scope="function")
 def seeded_categories(db):
@@ -201,8 +201,61 @@ def seeded_categories(db):
 @pytest.fixture(scope="function")
 def clean_test_users(db):
     """
-    This fixture is now a no-op because tests are isolated by transactions.
+    Clean up test data before each test to ensure isolation.
+    Delete related records in the correct order to avoid foreign key violations.
     """
+    # Import all models that might have foreign key relationships
+    from app.models.email import Email
+    from app.models.email_operation import EmailOperation
+    from app.models.proposed_action import ProposedAction
+    from app.models.categorization_feedback import CategorizationFeedback
+    from app.models.email_categorization_decision import EmailCategorizationDecision
+    from app.models.email_trash_event import EmailTrashEvent
+    from app.models.email_sync import EmailSync
+    from app.models.sync_details import SyncDetails
+    
+    # Get test user IDs first
+    test_user_ids = [user.id for user in db.query(User).filter(User.email.like("test_%")).all()]
+    test_user_ids.extend([user.id for user in db.query(User).filter(User.email.like("test-%")).all()])
+    
+    if not test_user_ids:
+        # No test users to clean up
+        yield
+        return
+    
+    # Delete child records first (in dependency order)
+    # 1. Delete operations and proposed actions
+    db.query(EmailOperation).filter(EmailOperation.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    db.query(ProposedAction).filter(ProposedAction.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 2. Delete categorization feedback (has user_id)
+    db.query(CategorizationFeedback).filter(CategorizationFeedback.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 3. Delete trash events (has user_id)
+    db.query(EmailTrashEvent).filter(EmailTrashEvent.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 4. Delete sync details (has user_id)
+    db.query(SyncDetails).filter(SyncDetails.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 5. Delete email syncs (has user_id)
+    db.query(EmailSync).filter(EmailSync.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 6. Delete categorization decisions (no user_id, but has email_id - will be handled by cascade or email deletion)
+    # Get test user email IDs first
+    test_email_ids = [email.id for email in db.query(Email).filter(Email.user_id.in_(test_user_ids)).all()]
+    if test_email_ids:
+        db.query(EmailCategorizationDecision).filter(EmailCategorizationDecision.email_id.in_(test_email_ids)).delete(synchronize_session=False)
+    
+    # 7. Delete emails (main child table)
+    db.query(Email).filter(Email.user_id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 8. Now delete users (parent table)
+    db.query(User).filter(User.id.in_(test_user_ids)).delete(synchronize_session=False)
+    
+    # 9. Delete test categories
+    db.query(EmailCategory).filter(EmailCategory.name.like("test_%")).delete(synchronize_session=False)
+    
+    db.commit()
     yield
 
 @pytest.fixture

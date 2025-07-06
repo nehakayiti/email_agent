@@ -3,7 +3,7 @@ The Revised, Rock-Solid Roadmap
   This is the prioritized, step-by-step approach to make this project
   complete, robust, and staging-ready.
 
-  TODO #1: Foundational Integration Testing & Environment
+  ✅ TODO #1: Foundational Integration Testing & Environment
 
 
    * Description: This is the bedrock for everything else. We will establish
@@ -47,7 +47,7 @@ The Revised, Rock-Solid Roadmap
          uses the Gmail API to confirm the label was updated in the test
          Gmail account.
 
-  TODO #2: Refactor Core Services for Modularity & Testability
+  ✅ TODO #2: Refactor Core Services for Modularity & Testability
 
 
    * Description: This is the critical architectural improvement. We will
@@ -91,7 +91,7 @@ The Revised, Rock-Solid Roadmap
      user trust. This is implemented in logical phases to ensure quality
      and maintainability.
 
-  TODO #3.1: Database Schema & Core Models
+  ✅ TODO #3.1: Database Schema & Core Models
 
    * Description: Establish the foundational database structure for the
      Action Engine, including model extensions and new tables for tracking
@@ -132,7 +132,7 @@ The Revised, Rock-Solid Roadmap
          correctly with all relationships
        * test_migration_rollback: Ensure migrations can be rolled back safely
 
-  TODO #3.2: Core Action Engine Services
+  ✅ TODO #3.2: Core Action Engine Services
 
    * Description: Implement the core business logic services that power
      the Action Engine, including action detection, proposal generation,
