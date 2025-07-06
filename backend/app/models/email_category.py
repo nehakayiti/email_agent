@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Boolean, ForeignKey, Text, UniqueConstraint, Index, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+from sqlalchemy.sql import func
 import uuid
 from ..db import Base
 from .sender_rule import SenderRule  # Import SenderRule from its own module
@@ -17,7 +18,7 @@ class EmailCategory(Base):
     description = Column(String, nullable=True)
     priority = Column(Integer, default=50)  # Lower numbers = higher priority
     is_system = Column(Boolean, default=False)  # System categories cannot be deleted
-    created_at = Column(JSONB, nullable=True)  # Timestamps with timezone
+    created_at = Column(DateTime(timezone=True), nullable=True, server_default=func.now())  # Timestamps with timezone
     
     # Relationships
     keywords = relationship("CategoryKeyword", back_populates="category", cascade="all, delete-orphan")

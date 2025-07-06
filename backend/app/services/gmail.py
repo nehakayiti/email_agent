@@ -566,27 +566,46 @@ async def fetch_emails_from_gmail(
         params['q'] = query
     else:
         params['labelIds'] = ['INBOX']
-
+    
     try:
-        @retry_with_backoff
-        def list_messages():
-            logger.info(f"[GMAIL] Listing messages with params: {params}")
-            return service.users().messages().list(**params).execute()
-        
-        messages_response = list_messages()
-        messages = messages_response.get('messages', [])
+        # Get list of message IDs
+        response = service.users().messages().list(**params).execute()
+        messages = response.get('messages', [])
         
         if not messages:
-            logger.info("[GMAIL] No messages found matching criteria")
+            logger.info("[GMAIL] No messages found")
             return []
         
-        logger.info(f"[GMAIL] Found {len(messages)} messages")
-        message_ids = [msg['id'] for msg in messages]
-        logger.info(f"[GMAIL] Fetching details for {len(message_ids)} messages")
-        return _fetch_email_details_in_batches(service, message_ids)
+        logger.info(f"[GMAIL] Found {len(messages)} messages, fetching details...")
+        
+        # Fetch full message details
+        emails = []
+        for i, message in enumerate(messages):
+            try:
+                msg = service.users().messages().get(
+                    userId='me', 
+                    id=message['id'],
+                    format='full'
+                ).execute()
+                
+                # Process the message
+                email_data = process_message_data(msg)
+                if email_data:
+                    emails.append(email_data)
+                    
+                # Log progress for large batches
+                if len(messages) > 50 and (i + 1) % 50 == 0:
+                    logger.info(f"[GMAIL] Processed {i + 1}/{len(messages)} messages")
+                    
+            except Exception as e:
+                logger.error(f"[GMAIL] Error processing message {message['id']}: {str(e)}")
+                continue
+        
+        logger.info(f"[GMAIL] Successfully processed {len(emails)} emails")
+        return emails
         
     except Exception as e:
-        logger.error(f"[GMAIL] Error fetching emails: {str(e)}", exc_info=True)
+        logger.error(f"[GMAIL] Error fetching emails: {str(e)}")
         raise
 
 def update_email_labels(

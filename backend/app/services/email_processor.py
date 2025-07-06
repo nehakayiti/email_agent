@@ -16,6 +16,8 @@ import json
 from ..services.email_classifier_service import email_classifier_service
 from ..utils.filter_utils import apply_email_filters
 from ..utils.email_utils import set_email_category_and_labels
+from sqlalchemy import and_
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -26,20 +28,11 @@ def process_and_store_emails(
 ) -> List[Email]:
     """
     Process fetched emails and store them in database
-    
-    Args:
-        db: Database session
-        user: User model instance
-        emails: List of email data from Gmail API
-        
-    Returns:
-        List of created/updated Email model instances
     """
     processed_emails = []
     new_emails_count = 0
     updated_emails_count = 0
-    
-    logger.info(f"[PROCESSOR] Processing {len(emails)} emails for user {user.id}")
+    logger.info(f"[PROCESSOR] Processing {len(emails)} emails for user {user.id} (email: {user.email})")
     
     for i, email_data in enumerate(emails):
         try:
@@ -48,62 +41,75 @@ def process_and_store_emails(
             from_email = email_data.get('from_email', 'unknown')
             received_at = email_data.get('received_at', 'unknown')
             
-            logger.debug(f"[PROCESSOR] Email {i+1}/{len(emails)}: ID={gmail_id}, Subject='{subject}...', From={from_email}, Received={received_at}")
+            logger.debug(f"[PROCESSOR] Processing email {i+1}/{len(emails)}: '{subject}' from {from_email}")
             
             # Check if email already exists
             existing_email = db.query(Email).filter(
-                Email.user_id == user.id,
-                Email.gmail_id == email_data['gmail_id']
+                and_(
+                    Email.gmail_id == gmail_id,
+                    Email.user_id == user.id
+                )
             ).first()
             
             if existing_email:
-                logger.debug(f"[PROCESSOR] Email {gmail_id} already exists, updating")
                 # Update existing email
-                for key, value in email_data.items():
-                    if key == 'received_at':
-                        # Parse the date string to datetime object
-                        setattr(existing_email, key, parse_date(value))
-                    elif hasattr(existing_email, key):
-                        setattr(existing_email, key, value)
-                email = existing_email
-                # Mark as not new for counting purposes
-                email._is_new = False
+                existing_email.subject = email_data.get('subject')
+                existing_email.from_email = email_data.get('from_email')
+                existing_email.received_at = email_data.get('received_at')
+                existing_email.snippet = email_data.get('snippet')
+                existing_email.labels = email_data.get('labels')
+                existing_email.raw_data = email_data.get('raw_data')
+                existing_email.is_processed = True
+                
+                processed_emails.append(existing_email)
                 updated_emails_count += 1
+                logger.debug(f"[PROCESSOR] Updated existing email: {gmail_id}")
             else:
-                logger.debug(f"[PROCESSOR] Email {gmail_id} is new, creating")
+                # Categorize the email if not already categorized
+                if not email_data.get('category'):
+                    try:
+                        email_data['category'] = categorize_email_util(email_data, db, user.id)
+                        logger.debug(f"[PROCESSOR] Categorized email {gmail_id} as '{email_data['category']}'")
+                    except Exception as e:
+                        logger.warning(f"[PROCESSOR] Failed to categorize email {gmail_id}: {str(e)}")
+                        email_data['category'] = 'primary'  # Default fallback
+                
                 # Create new email
-                category = categorize_email_util(email_data, db, user.id)
-                email_data['category'] = category  # Prevent double categorization
-                importance = calculate_importance(email_data, db, user.id)
-                email = Email(
+                new_email = Email(
+                    id=uuid.uuid4(),
                     user_id=user.id,
-                    gmail_id=email_data['gmail_id'],
-                    thread_id=email_data['thread_id'],
-                    subject=email_data['subject'],
-                    from_email=email_data['from_email'],
-                    received_at=parse_date(email_data['received_at']),
-                    snippet=email_data['snippet'],
-                    labels=email_data['labels'],
-                    is_read=email_data['is_read'],
-                    raw_data=email_data['raw_data'],
-                    category=category,
-                    importance_score=importance
+                    gmail_id=gmail_id,
+                    thread_id=email_data.get('thread_id'),
+                    subject=email_data.get('subject'),
+                    from_email=email_data.get('from_email'),
+                    received_at=email_data.get('received_at'),
+                    snippet=email_data.get('snippet'),
+                    labels=email_data.get('labels'),
+                    is_read=email_data.get('is_read', False),
+                    is_processed=True,
+                    importance_score=email_data.get('importance_score'),
+                    category=email_data.get('category'),
+                    raw_data=email_data.get('raw_data')
                 )
-                set_email_category_and_labels(email, category, db)
-                db.add(email)
-                email._is_new = True
+                
+                db.add(new_email)
+                processed_emails.append(new_email)
                 new_emails_count += 1
-            processed_emails.append(email)
+                logger.debug(f"[PROCESSOR] Created new email: {gmail_id}")
+                
         except Exception as e:
-            logger.error(f"[PROCESSOR] Error processing email {email_data.get('gmail_id', 'unknown')}: {str(e)}", exc_info=True)
+            logger.error(f"[PROCESSOR] Error processing email {i+1}: {str(e)}")
             continue
+    
+    # Commit all changes
     try:
         db.commit()
-        logger.info(f"[PROCESSOR] Processed {len(processed_emails)} emails (new: {new_emails_count}, updated: {updated_emails_count}) for user {user.id}")
+        logger.info(f"[PROCESSOR] Successfully processed {len(processed_emails)} emails (new: {new_emails_count}, updated: {updated_emails_count})")
     except Exception as e:
-        logger.error(f"[PROCESSOR] Error committing emails to database: {str(e)}", exc_info=True)
         db.rollback()
+        logger.error(f"[PROCESSOR] Error committing emails: {str(e)}")
         raise
+    
     return processed_emails
 
 def categorize_email(

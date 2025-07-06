@@ -94,8 +94,7 @@ def initialize_system_categories(db: Session) -> List[EmailCategory]:
                 display_name=category_data["display_name"],
                 description=category_data["description"],
                 priority=category_data["priority"],
-                is_system=True,
-                created_at={"timestamp": datetime.utcnow().isoformat()}
+                is_system=True
             )
             db.add(category)
             db.flush()
