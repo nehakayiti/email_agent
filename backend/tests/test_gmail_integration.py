@@ -274,6 +274,7 @@ def seed_gmail():
     except subprocess.CalledProcessError as e:
         pytest.skip(f"Gmail seeding failed: {e}")
 
+@pytest.mark.slow
 @pytest.mark.asyncio
 async def test_full_sync_from_seeded_gmail(db, seed_gmail, test_user_with_credentials, seeded_categories):
     """
@@ -329,4 +330,5 @@ async def test_full_sync_from_seeded_gmail(db, seed_gmail, test_user_with_creden
     print(f"Seeded emails in DB for user {user.email}: {len(emails)}")
     for email in emails:
         print(f"  - {email.subject} (Gmail ID: {email.gmail_id})")
-    assert len(emails) == 5, f"Expected 5 seeded emails, found {len(emails)}" 
+    assert len(emails) == 5, f"Expected 5 seeded emails, found {len(emails)}"
+ 

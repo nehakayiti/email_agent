@@ -131,11 +131,11 @@ def setup_test_db():
     """
     print(f"\n--- Setting up test database: {TEST_DATABASE_URL} ---")
     
-    # Drop and recreate the test database
+    # Create the database if it doesn't exist
     url = make_url(TEST_DATABASE_URL)
-    if database_exists(url):
-        drop_database(url)
-    create_database(url)
+    if not database_exists(url):
+        create_database(url)
+        print("--- Test database created ---")
     
     # Run Alembic migrations to create schema
     try:
@@ -153,25 +153,32 @@ def setup_test_db():
     
     yield  # This is where the tests run
     
-    # Drop the test database after the session
-    drop_database(url)
+    # Optional: Drop the test database after the session
+    # drop_database(url)
 
 @pytest.fixture(scope="session")
-def test_db(setup_test_db):
-    # Create a new session
-    engine = create_engine(TEST_DATABASE_URL)
-    TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
+def db_session(setup_test_db):
+    """
+    Provides a session for the entire test session.
+    """
+    connection = test_engine.connect()
+    transaction = connection.begin()
+    session = TestingSessionLocal(bind=connection)
+    
+    yield session
+    
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 @pytest.fixture(scope="function")
-def db(test_db):
-    # Provide a clean session for each test function
-    yield test_db
-    test_db.rollback()
+def db(db_session):
+    """
+    Provides a transactional scope for each test function.
+    """
+    db_session.begin_nested()
+    yield db_session
+    db_session.rollback()
 
 @pytest.fixture(scope="function")
 def seeded_categories(db):
@@ -194,51 +201,9 @@ def seeded_categories(db):
 @pytest.fixture(scope="function")
 def clean_test_users(db):
     """
-    Clean up test users before each test to ensure isolation.
-    This fixture runs before each test function.
+    This fixture is now a no-op because tests are isolated by transactions.
     """
-    # Delete all users with test emails (either TEST_GMAIL_EMAIL or random test emails)
-    test_email = os.getenv('TEST_GMAIL_EMAIL')
-    
-    if test_email:
-        # Delete emails first to avoid foreign key constraint violation
-        from app.models.email import Email
-        from app.models.email_sync import EmailSync
-        from app.models.email_operation import EmailOperation
-        from app.models.email_trash_event import EmailTrashEvent
-        from app.models.email_categorization_decision import EmailCategorizationDecision
-        from app.models.categorization_feedback import CategorizationFeedback
-        
-        # Find the user first
-        user = db.query(User).filter(User.email == test_email).first()
-        if user:
-            # Delete related data first
-            db.query(Email).filter(Email.user_id == user.id).delete()
-            db.query(EmailSync).filter(EmailSync.user_id == user.id).delete()
-            db.query(EmailOperation).filter(EmailOperation.user_id == user.id).delete()
-            db.query(EmailTrashEvent).filter(EmailTrashEvent.user_id == user.id).delete()
-            db.query(CategorizationFeedback).filter(CategorizationFeedback.user_id == user.id).delete()
-            
-            # Now delete the user
-            db.query(User).filter(User.email == test_email).delete()
-            print(f"Cleaned up test user: {test_email}")
-    
-    # Also clean up any users with random test emails (pattern: test-*@example.com)
-    random_users = db.query(User).filter(User.email.like('test-%@example.com')).all()
-    for user in random_users:
-        # Delete related data first
-        db.query(Email).filter(Email.user_id == user.id).delete()
-        db.query(EmailSync).filter(EmailSync.user_id == user.id).delete()
-        db.query(EmailOperation).filter(EmailOperation.user_id == user.id).delete()
-        db.query(EmailTrashEvent).filter(EmailTrashEvent.user_id == user.id).delete()
-        db.query(CategorizationFeedback).filter(CategorizationFeedback.user_id == user.id).delete()
-        
-        # Now delete the user
-        db.query(User).filter(User.id == user.id).delete()
-    
-    db.commit()
     yield
-    # No cleanup needed after test since we're using function scope
 
 @pytest.fixture
 def test_user_with_credentials(db, clean_test_users):
