@@ -2,9 +2,17 @@
 
 ## Current Focus
 
-The current development focus is on enhancing the email category management system to provide more intuitive and comprehensive CRUD operations for categories and their associated rules.
+The current development focus is on the Action Engine: implementing robust, optimized, and resilient core services for automated email actions and rules, with comprehensive backend test coverage.
 
 ## Recent Changes
+
+### Action Engine Core Implementation (May 2024)
+
+- Implemented `action_engine_service.py` and `action_rule_service.py` in the backend
+- Added all required functions for action detection, proposal generation, execution, approval/rejection, cleanup, and rule management/validation
+- Wrote comprehensive tests in `tests/test_action_engine.py` covering all core logic, dry run/execute modes, proposal workflows, and rule validation
+- Fixed all test fixture and model issues (e.g., `thread_id`, `category` string, unique test data)
+- All tests now pass cleanly
 
 ### Category Management Improvements
 

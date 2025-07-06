@@ -2,6 +2,8 @@
 
 ## Completed Features
 
+- ✅ Action Engine core backend services (`action_engine_service.py`, `action_rule_service.py`)
+- ✅ Comprehensive tests for Action Engine (proposal, execution, rule management, dry run/execute, cleanup)
 - ✅ Gmail integration and authentication
 - ✅ Email synchronization and metadata storage
 - ✅ Base email categorization system
