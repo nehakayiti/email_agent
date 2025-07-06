@@ -20,9 +20,15 @@ class EmailCategory(Base):
     is_system = Column(Boolean, default=False)  # System categories cannot be deleted
     created_at = Column(DateTime(timezone=True), nullable=True, server_default=func.now())  # Timestamps with timezone
     
+    # Action Engine fields
+    action = Column(String(50), nullable=True)  # ARCHIVE, TRASH, etc.
+    action_delay_days = Column(Integer, nullable=True)  # Days to wait before applying action
+    action_enabled = Column(Boolean, default=False)  # Whether action is enabled for this category
+    
     # Relationships
     keywords = relationship("CategoryKeyword", back_populates="category", cascade="all, delete-orphan")
     sender_rules = relationship("SenderRule", back_populates="category", cascade="all, delete-orphan")
+    proposed_actions = relationship("ProposedAction", back_populates="category", cascade="all, delete-orphan")
     
     # Users can share the same category names, but system categories must be unique
     __table_args__ = (
@@ -32,6 +38,36 @@ class EmailCategory(Base):
     
     def __repr__(self):
         return f"<EmailCategory {self.name}>"
+    
+    def has_action_rule(self) -> bool:
+        """Check if this category has an action rule configured"""
+        return (
+            self.action is not None and 
+            self.action_delay_days is not None and 
+            self.action_enabled
+        )
+    
+    def get_action_rule(self) -> dict:
+        """Get the action rule configuration for this category"""
+        if not self.has_action_rule():
+            return None
+        return {
+            'action': self.action,
+            'delay_days': self.action_delay_days,
+            'enabled': self.action_enabled
+        }
+    
+    def set_action_rule(self, action: str, delay_days: int, enabled: bool = True) -> None:
+        """Set the action rule configuration for this category"""
+        self.action = action
+        self.action_delay_days = delay_days
+        self.action_enabled = enabled
+    
+    def clear_action_rule(self) -> None:
+        """Clear the action rule configuration for this category"""
+        self.action = None
+        self.action_delay_days = None
+        self.action_enabled = False
 
 
 class CategoryKeyword(Base):

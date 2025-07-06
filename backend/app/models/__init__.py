@@ -7,4 +7,5 @@ from .email_categorization_decision import EmailCategorizationDecision
 from .email_operation import EmailOperation
 from .email_trash_event import EmailTrashEvent
 from .email_sync import EmailSync
-from .sync_details import SyncDetails 
+from .sync_details import SyncDetails
+from .proposed_action import ProposedAction, ProposedActionStatus 

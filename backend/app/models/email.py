@@ -52,6 +52,7 @@ class Email(Base):
     operations = relationship("EmailOperation", back_populates="email", cascade="all, delete-orphan")
     categorization_feedback = relationship("CategorizationFeedback", back_populates="email")
     categorization_decisions = relationship("EmailCategorizationDecision", back_populates="email")
+    proposed_actions = relationship("ProposedAction", back_populates="email", cascade="all, delete-orphan")
     
     # Indexes for common queries
     __table_args__ = (
