@@ -210,9 +210,12 @@ class TestEmailSyncIntegration:
     
     def test_sync_with_no_credentials(self, db):
         """Test sync behavior when user has no credentials."""
+        unique_id = uuid.uuid4().hex[:8]
+        test_email = f"no-credentials-{unique_id}@example.com"
+        
         user = User(
             id=uuid.uuid4(),
-            email="no-credentials@example.com",
+            email=test_email,
             name="No Credentials User",
             credentials=None
         )
@@ -228,9 +231,12 @@ class TestEmailSyncIntegration:
     
     def test_sync_with_invalid_credentials(self, db):
         """Test sync behavior with invalid credentials."""
+        unique_id = uuid.uuid4().hex[:8]
+        test_email = f"invalid-credentials-{unique_id}@example.com"
+        
         user = User(
             id=uuid.uuid4(),
-            email="invalid-credentials@example.com",
+            email=test_email,
             name="Invalid Credentials User",
             credentials={
                 'client_id': 'invalid',

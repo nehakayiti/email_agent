@@ -26,10 +26,13 @@ def test_database_connection(db):
 
 def test_user_creation(db):
     """Test creating users in the test database."""
-    # Create a test user
+    # Create a test user with unique email
+    unique_id = uuid.uuid4().hex[:8]
+    test_email = f"test-{unique_id}@example.com"
+    
     test_user = User(
         id=uuid.uuid4(),
-        email="test@example.com",
+        email=test_email,
         name="Test User"
     )
     
@@ -37,16 +40,19 @@ def test_user_creation(db):
     db.commit()
     
     # Verify the user was created
-    retrieved_user = db.query(User).filter_by(email="test@example.com").first()
+    retrieved_user = db.query(User).filter_by(email=test_email).first()
     assert retrieved_user is not None
     assert retrieved_user.name == "Test User"
-    assert retrieved_user.email == "test@example.com"
+    assert retrieved_user.email == test_email
 
 def test_email_category_creation(db):
     """Test creating email categories in the test database."""
-    # Create a test category
+    # Create a test category with unique name
+    unique_id = uuid.uuid4().hex[:8]
+    category_name = f"test_category_{unique_id}"
+    
     test_category = EmailCategory(
-        name="test_category",
+        name=category_name,
         display_name="Test Category",
         description="A test category for testing",
         priority=50,
@@ -57,25 +63,29 @@ def test_email_category_creation(db):
     db.commit()
     
     # Verify the category was created
-    retrieved_category = db.query(EmailCategory).filter_by(name="test_category").first()
+    retrieved_category = db.query(EmailCategory).filter_by(name=category_name).first()
     assert retrieved_category is not None
     assert retrieved_category.display_name == "Test Category"
     assert retrieved_category.priority == 50
 
 def test_email_creation_with_category(db):
     """Test creating an email with a category in the test database."""
-    # Create a test user
+    # Create a test user with unique email
+    unique_id = uuid.uuid4().hex[:8]
+    test_email = f"test_email_category_{unique_id}@example.com"
+    
     test_user = User(
         id=uuid.uuid4(),
-        email="test_email_category@example.com",
+        email=test_email,
         name="Test User"
     )
     db.add(test_user)
     db.commit()
     
-    # Create a test category
+    # Create a test category with unique name
+    category_name = f"test_category_email_{unique_id}"
     test_category = EmailCategory(
-        name="test_category_email",
+        name=category_name,
         display_name="Test Category Email",
         description="A test category for testing email creation",
         priority=50,
@@ -84,43 +94,48 @@ def test_email_creation_with_category(db):
     db.add(test_category)
     db.commit()
     
-    # Create a test email
-    test_email = Email(
+    # Create a test email with unique gmail_id
+    gmail_id = f"test_gmail_id_{unique_id}"
+    test_email_obj = Email(
         id=uuid.uuid4(),
         user_id=test_user.id,
-        gmail_id="test_gmail_id",
+        gmail_id=gmail_id,
         thread_id="test_thread_id",
         subject="Test Email Subject",
         from_email="sender@example.com",
         received_at=datetime.now(timezone.utc),
         snippet="This is a test email snippet",
-        category="test_category_email"
+        category=category_name
     )
     
-    db.add(test_email)
+    db.add(test_email_obj)
     db.commit()
     
     # Verify the email was created
-    retrieved_email = db.query(Email).filter_by(gmail_id="test_gmail_id").first()
+    retrieved_email = db.query(Email).filter_by(gmail_id=gmail_id).first()
     assert retrieved_email is not None
     assert retrieved_email.subject == "Test Email Subject"
-    assert retrieved_email.category == "test_category_email"
+    assert retrieved_email.category == category_name
     assert retrieved_email.user_id == test_user.id
 
 def test_sender_rule_creation(db):
     """Test creating sender rules in the test database."""
-    # Create a test user
+    # Create a test user with unique email
+    unique_id = uuid.uuid4().hex[:8]
+    test_email = f"test_sender_rule_{unique_id}@example.com"
+    
     test_user = User(
         id=uuid.uuid4(),
-        email="test_sender_rule@example.com",
+        email=test_email,
         name="Test User"
     )
     db.add(test_user)
     db.commit()
     
-    # Create a test category
+    # Create a test category with unique name
+    category_name = f"test_category_sender_rule_{unique_id}"
     test_category = EmailCategory(
-        name="test_category_sender_rule",
+        name=category_name,
         display_name="Test Category Sender Rule",
         description="A test category for testing sender rules",
         priority=50,
@@ -129,10 +144,11 @@ def test_sender_rule_creation(db):
     db.add(test_category)
     db.commit()
     
-    # Create a test sender rule
+    # Create a test sender rule with unique pattern
+    pattern = f"example_{unique_id}.com"
     test_rule = SenderRule(
         category_id=test_category.id,
-        pattern="example.com",
+        pattern=pattern,
         is_domain=True,
         weight=1,
         user_id=test_user.id
@@ -142,7 +158,7 @@ def test_sender_rule_creation(db):
     db.commit()
     
     # Verify the rule was created
-    retrieved_rule = db.query(SenderRule).filter_by(pattern="example.com").first()
+    retrieved_rule = db.query(SenderRule).filter_by(pattern=pattern).first()
     assert retrieved_rule is not None
     assert retrieved_rule.is_domain is True
     assert retrieved_rule.weight == 1
@@ -155,10 +171,13 @@ def test_database_isolation(db):
     from tests.conftest import TEST_DATABASE_URL
     assert "test" in TEST_DATABASE_URL.lower()
     
-    # Verify we can create and query data
+    # Verify we can create and query data with unique email
+    unique_id = uuid.uuid4().hex[:8]
+    test_email = f"isolation_test_{unique_id}@example.com"
+    
     test_user = User(
         id=uuid.uuid4(),
-        email="isolation_test@example.com",
+        email=test_email,
         name="Isolation Test User"
     )
     
@@ -166,6 +185,6 @@ def test_database_isolation(db):
     db.commit()
     
     # Verify the user was created in the test database
-    retrieved_user = db.query(User).filter_by(email="isolation_test@example.com").first()
+    retrieved_user = db.query(User).filter_by(email=test_email).first()
     assert retrieved_user is not None
     assert retrieved_user.name == "Isolation Test User" 
