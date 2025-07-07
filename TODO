@@ -216,47 +216,190 @@ The Revised, Rock-Solid Roadmap
        * test_action_process_endpoints: Verify dry run and execute modes
        * test_api_validation: Verify input validation and error handling
 
-  TODO #3.4: Frontend Action Rules Management
+  TODO #3.4: Enhanced Frontend Action Rules Management
 
-   * Description: Extend the existing category management interface to
-     include action rule configuration, allowing users to set up automatic
-     actions for their email categories.
-   * Instructions for Coding Agents:
-       1. Extend Category Management UI:
-           * Update frontend/src/app/categories/improved-page.tsx
-           * Add action rule configuration section to category management
-           * Create ActionRuleForm component in frontend/src/components/ui/
-           * Add action rule display in category list
-       2. Create Action Rule Components:
-           * Create frontend/src/components/ui/action-rule-form.tsx:
-             - Action type selector (ARCHIVE, TRASH)
-             - Delay days input with validation
-             - Enable/disable toggle
-             - Preview of affected emails count
-           * Create frontend/src/components/ui/action-rule-display.tsx:
-             - Display current action rule settings
-             - Edit/delete functionality
-             - Status indicators
-       3. Update API Integration:
-           * Add action rule API calls to frontend/src/lib/api.ts
-           * Add proper TypeScript types for action rules
-           * Implement error handling and loading states
-       4. Add Validation & UX:
-           * Client-side validation for action rules
-           * Confirmation dialogs for destructive actions
-           * Toast notifications for success/error states
-           * Loading indicators for async operations
-   * Acceptance Criteria:
-       * Users can configure action rules for any category
-       * Action rule changes are immediately reflected in UI
+   * Description: Implement a delightful and intuitive Action Engine frontend
+     using inline category cards with action rules, following the detailed
+     wireframe design in memory-bank/action-engine-wireframes.md. This will
+     provide users with transparent, controllable, and trustworthy email
+     automation.
+
+   * Implementation Phases:
+
+     PHASE 3.4.1: Core Category Card Enhancement
+     * Description: Transform existing category cards to display action rules
+       inline with enhanced visual hierarchy and progressive disclosure.
+     * Instructions for Coding Agents:
+       1. Update Category Card Component:
+           * Modify frontend/src/components/ui/category-rule-forms.tsx
+           * Add action rule display section to each category card
+           * Implement progressive disclosure for rule details
+           * Add visual indicators for rule status (active, disabled, pending)
+       2. Create Action Rule Display Component:
+           * Create frontend/src/components/ui/action-rule-display.tsx
+           * Display action type with icons (📤 Archive, 🗑️ Trash)
+           * Show affected email counts and next action timing
+           * Include edit/preview/disable buttons for each rule
+           * Add "Add Another Rule" button for multiple rules
+       3. Add Smart Defaults:
+           * Create frontend/src/components/ui/action-rule-suggestions.tsx
+           * Suggest common rule patterns based on category type
+           * Show "Add Your First Rule" for categories without rules
+           * Display rule templates for quick setup
+     * Acceptance Criteria:
+       * Category cards show action rules inline with clear visual hierarchy
+       * Users can see rule status, affected email counts, and next actions
+       * Progressive disclosure works smoothly with expandable sections
+       * Smart defaults suggest appropriate rules for each category type
+     * Tests to Write:
+       * test_category_card_action_rules: Verify rule display in category cards
+       * test_progressive_disclosure: Verify expandable sections work correctly
+       * test_rule_status_indicators: Verify status display and updates
+
+     PHASE 3.4.2: Action Rule Configuration Modal
+     * Description: Build an intuitive modal for configuring action rules with
+       comprehensive options, real-time preview, and safety settings.
+     * Instructions for Coding Agents:
+       1. Create Configuration Modal:
+           * Create frontend/src/components/ui/action-rule-modal.tsx
+           * Implement action type selector with descriptions
+           * Add timing configuration with conditional logic options
+           * Include real-time preview of affected emails
+           * Add safety settings panel with user preferences
+       2. Build Form Components:
+           * Create frontend/src/components/ui/action-rule-form.tsx
+           * Implement action type radio buttons with icons
+           * Add timing input with smart validation
+           * Create conditional logic checkboxes
+           * Build safety settings toggles
+       3. Add Real-time Preview:
+           * Create frontend/src/components/ui/action-preview.tsx
+           * Show live count of affected emails
+           * Display sample email subjects and senders
+           * Show next action scheduling information
+           * Include "Preview Full List" functionality
+     * Acceptance Criteria:
+       * Modal provides comprehensive rule configuration options
+       * Real-time preview shows exactly which emails will be affected
+       * Safety settings prevent accidental destructive actions
        * Form validation prevents invalid configurations
-       * Action rule status is clearly visible
-       * Integration with existing category management is seamless
-   * Tests to Write:
-       * test_action_rule_form: Verify form validation and submission
-       * test_action_rule_display: Verify rule display and editing
-       * test_action_rule_integration: Verify API integration
-       * test_action_rule_validation: Verify client-side validation
+       * Users can save drafts or activate rules immediately
+     * Tests to Write:
+       * test_action_rule_modal: Verify modal functionality and form validation
+       * test_real_time_preview: Verify preview updates as user configures rules
+       * test_safety_settings: Verify safety features work correctly
+
+     PHASE 3.4.3: Action Preview Dashboard
+     * Description: Create a comprehensive preview system that shows users
+       exactly what actions will be taken before execution.
+     * Instructions for Coding Agents:
+       1. Create Preview Dashboard:
+           * Create frontend/src/app/action-preview/page.tsx
+           * Build summary panel with action details and counts
+           * Implement email list with individual controls
+           * Add bulk action capabilities with selection
+       2. Build Email Preview Components:
+           * Create frontend/src/components/ui/email-preview-item.tsx
+           * Display email subject, sender, and age
+           * Show action that will be taken
+           * Include individual exclude/include controls
+           * Add "View Email" link for context
+       3. Implement Bulk Operations:
+           * Create frontend/src/components/ui/bulk-actions-bar.tsx
+           * Add select all/deselect all functionality
+           * Implement bulk exclude/include operations
+           * Show count of selected items
+           * Add execute/schedule buttons
+     * Acceptance Criteria:
+       * Dashboard clearly shows all emails that will be affected
+       * Users can exclude individual emails from bulk actions
+       * Bulk operations work efficiently with proper feedback
+       * Users can execute immediately or schedule for later
+       * Preview updates in real-time as rules are modified
+     * Tests to Write:
+       * test_action_preview_dashboard: Verify dashboard functionality
+       * test_email_preview_items: Verify individual email controls
+       * test_bulk_operations: Verify bulk selection and actions
+
+     PHASE 3.4.4: API Integration & State Management
+     * Description: Integrate frontend components with backend Action Engine
+       APIs and implement robust state management.
+     * Instructions for Coding Agents:
+       1. Extend API Layer:
+           * Update frontend/src/lib/api.ts with action rule endpoints
+           * Add TypeScript types for action rules and proposed actions
+           * Implement error handling and retry logic
+           * Add loading states and optimistic updates
+       2. Create State Management:
+           * Create frontend/src/lib/action-engine-context.tsx
+           * Manage action rule state across components
+           * Handle real-time updates for email counts
+           * Implement caching for performance
+       3. Add Error Handling:
+           * Create frontend/src/components/ui/error-boundary.tsx
+           * Implement graceful degradation for API failures
+           * Add user-friendly error messages
+           * Include retry mechanisms for failed operations
+     * Acceptance Criteria:
+       * All components integrate seamlessly with backend APIs
+       * State management provides consistent data across components
+       * Error handling is robust and user-friendly
+       * Performance is optimized with proper caching
+       * Real-time updates work reliably
+     * Tests to Write:
+       * test_api_integration: Verify all API calls work correctly
+       * test_state_management: Verify state consistency across components
+       * test_error_handling: Verify graceful error handling
+
+     PHASE 3.4.5: Polish & Optimization
+     * Description: Add delightful interactions, animations, and performance
+       optimizations to create a premium user experience.
+     * Instructions for Coding Agents:
+       1. Add Animations & Transitions:
+           * Implement smooth hover effects for category cards
+           * Add loading states with skeleton screens
+           * Create smooth modal transitions
+           * Add micro-interactions for button states
+       2. Optimize Performance:
+           * Implement lazy loading for email previews
+           * Add debounced validation for form inputs
+           * Optimize re-renders with React.memo
+           * Add virtual scrolling for large email lists
+       3. Enhance Accessibility:
+           * Add proper ARIA labels and roles
+           * Implement keyboard navigation
+           * Ensure screen reader compatibility
+           * Add high contrast mode support
+       4. Add Delightful Features:
+           * Implement toast notifications for actions
+           * Add confirmation dialogs for destructive actions
+           * Create success animations for completed actions
+           * Add keyboard shortcuts for power users
+     * Acceptance Criteria:
+       * Animations are smooth and enhance user experience
+       * Performance remains excellent with large datasets
+       * Accessibility features work correctly
+       * Delightful interactions make the app feel premium
+       * All interactions provide immediate feedback
+     * Tests to Write:
+       * test_animations: Verify smooth transitions and interactions
+       * test_performance: Verify performance with large datasets
+       * test_accessibility: Verify accessibility compliance
+
+   * Overall Acceptance Criteria:
+       * Users can configure action rules for any category with intuitive controls
+       * Action rule changes are immediately reflected in UI with smooth updates
+       * Form validation prevents invalid configurations with helpful feedback
+       * Action rule status is clearly visible with appropriate visual indicators
+       * Integration with existing category management is seamless and natural
+       * Users feel confident and in control of their automated email actions
+       * Performance is excellent across all devices and screen sizes
+       * Accessibility features ensure the app is usable by everyone
+
+   * Design Reference:
+       * Detailed wireframes: memory-bank/action-engine-wireframes.md
+       * Follow progressive disclosure, visual hierarchy, and contextual intelligence principles
+       * Prioritize trust-building features and delightful interactions
 
   TODO #3.5: Proposed Actions Dashboard
 

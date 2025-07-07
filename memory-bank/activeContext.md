@@ -2,9 +2,46 @@
 
 ## Current Focus
 
-The current development focus is on the Action Engine: implementing robust, optimized, and resilient core services for automated email actions and rules, with comprehensive backend test coverage.
+The current development focus is on implementing TODO #3.4: Enhanced Frontend Action Rules Management. This involves creating a delightful and intuitive Action Engine frontend using inline category cards with action rules, following the detailed wireframe design in `memory-bank/action-engine-wireframes.md`.
+
+## Implementation Plan
+
+The frontend implementation is broken into 5 phases:
+
+1. **Phase 3.4.1**: Core Category Card Enhancement
+   - Transform existing category cards to display action rules inline
+   - Add progressive disclosure and visual hierarchy
+   - Implement smart defaults and suggestions
+
+2. **Phase 3.4.2**: Action Rule Configuration Modal
+   - Build intuitive modal for configuring action rules
+   - Add real-time preview and safety settings
+   - Implement comprehensive form validation
+
+3. **Phase 3.4.3**: Action Preview Dashboard
+   - Create comprehensive preview system
+   - Add individual and bulk email controls
+   - Implement execute/schedule functionality
+
+4. **Phase 3.4.4**: API Integration & State Management
+   - Extend API layer with action rule endpoints
+   - Create robust state management with React Context
+   - Add comprehensive error handling
+
+5. **Phase 3.4.5**: Polish & Optimization
+   - Add animations and delightful interactions
+   - Optimize performance and accessibility
+   - Implement advanced features and keyboard shortcuts
 
 ## Recent Changes
+
+### Action Engine Frontend Planning (Current)
+
+- Created detailed wireframe design in `memory-bank/action-engine-wireframes.md`
+- Updated TODO #3.4 with comprehensive implementation phases
+- Created coding agent prompt in `memory-bank/coding-agent-prompt.md`
+- Designed 5-phase implementation approach for systematic development
+- Focused on delightful UX with progressive disclosure and trust-building features
 
 ### Action Engine Core Implementation (May 2024)
 
@@ -52,11 +89,19 @@ We've implemented a significant upgrade to the category management interface wit
 ## Next Steps
 
 1. **Immediate Priorities**
-   - Fix linter errors in API interfaces
-   - Add keyword weight editing capability
-   - Improve mobile responsiveness
+   - Begin Phase 3.4.1: Core Category Card Enhancement
+   - Enhance existing category cards with action rule display
+   - Implement progressive disclosure and visual hierarchy
+   - Add smart defaults and suggestions
 
-2. **Future Enhancements**
+2. **Implementation Phases**
+   - Phase 3.4.1: Core Category Card Enhancement
+   - Phase 3.4.2: Action Rule Configuration Modal
+   - Phase 3.4.3: Action Preview Dashboard
+   - Phase 3.4.4: API Integration & State Management
+   - Phase 3.4.5: Polish & Optimization
+
+3. **Future Enhancements**
    - Add bulk operations for rules management
    - Implement drag-and-drop for priority adjustment
    - Create visualization of category distribution
