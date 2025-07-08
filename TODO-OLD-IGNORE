@@ -1,0 +1,601 @@
+The Revised, Rock-Solid Roadmap
+
+  This is the prioritized, step-by-step approach to make this project
+  complete, robust, and staging-ready.
+
+  ✅ TODO #1: Foundational Integration Testing & Environment
+
+
+   * Description: This is the bedrock for everything else. We will establish
+     a fully isolated test environment, including a dedicated test Gmail
+     account and a separate test database. All automated tests will run
+     against this environment, providing end-to-end validation without flaky
+     mocks. This gives us a safety net to refactor and build with confidence.
+
+   * Instructions for Coding Agents:
+       1. Environment Setup:
+           * Create backend/.env.test and populate it with credentials for a
+             new, dedicated test Gmail account and a new test database URL
+             (e.g., email_agent_db_test).
+           * Modify backend/pytest.ini to use pytest-dotenv and specify that
+             pytest should only load variables from .env.test.
+       2. Test Database Fixture:
+           * In backend/tests/conftest.py, create a session-scoped pytest
+             fixture that:
+               * Connects to the test database.
+               * Drops all tables to ensure a clean state.
+               * Runs alembic upgrade head to apply all migrations.
+               * Yields the database session to the tests.
+               * Cleans up the database after the test session.
+       3. Gmail Seeding Script:
+           * Create backend/scripts/seed_test_gmail.py. This script will
+             take a list of predefined email structures (subject, body,
+             sender, labels) and use the Gmail API to create them in the
+             test Gmail account. This makes our tests deterministic.
+   * Acceptance Criteria:
+       * Running pytest never touches the development database or your
+         primary Gmail account.
+       * A test can be written that programmatically sends an email to the
+         test Gmail account, triggers the sync service, and asserts the
+         email's content and category are correctly stored in the test
+         database.
+   * Tests to Write:
+       * test_full_sync_from_seeded_gmail: Seeds 5 emails, runs a full sync,
+         and verifies all 5 are in the test DB.
+       * test_label_update_syncs_to_gmail: Programmatically updates an
+         email's labels in the test DB, runs the operation processor, and
+         uses the Gmail API to confirm the label was updated in the test
+         Gmail account.
+
+  ✅ TODO #2: Refactor Core Services for Modularity & Testability
+
+
+   * Description: This is the critical architectural improvement. We will
+     dismantle the monolithic email_sync_service.py and break its
+     responsibilities into smaller, single-purpose services. This makes the
+     system easier to understand, maintain, and test independently.
+   * Instructions for Coding Agents:
+       1. Create New Service Files: Create the following new files in
+          backend/app/services/:
+           * gmail_service.py: Contains only the logic for interacting with
+             the Gmail API (e.g., fetch_history, get_message,
+             update_labels). This service knows nothing about our database.
+           * processing_service.py: Contains the logic for taking raw email
+             data from the API and creating/updating Email model instances
+             in the database.
+           * categorization_service.py: Consolidate all categorization logic
+             here.
+       2. Refactor `email_sync_service.py`:
+           * The sync_emails_since_last_fetch function will be rewritten to
+             be a simple orchestrator. It will call the gmail_service to get
+             data, then pass that data to the processing_service and
+             categorization_service. Its own logic will be minimal.
+   * Acceptance Criteria:
+       * The email_sync_service.py file is significantly smaller and
+         primarily calls other services.
+       * The new services (gmail_service, processing_service) have clear,
+         single responsibilities.
+       * All existing integration tests from TODO #1 must pass after the
+         refactor, proving no functionality was broken.
+   * Tests to Write:
+       * Unit tests can now be written for individual services, e.g.,
+         test_categorize_email_with_rules in isolation.
+       * The existing integration tests will serve as the primary regression
+         suite for this refactor.
+
+  TODO #3: Implement the Action Engine with "Dry Run" by Design
+
+   * Description: Now, on a solid foundation, we build the agent's brain.
+     This engine will apply actions (ARCHIVE, TRASH) based on category
+     rules. It will be built with a "dry run" mode from the start to ensure
+     user trust. This is implemented in logical phases to ensure quality
+     and maintainability.
+
+  ✅ TODO #3.1: Database Schema & Core Models
+
+   * Description: Establish the foundational database structure for the
+     Action Engine, including model extensions and new tables for tracking
+     proposed actions.
+   * Instructions for Coding Agents:
+       1. Extend EmailCategory Model:
+           * Create Alembic migration to add fields to email_categories table:
+             - action (String, nullable) - stores action type (ARCHIVE, TRASH)
+             - action_delay_days (Integer, nullable) - days to wait before action
+             - action_enabled (Boolean, default=False) - toggle for enabling actions
+           * Update EmailCategory model in backend/app/models/email_category.py
+           * Add validation methods for action rules
+       2. Create ProposedAction Model:
+           * Create new model in backend/app/models/proposed_action.py with:
+             - id (UUID, primary key)
+             - email_id (UUID, foreign key to emails)
+             - user_id (UUID, foreign key to users)
+             - category_id (Integer, foreign key to email_categories)
+             - action_type (String) - ARCHIVE, TRASH, etc.
+             - reason (String) - explanation of why action is proposed
+             - email_age_days (Integer) - how old the email is
+             - created_at (DateTime)
+             - status (String) - PENDING, APPROVED, REJECTED, EXPIRED
+           * Create Alembic migration for proposed_actions table
+           * Add proper indexes for efficient querying
+       3. Update Email Model:
+           * Add relationship to ProposedAction model
+           * Ensure proper cascade behavior
+   * Acceptance Criteria:
+       * All migrations run successfully without errors
+       * Models can be imported and used without circular dependencies
+       * Database constraints and indexes are properly created
+       * Existing functionality remains unchanged
+   * Tests to Write:
+       * test_email_category_action_fields: Verify new fields are properly
+         added and can be set/retrieved
+       * test_proposed_action_model: Verify ProposedAction model works
+         correctly with all relationships
+       * test_migration_rollback: Ensure migrations can be rolled back safely
+
+  ✅ TODO #3.2: Core Action Engine Services
+
+   * Description: Implement the core business logic services that power
+     the Action Engine, including action detection, proposal generation,
+     and execution logic.
+   * Instructions for Coding Agents:
+       1. Create ActionEngineService:
+           * Create backend/app/services/action_engine_service.py
+           * Implement core functions:
+             - process_category_actions(db, user, dry_run: bool) - main orchestrator
+             - find_emails_for_action(db, user, category) - find eligible emails
+             - create_proposed_action(db, email, category, action_type) - create proposal
+             - execute_action(db, proposed_action) - convert proposal to EmailOperation
+             - approve_proposed_action(db, action_id) - approve a proposal
+             - reject_proposed_action(db, action_id) - reject a proposal
+             - cleanup_expired_proposals(db) - remove old proposals
+       2. Create ActionRuleService:
+           * Create backend/app/services/action_rule_service.py
+           * Implement functions:
+             - update_category_action_rule(db, category_id, action, delay_days, enabled)
+             - get_action_rules_for_user(db, user_id)
+             - validate_action_rule(action, delay_days)
+             - get_emails_affected_by_rule(db, category_id) - preview function
+       3. Integration with Existing Services:
+           * Ensure ActionEngineService integrates with email_operations_service
+           * Add proper error handling and logging
+           * Implement transaction safety for all operations
+   * Acceptance Criteria:
+       * Services can find emails eligible for actions based on category rules
+       * Dry run mode creates ProposedAction records without affecting emails
+       * Execute mode creates EmailOperation records for processing
+       * All operations are properly logged and error-handled
+       * Services can be tested in isolation
+   * Tests to Write:
+       * test_action_engine_finds_eligible_emails: Verify email detection logic
+       * test_action_engine_dry_run: Verify dry run creates proposals only
+       * test_action_engine_execute: Verify execute mode creates operations
+       * test_action_engine_approval_flow: Verify proposal approval/rejection
+       * test_action_rule_validation: Verify rule validation logic
+
+  TODO #3.3: API Layer & Endpoints
+
+   * Description: Build the REST API layer that exposes Action Engine
+     functionality to the frontend, including action rule management
+     and proposed actions handling.
+   * Instructions for Coding Agents:
+       1. Create Action Management Router:
+           * Create backend/app/routers/action_management.py
+           * Implement endpoints:
+             - POST /action-management/categories/{category_id}/action-rule
+             - GET /action-management/categories/{category_id}/action-rule
+             - DELETE /action-management/categories/{category_id}/action-rule
+             - GET /action-management/categories/{category_id}/action-preview
+       2. Create Proposed Actions Router:
+           * Create backend/app/routers/proposed_actions.py
+           * Implement endpoints:
+             - GET /proposed-actions (with pagination/filtering)
+             - POST /proposed-actions/{action_id}/approve
+             - POST /proposed-actions/{action_id}/reject
+             - POST /proposed-actions/bulk-approve
+             - POST /proposed-actions/bulk-reject
+             - POST /proposed-actions/process-dry-run
+             - POST /proposed-actions/process-execute
+       3. Create Pydantic Models:
+           * Create schemas in backend/app/schemas/action_engine.py:
+             - ActionRuleRequest, ActionRuleResponse
+             - ProposedActionItem, ProposedActionList
+             - BulkActionRequest, ActionProcessRequest
+       4. Update Main Router:
+           * Include new routers in backend/app/main.py
+           * Add proper error handling and validation
+   * Acceptance Criteria:
+       * All endpoints return proper HTTP status codes and error messages
+       * Pagination and filtering work correctly
+       * Bulk operations are efficient and atomic
+       * API responses are properly validated and typed
+       * Endpoints integrate with authentication and authorization
+   * Tests to Write:
+       * test_action_rule_endpoints: Verify CRUD operations for action rules
+       * test_proposed_actions_endpoints: Verify proposal management
+       * test_bulk_operations: Verify bulk approve/reject functionality
+       * test_action_process_endpoints: Verify dry run and execute modes
+       * test_api_validation: Verify input validation and error handling
+
+  TODO #3.4: Enhanced Frontend Action Rules Management
+
+   * Description: Implement a delightful and intuitive Action Engine frontend
+     using inline category cards with action rules, following the detailed
+     wireframe design in memory-bank/action-engine-wireframes.md. This will
+     provide users with transparent, controllable, and trustworthy email
+     automation.
+
+   * Implementation Phases:
+
+     PHASE 3.4.1: Core Category Card Enhancement
+     * Description: Transform existing category cards to display action rules
+       inline with enhanced visual hierarchy and progressive disclosure.
+     * Instructions for Coding Agents:
+       1. Update Category Card Component:
+           * Modify frontend/src/components/ui/category-rule-forms.tsx
+           * Add action rule display section to each category card
+           * Implement progressive disclosure for rule details
+           * Add visual indicators for rule status (active, disabled, pending)
+       2. Create Action Rule Display Component:
+           * Create frontend/src/components/ui/action-rule-display.tsx
+           * Display action type with icons (📤 Archive, 🗑️ Trash)
+           * Show affected email counts and next action timing
+           * Include edit/preview/disable buttons for each rule
+           * Add "Add Another Rule" button for multiple rules
+       3. Add Smart Defaults:
+           * Create frontend/src/components/ui/action-rule-suggestions.tsx
+           * Suggest common rule patterns based on category type
+           * Show "Add Your First Rule" for categories without rules
+           * Display rule templates for quick setup
+     * Acceptance Criteria:
+       * Category cards show action rules inline with clear visual hierarchy
+       * Users can see rule status, affected email counts, and next actions
+       * Progressive disclosure works smoothly with expandable sections
+       * Smart defaults suggest appropriate rules for each category type
+     * Tests to Write:
+       * test_category_card_action_rules: Verify rule display in category cards
+       * test_progressive_disclosure: Verify expandable sections work correctly
+       * test_rule_status_indicators: Verify status display and updates
+
+     PHASE 3.4.2: Action Rule Configuration Modal
+     * Description: Build an intuitive modal for configuring action rules with
+       comprehensive options, real-time preview, and safety settings.
+     * Instructions for Coding Agents:
+       1. Create Configuration Modal:
+           * Create frontend/src/components/ui/action-rule-modal.tsx
+           * Implement action type selector with descriptions
+           * Add timing configuration with conditional logic options
+           * Include real-time preview of affected emails
+           * Add safety settings panel with user preferences
+       2. Build Form Components:
+           * Create frontend/src/components/ui/action-rule-form.tsx
+           * Implement action type radio buttons with icons
+           * Add timing input with smart validation
+           * Create conditional logic checkboxes
+           * Build safety settings toggles
+       3. Add Real-time Preview:
+           * Create frontend/src/components/ui/action-preview.tsx
+           * Show live count of affected emails
+           * Display sample email subjects and senders
+           * Show next action scheduling information
+           * Include "Preview Full List" functionality
+     * Acceptance Criteria:
+       * Modal provides comprehensive rule configuration options
+       * Real-time preview shows exactly which emails will be affected
+       * Safety settings prevent accidental destructive actions
+       * Form validation prevents invalid configurations
+       * Users can save drafts or activate rules immediately
+     * Tests to Write:
+       * test_action_rule_modal: Verify modal functionality and form validation
+       * test_real_time_preview: Verify preview updates as user configures rules
+       * test_safety_settings: Verify safety features work correctly
+
+     PHASE 3.4.3: Action Preview Dashboard
+     * Description: Create a comprehensive preview system that shows users
+       exactly what actions will be taken before execution.
+     * Instructions for Coding Agents:
+       1. Create Preview Dashboard:
+           * Create frontend/src/app/action-preview/page.tsx
+           * Build summary panel with action details and counts
+           * Implement email list with individual controls
+           * Add bulk action capabilities with selection
+       2. Build Email Preview Components:
+           * Create frontend/src/components/ui/email-preview-item.tsx
+           * Display email subject, sender, and age
+           * Show action that will be taken
+           * Include individual exclude/include controls
+           * Add "View Email" link for context
+       3. Implement Bulk Operations:
+           * Create frontend/src/components/ui/bulk-actions-bar.tsx
+           * Add select all/deselect all functionality
+           * Implement bulk exclude/include operations
+           * Show count of selected items
+           * Add execute/schedule buttons
+     * Acceptance Criteria:
+       * Dashboard clearly shows all emails that will be affected
+       * Users can exclude individual emails from bulk actions
+       * Bulk operations work efficiently with proper feedback
+       * Users can execute immediately or schedule for later
+       * Preview updates in real-time as rules are modified
+     * Tests to Write:
+       * test_action_preview_dashboard: Verify dashboard functionality
+       * test_email_preview_items: Verify individual email controls
+       * test_bulk_operations: Verify bulk selection and actions
+
+     PHASE 3.4.4: API Integration & State Management
+     * Description: Integrate frontend components with backend Action Engine
+       APIs and implement robust state management.
+     * Instructions for Coding Agents:
+       1. Extend API Layer:
+           * Update frontend/src/lib/api.ts with action rule endpoints
+           * Add TypeScript types for action rules and proposed actions
+           * Implement error handling and retry logic
+           * Add loading states and optimistic updates
+       2. Create State Management:
+           * Create frontend/src/lib/action-engine-context.tsx
+           * Manage action rule state across components
+           * Handle real-time updates for email counts
+           * Implement caching for performance
+       3. Add Error Handling:
+           * Create frontend/src/components/ui/error-boundary.tsx
+           * Implement graceful degradation for API failures
+           * Add user-friendly error messages
+           * Include retry mechanisms for failed operations
+     * Acceptance Criteria:
+       * All components integrate seamlessly with backend APIs
+       * State management provides consistent data across components
+       * Error handling is robust and user-friendly
+       * Performance is optimized with proper caching
+       * Real-time updates work reliably
+     * Tests to Write:
+       * test_api_integration: Verify all API calls work correctly
+       * test_state_management: Verify state consistency across components
+       * test_error_handling: Verify graceful error handling
+
+     PHASE 3.4.5: Polish & Optimization
+     * Description: Add delightful interactions, animations, and performance
+       optimizations to create a premium user experience.
+     * Instructions for Coding Agents:
+       1. Add Animations & Transitions:
+           * Implement smooth hover effects for category cards
+           * Add loading states with skeleton screens
+           * Create smooth modal transitions
+           * Add micro-interactions for button states
+       2. Optimize Performance:
+           * Implement lazy loading for email previews
+           * Add debounced validation for form inputs
+           * Optimize re-renders with React.memo
+           * Add virtual scrolling for large email lists
+       3. Enhance Accessibility:
+           * Add proper ARIA labels and roles
+           * Implement keyboard navigation
+           * Ensure screen reader compatibility
+           * Add high contrast mode support
+       4. Add Delightful Features:
+           * Implement toast notifications for actions
+           * Add confirmation dialogs for destructive actions
+           * Create success animations for completed actions
+           * Add keyboard shortcuts for power users
+     * Acceptance Criteria:
+       * Animations are smooth and enhance user experience
+       * Performance remains excellent with large datasets
+       * Accessibility features work correctly
+       * Delightful interactions make the app feel premium
+       * All interactions provide immediate feedback
+     * Tests to Write:
+       * test_animations: Verify smooth transitions and interactions
+       * test_performance: Verify performance with large datasets
+       * test_accessibility: Verify accessibility compliance
+
+   * Overall Acceptance Criteria:
+       * Users can configure action rules for any category with intuitive controls
+       * Action rule changes are immediately reflected in UI with smooth updates
+       * Form validation prevents invalid configurations with helpful feedback
+       * Action rule status is clearly visible with appropriate visual indicators
+       * Integration with existing category management is seamless and natural
+       * Users feel confident and in control of their automated email actions
+       * Performance is excellent across all devices and screen sizes
+       * Accessibility features ensure the app is usable by everyone
+
+   * Design Reference:
+       * Detailed wireframes: memory-bank/action-engine-wireframes.md
+       * Follow progressive disclosure, visual hierarchy, and contextual intelligence principles
+       * Prioritize trust-building features and delightful interactions
+
+  TODO #3.5: Proposed Actions Dashboard
+
+   * Description: Create a comprehensive dashboard for reviewing and
+     managing proposed actions, providing users with full control over
+     automated email actions.
+   * Instructions for Coding Agents:
+       1. Create Proposed Actions Page:
+           * Create frontend/src/app/proposed-actions/page.tsx
+           * Create frontend/src/app/proposed-actions/layout.tsx
+           * Add route to frontend/src/app/layout.tsx navigation
+       2. Build Dashboard Components:
+           * Create frontend/src/components/proposed-actions/:
+             - proposed-actions-table.tsx - main table with pagination
+             - proposed-action-row.tsx - individual action row
+             - proposed-actions-filters.tsx - filtering controls
+             - proposed-actions-stats.tsx - statistics panel
+             - bulk-actions-bar.tsx - bulk operation controls
+       3. Implement Core Functionality:
+           * Table with email preview (subject, sender, date)
+           * Proposed action and reason display
+           * Email age and category information
+           * Individual approve/reject buttons
+           * Bulk selection and operations
+           * Filtering by action type, date range, category
+       4. Add Action Engine Controls:
+           * Manual trigger buttons for dry run and execute modes
+           * Real-time status indicators
+           * Historical logs of executed actions
+           * Configuration panel for global settings
+   * Acceptance Criteria:
+       * Dashboard displays all pending proposals clearly
+       * Users can approve/reject individual or bulk actions
+       * Filtering and search work efficiently
+       * Bulk operations are fast and reliable
+       * Action engine can be manually triggered
+       * Real-time updates show current status
+   * Tests to Write:
+       * test_proposed_actions_table: Verify table rendering and pagination
+       * test_proposed_actions_filters: Verify filtering functionality
+       * test_bulk_operations: Verify bulk approve/reject
+       * test_action_engine_controls: Verify manual trigger functionality
+       * test_real_time_updates: Verify live status updates
+
+  TODO #3.6: Integration & Polish
+
+   * Description: Final integration phase that connects all components,
+     optimizes performance, and ensures a polished user experience.
+   * Instructions for Coding Agents:
+       1. Performance Optimization:
+           * Optimize database queries for large datasets
+           * Implement efficient pagination for proposed actions
+           * Add caching for frequently accessed data
+           * Optimize bulk operations for speed
+       2. Error Handling & Resilience:
+           * Add comprehensive error boundaries in frontend
+           * Implement retry logic for failed operations
+           * Add graceful degradation for partial failures
+           * Improve error messages and user feedback
+       3. Analytics Integration:
+           * Add action engine metrics to existing analytics
+           * Track proposal approval/rejection rates
+           * Monitor action effectiveness over time
+           * Add action-related insights to dashboard
+       4. Documentation & Testing:
+           * Write comprehensive integration tests
+           * Add unit tests for all new components
+           * Update API documentation
+           * Create user documentation for action engine
+       5. Final Integration:
+           * Ensure all components work together seamlessly
+           * Test edge cases and error scenarios
+           * Verify performance under load
+           * Conduct user experience testing
+   * Acceptance Criteria:
+       * All components integrate seamlessly
+       * Performance is acceptable for typical usage
+       * Error handling is robust and user-friendly
+       * Analytics provide useful insights
+       * Documentation is complete and accurate
+       * All tests pass consistently
+   * Tests to Write:
+       * test_full_action_engine_integration: End-to-end workflow test
+       * test_performance_under_load: Performance testing
+       * test_error_scenarios: Error handling validation
+       * test_analytics_integration: Analytics functionality
+       * test_user_experience: UX flow validation
+
+  TODO #3.7: Advanced Features & Enhancements
+
+   * Description: Optional enhancements that add sophistication to the
+     Action Engine, including advanced scheduling, machine learning
+     integration, and user preference learning.
+   * Instructions for Coding Agents:
+       1. Advanced Scheduling:
+           * Implement time-based action rules (e.g., only on weekends)
+           * Add recurring action patterns
+           * Create custom action schedules per category
+       2. ML-Enhanced Actions:
+           * Integrate with existing ML classifier for action decisions
+           * Learn from user approval/rejection patterns
+           * Suggest optimal action rules based on user behavior
+       3. Advanced Filtering:
+           * Add complex filtering rules for action eligibility
+           * Implement sender-based action rules
+           * Add content-based action triggers
+       4. User Preferences:
+           * Learn user preferences for action timing
+           * Implement personalized action suggestions
+           * Add user-specific action rule templates
+   * Acceptance Criteria:
+       * Advanced features work reliably
+       * ML integration improves action accuracy
+       * User experience is enhanced without complexity
+       * Performance remains acceptable
+   * Tests to Write:
+       * test_advanced_scheduling: Verify complex scheduling logic
+       * test_ml_integration: Verify ML-enhanced decision making
+       * test_user_preferences: Verify preference learning
+               * test_advanced_filtering: Verify complex filtering rules
+
+  TODO #4: Implement Autonomous Operation & Enhanced Observability
+
+
+   * Description: Make the agent truly autonomous and provide a clear view
+     into its activities. We will use a scheduler to run jobs automatically
+     and build a dashboard to monitor performance.
+   * Instructions for Coding Agents:
+       1. Integrate `APScheduler`: Add it to the project and create a jobs.py
+          file. Define jobs that call the sync and action engine services for
+          all users on a schedule (e.g., sync every 15 mins, actions every
+          hour).
+       2. Build Analytics Backend: Enhance routers/analytics.py to provide
+          aggregated data from the sync_details and email_operations tables
+          (e.g., syncs per day, actions taken, error rates).
+       3. Build Frontend Dashboard: Create a new page in the Next.js app that
+          visualizes the data from the analytics backend, showing sync
+          history, actions taken, and system health at a glance.
+   * Acceptance Criteria:
+       * The application logs show the jobs running automatically.
+       * The frontend dashboard displays accurate, up-to-date information on
+         the agent's activities.
+   * Tests to Write (Integration):
+       * test_analytics_endpoints: Seed the database with various SyncDetails
+         and EmailOperation records, then call the analytics endpoints and
+         assert the aggregated data is correct.
+
+--------------------------------
+Session Summary: Progress on TODO #1 - Foundational Integration Testing & 
+  Environment
+
+
+  Overall Goal of TODO #1: To establish a fully isolated and reliable test
+  environment for the backend, enabling robust integration testing against
+  real services (test Gmail account, test database) without relying on
+  flaky mocks. This is the critical prerequisite for building confidence
+  and proceeding with further development.
+
+  What We Have Completed:
+
+
+   1. Dedicated Test Gmail Account: You have successfully created a separate
+      Gmail account for testing purposes.
+   2. Test Environment Configuration File (`backend/.env.test`): This file has
+       been created and updated with the GOOGLE_CLIENT_ID,
+      GOOGLE_CLIENT_SECRET, GOOGLE_ACCESS_TOKEN, and GOOGLE_REFRESH_TOKEN for
+      your dedicated test Gmail account. The DATABASE_URL is also configured
+      to point to a separate test database (email_agent_db_test).
+   3. Pytest Configuration: pytest.ini has been configured to use
+      pytest-dotenv to load backend/.env.test for tests.
+   4. Test Database Fixture (`backend/tests/conftest.py`): A pytest fixture
+      has been implemented to:
+       * Connect to the email_agent_db_test.
+       * Drop all tables before each test session for a clean state.
+       * Directly create all necessary tables using SQLAlchemy's
+         Base.metadata.create_all() (bypassing Alembic for test setup, as
+         requested).
+       * Provide a database session for tests.
+   5. Gmail Seeding Script (`backend/scripts/seed_test_gmail.py`): A script
+      has been created to programmatically send emails to your test Gmail
+      account.
+   6. Temporary Token Generation Scripts Cleaned Up: The get_tokens.py and
+      exchange_code_for_tokens.py scripts have been successfully used to
+      obtain the necessary tokens and then deleted.
+
+  What Remains to Be Done for TODO #1:
+
+
+   1. Successful Execution of Test Database Fixture: The pytest 
+      backend/tests/test_db_fixture.py test is currently failing due to
+      environment variable loading order issues with Pydantic's Settings class
+       during pytest execution. This needs to be resolved to confirm the test
+      database setup is fully functional.
+   2. Integrate Gmail Seeding into Tests: Once the database fixture is
+      stable, we need to write a test that utilizes seed_test_gmail.py to
+      populate the test Gmail account and then verifies the sync process.
+   3. Write First Integration Test (`test_full_sync_integration`): This will
+      be the ultimate validation of our testing foundation.
+

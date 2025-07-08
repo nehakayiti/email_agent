@@ -23,9 +23,15 @@ import {
   updateSenderRuleWeight,
   deleteSenderRule,
   updateKeywordWeight,
-  deleteKeyword
+  deleteKeyword,
+  type ActionRule,
+  type ActionRuleRequest
 } from '@/lib/api';
 import { KeywordForm, SenderRuleForm } from '@/components/ui/category-rule-forms';
+import { ActionRuleDisplay } from '@/components/ui/action-rule-display';
+import { ActionRuleSuggestions } from '@/components/ui/action-rule-suggestions';
+import { ActionRuleModal } from '@/components/ui/action-rule-modal';
+import { ActionEngineProvider, useActionEngine } from '@/lib/action-engine-context';
 import { toast } from 'react-hot-toast';
 
 // New category form component 
@@ -148,7 +154,7 @@ function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
   );
 }
 
-export default function CategoriesImprovedPage() {
+function CategoriesImprovedPageContent() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -174,6 +180,20 @@ export default function CategoriesImprovedPage() {
   const [editSenderIsDomain, setEditSenderIsDomain] = useState(true);
   const [editSenderWeight, setEditSenderWeight] = useState(1);
   const [editLoading, setEditLoading] = useState(false);
+  
+  // Action Engine state
+  const [showActionRuleModal, setShowActionRuleModal] = useState(false);
+  const [editingActionRule, setEditingActionRule] = useState<ActionRule | null>(null);
+  const [showActionSuggestions, setShowActionSuggestions] = useState(false);
+  
+  // Action Engine context
+  const { 
+    getRulesForCategory, 
+    createRule, 
+    updateRule, 
+    deleteRule, 
+    toggleRule 
+  } = useActionEngine();
 
   useEffect(() => {
     fetchCategories();
@@ -236,6 +256,7 @@ export default function CategoriesImprovedPage() {
   const loadCategoryRules = async (category: Category) => {
     if (!category) return;
     
+    console.log('🎯 Loading rules for category:', category.display_name);
     setSelectedCategory(category);
     setLoadingRules(true);
     
@@ -248,6 +269,9 @@ export default function CategoriesImprovedPage() {
       // Sort: user-defined first, then system-defined
       keywords.sort((a, b) => (b.user_id ? 1 : 0) - (a.user_id ? 1 : 0));
       senderRules.sort((a, b) => (b.user_id ? 1 : 0) - (a.user_id ? 1 : 0));
+      
+      console.log('📝 Loaded keywords:', keywords.length);
+      console.log('📧 Loaded sender rules:', senderRules.length);
       
       setCategoryKeywords(keywords);
       setCategorySenderRules(senderRules);
@@ -273,6 +297,59 @@ export default function CategoriesImprovedPage() {
   const handleCategoryDeleted = () => {
     setRefreshTrigger(prev => prev + 1);
     setSelectedCategory(null);
+  };
+
+  // Action Engine handlers
+  const handleAddActionRule = () => {
+    setEditingActionRule(null);
+    setShowActionRuleModal(true);
+  };
+
+  const handleEditActionRule = (rule: ActionRule) => {
+    setEditingActionRule(rule);
+    setShowActionRuleModal(true);
+  };
+
+  const handlePreviewActionRule = (rule: ActionRule) => {
+    // TODO: Implement preview functionality
+    toast('Preview functionality coming soon!');
+  };
+
+  const handleToggleActionRule = async (rule: ActionRule, enabled: boolean) => {
+    try {
+      await toggleRule(rule.category_id, enabled);
+    } catch (error) {
+      console.error('Failed to toggle action rule:', error);
+    }
+  };
+
+  const handleDeleteActionRule = async (rule: ActionRule) => {
+    try {
+      await deleteRule(rule.category_id);
+    } catch (error) {
+      console.error('Failed to delete action rule:', error);
+    }
+  };
+
+  const handleSaveActionRule = async (rule: ActionRuleRequest) => {
+    if (!selectedCategory) return;
+    
+    try {
+      if (editingActionRule) {
+        await updateRule(selectedCategory.id, rule);
+      } else {
+        await createRule(selectedCategory.id, rule);
+      }
+    } catch (error) {
+      console.error('Failed to save action rule:', error);
+      throw error;
+    }
+  };
+
+  const handleSelectSuggestion = (suggestion: ActionRuleRequest) => {
+    setEditingActionRule(null);
+    setShowActionRuleModal(true);
+    // The modal will handle the suggestion
   };
 
   return (
@@ -729,7 +806,69 @@ export default function CategoriesImprovedPage() {
                       </div>
                     )}
                   </section>
+
+                  {/* Action Rules Section */}
+                  <section>
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center">
+                        <h3 className="text-lg font-semibold mr-2">Action Rules</h3>
+                        <span className="bg-purple-100 text-purple-800 px-2 py-0.5 rounded text-xs font-medium">
+                          {getRulesForCategory(selectedCategory.id).length}
+                        </span>
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setShowActionSuggestions(!showActionSuggestions)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white font-medium py-1 px-3 rounded text-sm"
+                        >
+                          {showActionSuggestions ? 'Hide Suggestions' : 'Show Suggestions'}
+                        </button>
+                        <button
+                          onClick={handleAddActionRule}
+                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1 px-3 rounded text-sm"
+                        >
+                          Add Action Rule
+                        </button>
+                      </div>
+                    </div>
+
+                    {showActionSuggestions && (
+                      <ActionRuleSuggestions
+                        categoryName={selectedCategory.display_name}
+                        onSelectSuggestion={handleSelectSuggestion}
+                      />
+                    )}
+
+                    {(() => {
+                      const rules = getRulesForCategory(selectedCategory.id);
+                      console.log('🔧 Action Rules for category:', selectedCategory.display_name, 'Rules:', rules);
+                      return (
+                        <ActionRuleDisplay
+                          rules={rules}
+                          categoryId={selectedCategory.id}
+                          categoryName={selectedCategory.display_name}
+                          onEdit={handleEditActionRule}
+                          onPreview={handlePreviewActionRule}
+                          onToggle={handleToggleActionRule}
+                          onAddRule={handleAddActionRule}
+                          onDeleteRule={handleDeleteActionRule}
+                        />
+                      );
+                    })()}
+                  </section>
                 </div>
+              )}
+
+              {/* Action Rule Modal */}
+              {selectedCategory && (
+                <ActionRuleModal
+                  isOpen={showActionRuleModal}
+                  onClose={() => setShowActionRuleModal(false)}
+                  categoryId={selectedCategory.id}
+                  categoryName={selectedCategory.display_name}
+                  initialRule={editingActionRule || undefined}
+                  onSave={handleSaveActionRule}
+                />
               )}
             </div>
           ) : (
@@ -772,5 +911,13 @@ export default function CategoriesImprovedPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CategoriesImprovedPage() {
+  return (
+    <ActionEngineProvider>
+      <CategoriesImprovedPageContent />
+    </ActionEngineProvider>
   );
 } 

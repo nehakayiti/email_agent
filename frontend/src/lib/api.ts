@@ -869,3 +869,240 @@ export async function updateSyncCadence(cadence: number): Promise<{ sync_cadence
         }
     );
 } 
+
+// Action Engine Types and Interfaces
+export interface ActionRule {
+  category_id: number;
+  category_name: string;
+  action: 'ARCHIVE' | 'TRASH' | null;
+  delay_days: number | null;
+  enabled: boolean;
+}
+
+export interface ActionRuleRequest {
+  action: 'ARCHIVE' | 'TRASH';
+  delay_days: number;
+  enabled: boolean;
+}
+
+export interface ActionPreview {
+  category_id: number;
+  affected_email_count: number;
+  affected_emails: Array<{
+    id: string;
+    subject: string;
+    from_email: string;
+    received_at: string;
+    age_days: number;
+  }>;
+}
+
+export interface ProposedActionItem {
+  id: string;
+  email_id: string;
+  email_subject: string;
+  email_sender: string;
+  email_date: string | null;
+  category_id: number;
+  category_name: string;
+  action_type: 'ARCHIVE' | 'TRASH';
+  reason: string;
+  email_age_days: number;
+  created_at: string;
+  status: 'pending' | 'approved' | 'rejected' | 'expired';
+}
+
+export interface ProposedActionList {
+  items: ProposedActionItem[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export interface ActionProcessResponse {
+  success: boolean;
+  mode: string;
+  proposals_created?: number;
+  operations_created?: number;
+  emails_processed: number;
+  message: string;
+}
+
+// Action Rule Management API Functions
+export async function getActionRules(categoryId?: number): Promise<ActionRule[]> {
+  if (categoryId) {
+    const rule = await fetchWithAuth<ActionRule>(`/action-management/categories/${categoryId}/action-rule`);
+    return rule ? [rule] : [];
+  } else {
+    const rules = await fetchWithAuth<ActionRule[]>('/action-management/action-rules');
+    return rules || [];
+  }
+}
+
+export async function createActionRule(categoryId: number, rule: ActionRuleRequest): Promise<ActionRule> {
+  const response = await fetchWithAuth<ActionRule>(
+    `/action-management/categories/${categoryId}/action-rule`,
+    {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    }
+  );
+  if (!response) throw new Error('Failed to create action rule');
+  return response;
+}
+
+export async function updateActionRule(categoryId: number, rule: ActionRuleRequest): Promise<ActionRule> {
+  const response = await fetchWithAuth<ActionRule>(
+    `/action-management/categories/${categoryId}/action-rule`,
+    {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    }
+  );
+  if (!response) throw new Error('Failed to update action rule');
+  return response;
+}
+
+export async function deleteActionRule(categoryId: number): Promise<void> {
+  const response = await fetchWithAuth(
+    `/action-management/categories/${categoryId}/action-rule`,
+    {
+      method: 'DELETE',
+    }
+  );
+  if (response === null) throw new Error('Failed to delete action rule');
+}
+
+export async function toggleActionRule(categoryId: number, enabled: boolean): Promise<ActionRule> {
+  const currentRule = await getActionRules(categoryId);
+  if (!currentRule.length) {
+    throw new Error('No action rule found for this category');
+  }
+  
+  const rule = currentRule[0];
+  return updateActionRule(categoryId, {
+    action: rule.action || 'ARCHIVE',
+    delay_days: rule.delay_days || 7,
+    enabled,
+  });
+}
+
+// Action Preview API Functions
+export async function getActionPreview(categoryId: number): Promise<ActionPreview> {
+  const response = await fetchWithAuth<ActionPreview>(`/action-management/categories/${categoryId}/action-preview`);
+  if (!response) throw new Error('Failed to get action preview');
+  return response;
+}
+
+// Proposed Actions API Functions
+export async function getProposedActions(params: {
+  status_filter?: string;
+  action_type?: string;
+  category_id?: number;
+  page?: number;
+  page_size?: number;
+} = {}): Promise<ProposedActionList> {
+  const queryParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined) {
+      queryParams.append(key, value.toString());
+    }
+  });
+  
+  const queryString = queryParams.toString();
+  const endpoint = `/proposed-actions${queryString ? `?${queryString}` : ''}`;
+  
+  const response = await fetchWithAuth<ProposedActionList>(endpoint);
+  if (!response) throw new Error('Failed to get proposed actions');
+  return response;
+}
+
+export async function approveProposedAction(actionId: string): Promise<void> {
+  const response = await fetchWithAuth(`/proposed-actions/${actionId}/approve`, {
+    method: 'POST',
+  });
+  if (response === null) throw new Error('Failed to approve action');
+}
+
+export async function rejectProposedAction(actionId: string): Promise<void> {
+  const response = await fetchWithAuth(`/proposed-actions/${actionId}/reject`, {
+    method: 'POST',
+  });
+  if (response === null) throw new Error('Failed to reject action');
+}
+
+export async function bulkApproveActions(actionIds: string[]): Promise<{
+  approved_count: number;
+  failed_count: number;
+  failed_actions: Array<{ action_id: string; error: string }>;
+}> {
+  const response = await fetchWithAuth<{
+    approved_count: number;
+    failed_count: number;
+    failed_actions: Array<{ action_id: string; error: string }>;
+  }>('/proposed-actions/bulk-approve', {
+    method: 'POST',
+    body: JSON.stringify({ action_ids: actionIds }),
+  });
+  if (!response) throw new Error('Failed to bulk approve actions');
+  return response;
+}
+
+export async function bulkRejectActions(actionIds: string[]): Promise<{
+  rejected_count: number;
+  failed_count: number;
+  failed_actions: Array<{ action_id: string; error: string }>;
+}> {
+  const response = await fetchWithAuth<{
+    rejected_count: number;
+    failed_count: number;
+    failed_actions: Array<{ action_id: string; error: string }>;
+  }>('/proposed-actions/bulk-reject', {
+    method: 'POST',
+    body: JSON.stringify({ action_ids: actionIds }),
+  });
+  if (!response) throw new Error('Failed to bulk reject actions');
+  return response;
+}
+
+// Action Engine Processing API Functions
+export async function processDryRun(categoryIds?: number[]): Promise<ActionProcessResponse> {
+  const response = await fetchWithAuth<ActionProcessResponse>('/proposed-actions/process-dry-run', {
+    method: 'POST',
+    body: JSON.stringify({ category_ids: categoryIds, force: false }),
+  });
+  if (!response) throw new Error('Failed to process dry run');
+  return response;
+}
+
+export async function processExecute(categoryIds?: number[]): Promise<ActionProcessResponse> {
+  const response = await fetchWithAuth<ActionProcessResponse>('/proposed-actions/process-execute', {
+    method: 'POST',
+    body: JSON.stringify({ category_ids: categoryIds, force: false }),
+  });
+  if (!response) throw new Error('Failed to process execute');
+  return response;
+}
+
+export async function cleanupExpiredProposals(): Promise<{ expired_proposals_removed: number }> {
+  const response = await fetchWithAuth<{ expired_proposals_removed: number }>('/proposed-actions/cleanup-expired', {
+    method: 'POST',
+  });
+  if (!response) throw new Error('Failed to cleanup expired proposals');
+  return response;
+}
+
+export async function getProposedActionsStats(): Promise<{
+  total_proposals: number;
+  by_status: { pending: number; approved: number; rejected: number; expired: number };
+  by_action_type: { archive: number; trash: number };
+}> {
+  const response = await fetchWithAuth<{
+    total_proposals: number;
+    by_status: { pending: number; approved: number; rejected: number; expired: number };
+    by_action_type: { archive: number; trash: number };
+  }>('/proposed-actions/stats');
+  if (!response) throw new Error('Failed to get proposed actions stats');
+  return response;
+} 
