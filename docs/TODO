@@ -1,0 +1,515 @@
+# FlowMail v1 — Coding Agent Implementation Prompts
+*Transform Email Agent into FlowMail: Smart Email Flow Management*
+
+---
+
+## 🎯 Project Overview
+
+**Objective**: Transform Email Agent into FlowMail - a smart email flow management system that scores emails by attention urgency, proposes bulk actions, and provides safe automation with undo capabilities.
+
+**Core Innovation**: FlowMail focuses on **timing over taxonomy** - when emails need attention rather than what category they belong to. This creates immediate value while building on existing categorization infrastructure.
+
+**Existing Assets**: Email Agent has Gmail sync, categorization, action engine, database models, API layer, and frontend foundation. We're adding attention scoring, flow modes, and enhanced UI.
+
+---
+
+## 📊 Current Email Agent Infrastructure
+
+### ✅ Already Built & Working
+- **Gmail Integration**: Full OAuth + sync with historyId optimization
+- **Email Categorization**: ML + rule-based system with 8+ categories  
+- **Action Engine**: Complete backend for automated actions (archive/trash)
+- **Database Models**: Email, User, Category, Action Rules, Operations
+- **API Layer**: 10+ routers with 50+ endpoints
+- **Frontend Foundation**: Next.js + React + Tailwind
+- **Authentication**: OAuth flow with session management
+
+### 🔄 Ready for Enhancement
+- **Email Model**: Add `attention_score` field
+- **Action Engine**: Extend with flow modes (Manual/Assist/Auto)
+- **UI Components**: Transform into flow-focused interface
+- **Analytics**: Add attention-based metrics
+
+---
+
+## 🛠 Coding Agent Prompts
+
+### Prompt 1: Add Attention Scoring to Email Model
+
+**Goal**: Add attention scoring capability to the existing email model and create a service to calculate attention scores based on urgency signals.
+
+**Context**: 
+- Email Agent has an existing `Email` model in `backend/app/models/email.py`
+- Current model has fields: `importance_score`, `category`, `labels`, `is_read`, `received_at`, etc.
+- We need to add `attention_score` field and create a scoring service
+
+**Tasks**:
+1. Create Alembic migration to add `attention_score` FLOAT column to emails table with default 0.0
+2. Add database indexes for efficient querying by attention score
+3. Create `backend/app/services/attention_scoring.py` service with attention calculation logic
+4. Update email sync pipeline to calculate attention scores for new emails
+5. Add attention score recalculation to email reprocessing
+6. Update email API responses to include attention_score
+7. Write comprehensive tests for attention scoring service
+8. Ensure all existing tests still pass
+
+**Attention Scoring Logic**:
+- Base score: 50.0
+- Urgency boosters: +30 for IMPORTANT label, +20 for STARRED, +15 for unread
+- Category influence: +25 for Important category, -20 for Newsletters/Promotions/Social
+- Time decay: -0.5 per day since received
+- Thread activity: +10 if thread has unread replies
+- Clamp result between 0.0 and 100.0
+
+**Verification**:
+- Run `docker exec -i postgres_db psql -U postgres -d email_agent_db -c "\d emails"` to verify column exists
+- Run `pytest backend/tests/test_attention_scoring.py --cov=backend/app/services/attention_scoring`
+- Ensure test coverage ≥90% for new service
+- Verify existing email sync and reprocessing still work
+
+**Best Practices**:
+- Use pure functions for attention calculation (no DB I/O)
+- Follow existing service patterns in Email Agent
+- Add proper logging for debugging
+- Use type hints throughout
+- Write tests that are deterministic (no sleeps, mock external calls)
+
+---
+
+### Prompt 2: Create Flow Buckets API
+
+**Goal**: Create API endpoints for NOW/LATER/REFERENCE flow buckets based on attention scores and read status.
+
+**Context**:
+- Attention scoring is now implemented from Prompt 1
+- Need to create bucket logic and API endpoints
+- Should follow existing router patterns in Email Agent
+
+**Tasks**:
+1. Create `backend/app/routers/flow_buckets.py` router
+2. Implement bucket logic: NOW (attention≥70 & unread), LATER (attention≥30 OR high attention & read), REFERENCE (attention<30 & not trash)
+3. Create GET `/flow/buckets/{bucket_name}` endpoint for bucket emails
+4. Create GET `/flow/bucket-counts` endpoint for bucket statistics
+5. Add flow_buckets router to main FastAPI app
+6. Write comprehensive tests for bucket logic and API endpoints
+7. Add proper error handling and validation
+8. Ensure pagination works correctly
+
+**API Specifications**:
+- `/flow/buckets/now` - High attention unread emails
+- `/flow/buckets/later` - Medium attention or high attention read emails  
+- `/flow/buckets/reference` - Low attention emails (not trash)
+- `/flow/bucket-counts` - Count of emails in each bucket
+- Support pagination with page/limit parameters
+- Return email data with attention_score included
+
+**Verification**:
+- Test all bucket endpoints return correct email sets
+- Verify bucket counts match actual email counts
+- Test pagination with large email sets
+- Run `pytest backend/tests/test_flow_buckets.py --cov=backend/app/routers/flow_buckets`
+- Ensure test coverage ≥90%
+
+**Best Practices**:
+- Use existing email query patterns from Email Agent
+- Add proper database indexes for bucket queries
+- Follow existing API response formats
+- Add comprehensive error handling
+- Use dependency injection for database and user
+
+---
+
+### Prompt 3: Implement Flow Modes and Suggestion Engine
+
+**Goal**: Add Manual/Assist/Auto flow modes to users and create a suggestion engine for bulk actions.
+
+**Context**:
+- Flow buckets are implemented from Prompt 2
+- Need to extend user model with flow_mode
+- Create suggestion engine for bulk actions
+- Build on existing action engine infrastructure
+
+**Tasks**:
+1. Create Alembic migration to add `flow_mode` VARCHAR(10) to users table (default 'MANUAL')
+2. Create `backend/app/services/flow_action_engine.py` service
+3. Implement suggestion generation logic for bulk actions
+4. Create `backend/app/routers/flow_suggestions.py` router
+5. Add suggestion endpoints: GET suggestions, POST execute/reject
+6. Implement auto-execution for high-confidence suggestions in AUTO mode
+7. Write comprehensive tests for flow modes and suggestions
+8. Update user management to handle flow_mode
+
+**Flow Mode Logic**:
+- MANUAL: No suggestions, read-only scoring
+- ASSIST: Generate suggestions, wait for user approval
+- AUTO: Auto-execute high-confidence suggestions (≥0.8 confidence)
+
+**Suggestion Types**:
+- SWEEP: Bulk delete low-attention emails (≥10 emails, confidence based on count)
+- ARCHIVE: Move old read emails to archive (age >21 days, confidence 0.8)
+
+**Verification**:
+- Test flow mode changes persist correctly
+- Verify suggestions are generated appropriately for each mode
+- Test auto-execution in AUTO mode
+- Run `pytest backend/tests/test_flow_modes.py --cov=backend/app/services/flow_action_engine`
+- Ensure test coverage ≥90%
+
+**Best Practices**:
+- Build on existing action engine patterns
+- Use database transactions for suggestion execution
+- Add proper logging for suggestion generation
+- Implement confidence scoring algorithms
+- Follow existing API patterns for consistency
+
+---
+
+### Prompt 4: Create FlowMail Dashboard UI
+
+**Goal**: Build the main FlowMail dashboard with bucket navigation, email display, and flow mode controls.
+
+**Context**:
+- Backend APIs are implemented from previous prompts
+- Need to create flow-focused UI components
+- Should integrate with existing Email Agent frontend
+
+**Tasks**:
+1. Create `frontend/src/components/flow/` directory with flow components
+2. Build `FlowBucketTabs` component for NOW/LATER/REFERENCE navigation
+3. Build `FlowEmailCard` component with attention score display
+4. Build `FlowModeToggle` component for Manual/Assist/Auto modes
+5. Create `frontend/src/app/flow/page.tsx` main dashboard
+6. Implement bucket switching and email loading
+7. Add flow mode switching with API integration
+8. Write component tests and integration tests
+9. Ensure responsive design works on mobile
+
+**UI Requirements**:
+- Clean, modern interface with attention-focused design
+- Bucket tabs showing counts and active state
+- Email cards showing attention score, sender, subject, age
+- Flow mode toggle with clear visual indicators
+- Mobile-responsive design
+- Loading states and error handling
+
+**Verification**:
+- Test all components render correctly
+- Verify bucket switching loads correct emails
+- Test flow mode changes update UI appropriately
+- Run `npm run test -- --testPathPattern=flow`
+- Test mobile responsiveness
+- Ensure accessibility compliance
+
+**Best Practices**:
+- Use existing Email Agent UI patterns and components
+- Follow React best practices with hooks and context
+- Use TypeScript for type safety
+- Implement proper error boundaries
+- Add loading states and optimistic updates
+
+---
+
+### Prompt 5: Implement Suggestion Toast and Action Modal
+
+**Goal**: Create UI components for displaying and interacting with action suggestions.
+
+**Context**:
+- Flow dashboard is implemented from Prompt 4
+- Suggestion API is available from Prompt 3
+- Need to create suggestion display and interaction UI
+
+**Tasks**:
+1. Create `SuggestionToast` component for displaying suggestions
+2. Create `SuggestionModal` component for detailed suggestion review
+3. Implement suggestion polling in Assist/Auto modes
+4. Add accept/reject functionality for suggestions
+5. Create undo capability for executed suggestions
+6. Add suggestion confidence indicators
+7. Write tests for suggestion components
+8. Implement proper error handling and user feedback
+
+**UI Requirements**:
+- Toast notifications for new suggestions
+- Modal for reviewing suggestion details
+- Email list preview in suggestion modal
+- Accept/reject buttons with confirmation
+- Undo button for recent actions
+- Confidence score display
+- Progress indicators for action execution
+
+**Verification**:
+- Test suggestion polling works correctly
+- Verify accept/reject actions update backend
+- Test undo functionality restores emails
+- Run component tests for suggestion UI
+- Test error handling for failed actions
+
+**Best Practices**:
+- Use existing toast notification system
+- Implement proper loading states
+- Add confirmation dialogs for destructive actions
+- Use optimistic updates for better UX
+- Follow existing modal patterns
+
+---
+
+### Prompt 6: Add Activity Timeline and Undo System
+
+**Goal**: Create activity logging and undo capability for all flow actions.
+
+**Context**:
+- Suggestion system is implemented from Prompt 5
+- Need to track all actions and enable undo
+- Should integrate with existing email operations
+
+**Tasks**:
+1. Extend email_operations table with flow tracking fields
+2. Create `backend/app/services/undo_service.py` service
+3. Implement activity logging for all flow actions
+4. Create undo API endpoints
+5. Build `ActivityTimeline` component for frontend
+6. Implement undo functionality with Gmail sync
+7. Add activity timeline to dashboard
+8. Write comprehensive tests for undo system
+
+**Activity Tracking**:
+- Log all suggestion executions and rejections
+- Track flow mode changes
+- Record undo operations
+- Store confidence scores and user decisions
+
+**Undo Logic**:
+- Create inverse operations for executed actions
+- Sync changes back to Gmail
+- Update local database state
+- Provide 7-day undo window
+
+**Verification**:
+- Test activity logging captures all actions
+- Verify undo operations restore correct state
+- Test Gmail sync after undo operations
+- Run tests for undo service and timeline
+- Ensure activity timeline displays correctly
+
+**Best Practices**:
+- Use database transactions for undo operations
+- Implement proper Gmail API error handling
+- Add comprehensive logging for debugging
+- Follow existing operation patterns
+- Ensure data consistency across operations
+
+---
+
+### Prompt 7: Mobile Optimization and PWA Features
+
+**Goal**: Optimize FlowMail for mobile devices and add Progressive Web App capabilities.
+
+**Context**:
+- Core FlowMail functionality is implemented
+- Need to ensure excellent mobile experience
+- Should add PWA features for offline capability
+
+**Tasks**:
+1. Implement responsive design for all flow components
+2. Add touch-friendly interactions and gestures
+3. Optimize performance for mobile devices
+4. Create service worker for offline caching
+5. Add PWA manifest and icons
+6. Implement offline email viewing capability
+7. Add mobile-specific navigation patterns
+8. Write mobile-specific tests
+
+**Mobile Requirements**:
+- Responsive breakpoints: sm <640px, md <768px, lg <1024px
+- Touch-friendly tap targets (minimum 44px)
+- Swipe gestures for email actions
+- Optimized loading times
+- Offline capability for viewed emails
+
+**PWA Features**:
+- Service worker for caching
+- App manifest for installability
+- Offline fallback pages
+- Push notifications for suggestions
+
+**Verification**:
+- Test responsive design on various screen sizes
+- Verify touch interactions work correctly
+- Test offline functionality
+- Run Lighthouse PWA audit (target ≥90)
+- Test performance on mobile devices
+
+**Best Practices**:
+- Use CSS Grid and Flexbox for responsive layouts
+- Implement proper touch event handling
+- Optimize images and assets for mobile
+- Use lazy loading for better performance
+- Follow PWA best practices
+
+---
+
+### Prompt 8: Performance Optimization and Testing
+
+**Goal**: Optimize FlowMail performance and ensure comprehensive test coverage.
+
+**Context**:
+- All FlowMail features are implemented
+- Need to optimize performance and add comprehensive testing
+- Should ensure production readiness
+
+**Tasks**:
+1. Implement virtual scrolling for large email lists
+2. Add API response caching and optimization
+3. Optimize database queries for flow buckets
+4. Add comprehensive integration tests
+5. Implement performance monitoring
+6. Add accessibility testing and fixes
+7. Create end-to-end tests for complete user flows
+8. Optimize bundle size and loading performance
+
+**Performance Targets**:
+- API response time <200ms median
+- Page load time <2 seconds
+- Smooth scrolling with 1000+ emails
+- Mobile performance score ≥90
+
+**Testing Requirements**:
+- Unit test coverage ≥90% for all new code
+- Integration tests for all API endpoints
+- End-to-end tests for complete user flows
+- Accessibility tests (WCAG 2.1 AA compliance)
+- Performance tests for load testing
+
+**Verification**:
+- Run all test suites and ensure 100% pass
+- Verify performance targets are met
+- Test accessibility compliance
+- Run load tests with realistic data
+- Verify mobile performance targets
+
+**Best Practices**:
+- Use React.memo and useMemo for performance
+- Implement proper error boundaries
+- Add comprehensive logging and monitoring
+- Follow testing best practices
+- Use performance profiling tools
+
+---
+
+### Prompt 9: Documentation and Deployment
+
+**Goal**: Create comprehensive documentation and prepare FlowMail for production deployment.
+
+**Context**:
+- FlowMail is fully implemented and tested
+- Need to create documentation and deployment procedures
+- Should prepare for user onboarding
+
+**Tasks**:
+1. Create user documentation and onboarding flow
+2. Write API documentation for new endpoints
+3. Create deployment guide and procedures
+4. Add monitoring and alerting setup
+5. Create user feedback collection system
+6. Prepare marketing materials and feature descriptions
+7. Set up analytics and user tracking
+8. Create rollback procedures
+
+**Documentation Requirements**:
+- User guide for FlowMail features
+- API documentation for developers
+- Deployment and operations guide
+- Troubleshooting and FAQ
+- Feature comparison with existing Email Agent
+
+**Deployment Requirements**:
+- Production deployment procedures
+- Database migration scripts
+- Monitoring and alerting setup
+- Backup and recovery procedures
+- Rollback procedures for each component
+
+**Verification**:
+- Test deployment procedures in staging
+- Verify all documentation is accurate
+- Test monitoring and alerting
+- Verify backup and recovery procedures
+- Test rollback procedures
+
+**Best Practices**:
+- Use clear, concise documentation
+- Include code examples where helpful
+- Add troubleshooting sections
+- Follow deployment best practices
+- Implement proper monitoring and alerting
+
+---
+
+## 📈 Success Metrics
+
+### Technical Metrics
+- API latency <200ms median
+- Test coverage ≥90% for new components
+- Lighthouse PWA score ≥90
+- WCAG 2.1 AA accessibility compliance
+
+### User Experience Metrics
+- Undo rate ≤5% of automated actions
+- Suggestion acceptance ≥70% for high-confidence suggestions
+- Flow mode adoption: 30% Manual → 50% Assist → 20% Auto
+- User retention ≥80% weekly active users
+
+### Business Metrics
+- Time to value <5 minutes from first login
+- Email processing 10x faster than manual sorting
+- User satisfaction ≥4.5/5 rating
+- Feature usage ≥60% daily active users
+
+---
+
+## 🔄 Integration Strategy
+
+### Leveraged Components
+- Gmail sync with historyId optimization
+- Existing categorization system
+- Action engine infrastructure
+- Database models and API patterns
+- Frontend foundation and components
+
+### Minimal Changes Required
+- Add attention_score to Email model
+- Add flow_mode to User model
+- Extend email_operations with flow tracking
+- Create flow-specific UI components
+
+### Backward Compatibility
+- All existing Email Agent features remain functional
+- Users can switch between traditional and flow views
+- Existing categories and rules continue to work
+- Gradual migration path for existing users
+
+---
+
+## ✅ Definition of Done
+
+### Phase Completion Criteria
+1. **Attention Scoring**: All emails have attention_score, API endpoints working
+2. **Flow Buckets**: NOW/LATER/REFERENCE buckets functional with counts
+3. **Flow Modes**: Manual/Assist/Auto modes working with suggestions
+4. **UI Dashboard**: Complete flow interface with mobile support
+5. **Activity Timeline**: Full undo capability with Gmail sync
+6. **Production Ready**: All tests passing, performance optimized
+
+### End-to-End Success Criteria
+- ✅ User can OAuth and see flow buckets immediately
+- ✅ Attention scoring provides meaningful email prioritization
+- ✅ Suggestions appear in Assist mode and can be accepted/rejected
+- ✅ Auto mode executes high-confidence actions safely
+- ✅ All actions can be undone within 7 days
+- ✅ Mobile experience is smooth and responsive
+- ✅ Performance meets all KPI targets
+
+---
+
+*Each prompt is designed to be executed independently in a new chat session. The coding agent should read the memory bank files to understand the current Email Agent infrastructure before implementing each phase.*
+
