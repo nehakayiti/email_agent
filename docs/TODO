@@ -11,6 +11,16 @@
 
 **Existing Assets**: Email Agent has Gmail sync, categorization, action engine, database models, API layer, and frontend foundation. We're adding attention scoring, flow modes, and enhanced UI.
 
+**Modular and Extensible**: Email Agent should be modular and extensible to allow for future features and integrations using Machine Learning & GENAI capabilities to drive the flow actions and automation of emails
+
+**Focus on User Value**: FlowMail should provide immediate value to users - not just a new way to categorize emails.
+
+**Safe Automation**: All actions should be reversible with an undo capability.
+
+**Mobile First**: FlowMail should be optimized for mobile devices with a progressive web app (PWA) capability.
+
+**Iterative Development**: Each increment represents a complete user experience that can be tested independently. We start with heuristics and gradually enhance with ML/GenAI.
+
 ---
 
 ## 📊 Current Email Agent Infrastructure
@@ -32,416 +42,891 @@
 
 ---
 
-## 🛠 Coding Agent Prompts
+## 🛠 User Value Increments
 
-### Prompt 1: Add Attention Scoring to Email Model
+### Increment 1: "See Your Email Priority" - Basic Attention Scoring
+**User Value**: Users can immediately see which emails need their attention based on smart scoring.
 
-**Goal**: Add attention scoring capability to the existing email model and create a service to calculate attention scores based on urgency signals.
+#### Prompt 1.1: Add Attention Score Database Field
+**Goal**: Add database foundation for attention scoring.
 
-**Context**: 
-- Email Agent has an existing `Email` model in `backend/app/models/email.py`
-- Current model has fields: `importance_score`, `category`, `labels`, `is_read`, `received_at`, etc.
-- We need to add `attention_score` field and create a scoring service
-
-**Tasks**:
+**Atomic Change**:
 1. Create Alembic migration to add `attention_score` FLOAT column to emails table with default 0.0
-2. Add database indexes for efficient querying by attention score
-3. Create `backend/app/services/attention_scoring.py` service with attention calculation logic
-4. Update email sync pipeline to calculate attention scores for new emails
-5. Add attention score recalculation to email reprocessing
-6. Update email API responses to include attention_score
-7. Write comprehensive tests for attention scoring service
-8. Ensure all existing tests still pass
+2. Update Email model to include attention_score field
+3. Add database index for efficient querying by attention score
 
-**Attention Scoring Logic**:
-- Base score: 50.0
-- Urgency boosters: +30 for IMPORTANT label, +20 for STARRED, +15 for unread
-- Category influence: +25 for Important category, -20 for Newsletters/Promotions/Social
-- Time decay: -0.5 per day since received
-- Thread activity: +10 if thread has unread replies
-- Clamp result between 0.0 and 100.0
+**Testing Instructions**:
+```bash
+# Run migration
+cd backend && alembic upgrade head
 
-**Verification**:
-- Run `docker exec -i postgres_db psql -U postgres -d email_agent_db -c "\d emails"` to verify column exists
-- Run `pytest backend/tests/test_attention_scoring.py --cov=backend/app/services/attention_scoring`
-- Ensure test coverage ≥90% for new service
-- Verify existing email sync and reprocessing still work
+# Verify column exists
+docker exec postgres_db psql -U postgres -d email_agent_db -c "\d emails"
 
-**Best Practices**:
-- Use pure functions for attention calculation (no DB I/O)
-- Follow existing service patterns in Email Agent
-- Add proper logging for debugging
-- Use type hints throughout
-- Write tests that are deterministic (no sleeps, mock external calls)
+# Run existing tests to ensure no regressions
+pytest backend/tests/ -v
+```
+
+**Expected Result**: 
+- New `attention_score` column in emails table
+- All existing tests pass
+- No functional changes to existing code
 
 ---
 
-### Prompt 2: Create Flow Buckets API
+#### Prompt 1.2: Create Basic Attention Scoring Service
+**Goal**: Implement simple heuristic-based attention scoring.
 
-**Goal**: Create API endpoints for NOW/LATER/REFERENCE flow buckets based on attention scores and read status.
+**Atomic Change**:
+1. Create `backend/app/services/attention_scoring.py` with basic scoring function
+2. Implement simple heuristic: base score 50 + urgency modifiers
+3. Add unit tests for scoring logic
 
-**Context**:
-- Attention scoring is now implemented from Prompt 1
-- Need to create bucket logic and API endpoints
-- Should follow existing router patterns in Email Agent
+**Scoring Logic** (Simple Heuristic):
+```python
+def calculate_attention_score(email):
+    score = 50.0  # base score
+    if email.is_read == False:
+        score += 15
+    if 'IMPORTANT' in email.labels:
+        score += 30
+    if 'STARRED' in email.labels:
+        score += 20
+    return min(max(score, 0.0), 100.0)
+```
 
-**Tasks**:
+**Testing Instructions**:
+```bash
+# Run new tests
+pytest backend/tests/test_attention_scoring.py -v
+
+# Test scoring manually
+python -c "
+from backend.app.services.attention_scoring import calculate_attention_score
+from backend.app.models.email import Email
+# Create test email and test scoring
+"
+```
+
+**Expected Result**: 
+- Basic attention scoring service working
+- Unit tests passing
+- No integration with existing systems yet
+
+---
+
+#### Prompt 1.3: Integrate Attention Scoring into Email Sync
+**Goal**: Calculate attention scores for new emails during sync.
+
+**Atomic Change**:
+1. Update `backend/app/services/email_sync_service.py` to calculate attention scores
+2. Add attention score calculation after email is saved
+3. Add integration tests for sync + scoring
+
+**Testing Instructions**:
+```bash
+# Run integration tests
+pytest backend/tests/test_email_sync_service.py -v
+
+# Test with real sync
+# Trigger email sync and verify attention scores are calculated
+```
+
+**Expected Result**: 
+- New emails get attention scores during sync
+- Existing emails remain unchanged
+- Sync performance not significantly impacted
+
+---
+
+#### Prompt 1.4: Add Attention Score to Email API Response
+**Goal**: Expose attention scores via existing email API.
+
+**Atomic Change**:
+1. Update email API responses to include attention_score field
+2. Add attention score to email detail endpoints
+3. Update email list endpoints to include attention scores
+
+**Testing Instructions**:
+```bash
+# Test email API endpoints
+pytest backend/tests/test_emails.py -v
+
+# Test API manually
+curl -X GET "http://localhost:8000/emails" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Expected Result**: 
+- Email API responses include attention_score
+- All existing email functionality still works
+- Attention scores are returned for all email endpoints
+
+---
+
+#### Prompt 1.5: Create Attention Score Display Component
+**Goal**: Show attention scores in existing email UI.
+
+**Atomic Change**:
+1. Create `frontend/src/components/ui/attention-score-badge.tsx` component
+2. Add attention score display to existing email cards
+3. Style attention score with color coding (red=high, yellow=medium, green=low)
+
+**UI Component**:
+```tsx
+<AttentionScoreBadge score={email.attention_score} />
+// Shows colored badge with score (e.g., 🔴 85, 🟡 45, 🟢 15)
+```
+
+**Testing Instructions**:
+```bash
+# Run frontend tests
+npm run test -- --testPathPattern=attention-score
+
+# Test UI manually
+# Navigate to emails page and verify attention scores display
+```
+
+**Expected Result**: 
+- Attention scores visible on all email cards
+- Color-coded badges for quick visual scanning
+- Existing email functionality unchanged
+
+---
+
+### Increment 2: "Organize by Urgency" - Flow Buckets
+**User Value**: Users can organize emails into NOW/LATER/REFERENCE buckets based on attention scores.
+
+#### Prompt 2.1: Create Flow Buckets API
+**Goal**: Create API endpoints for flow buckets.
+
+**Atomic Change**:
 1. Create `backend/app/routers/flow_buckets.py` router
 2. Implement bucket logic: NOW (attention≥70 & unread), LATER (attention≥30 OR high attention & read), REFERENCE (attention<30 & not trash)
-3. Create GET `/flow/buckets/{bucket_name}` endpoint for bucket emails
-4. Create GET `/flow/bucket-counts` endpoint for bucket statistics
-5. Add flow_buckets router to main FastAPI app
-6. Write comprehensive tests for bucket logic and API endpoints
-7. Add proper error handling and validation
-8. Ensure pagination works correctly
+3. Add bucket counts endpoint
 
-**API Specifications**:
-- `/flow/buckets/now` - High attention unread emails
-- `/flow/buckets/later` - Medium attention or high attention read emails  
-- `/flow/buckets/reference` - Low attention emails (not trash)
-- `/flow/bucket-counts` - Count of emails in each bucket
-- Support pagination with page/limit parameters
-- Return email data with attention_score included
+**API Endpoints**:
+```
+GET /flow/buckets/now
+GET /flow/buckets/later
+GET /flow/buckets/reference  
+GET /flow/bucket-counts
+```
 
-**Verification**:
-- Test all bucket endpoints return correct email sets
-- Verify bucket counts match actual email counts
-- Test pagination with large email sets
-- Run `pytest backend/tests/test_flow_buckets.py --cov=backend/app/routers/flow_buckets`
-- Ensure test coverage ≥90%
+**Testing Instructions**:
+```bash
+# Test bucket endpoints
+pytest backend/tests/test_flow_buckets.py -v
 
-**Best Practices**:
-- Use existing email query patterns from Email Agent
-- Add proper database indexes for bucket queries
-- Follow existing API response formats
-- Add comprehensive error handling
-- Use dependency injection for database and user
+# Test endpoints manually
+curl -X GET "http://localhost:8000/flow/bucket-counts" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Expected Result**: 
+- All bucket endpoints working correctly
+- Bucket counts accurate
+- Returns correct emails based on attention scores
 
 ---
 
-### Prompt 3: Implement Flow Modes and Suggestion Engine
+#### Prompt 2.2: Create Flow Bucket Navigation Component
+**Goal**: Build tab navigation for flow buckets.
 
-**Goal**: Add Manual/Assist/Auto flow modes to users and create a suggestion engine for bulk actions.
+**Atomic Change**:
+1. Create `frontend/src/components/flow/flow-bucket-tabs.tsx` component
+2. Add tab navigation with NOW/LATER/REFERENCE
+3. Show email counts for each bucket
+4. Add active state styling
 
-**Context**:
-- Flow buckets are implemented from Prompt 2
-- Need to extend user model with flow_mode
-- Create suggestion engine for bulk actions
-- Build on existing action engine infrastructure
+**UI Component**:
+```tsx
+<FlowBucketTabs 
+  activeBucket="now"
+  counts={{ now: 5, later: 12, reference: 45 }}
+  onBucketChange={setActiveBucket}
+/>
+```
 
-**Tasks**:
-1. Create Alembic migration to add `flow_mode` VARCHAR(10) to users table (default 'MANUAL')
-2. Create `backend/app/services/flow_action_engine.py` service
-3. Implement suggestion generation logic for bulk actions
-4. Create `backend/app/routers/flow_suggestions.py` router
-5. Add suggestion endpoints: GET suggestions, POST execute/reject
-6. Implement auto-execution for high-confidence suggestions in AUTO mode
-7. Write comprehensive tests for flow modes and suggestions
-8. Update user management to handle flow_mode
+**Testing Instructions**:
+```bash
+# Test bucket navigation
+npm run test -- --testPathPattern=flow-bucket-tabs
 
-**Flow Mode Logic**:
-- MANUAL: No suggestions, read-only scoring
-- ASSIST: Generate suggestions, wait for user approval
-- AUTO: Auto-execute high-confidence suggestions (≥0.8 confidence)
+# Test UI manually
+# Verify tabs show correct counts and switching works
+```
 
-**Suggestion Types**:
-- SWEEP: Bulk delete low-attention emails (≥10 emails, confidence based on count)
-- ARCHIVE: Move old read emails to archive (age >21 days, confidence 0.8)
-
-**Verification**:
-- Test flow mode changes persist correctly
-- Verify suggestions are generated appropriately for each mode
-- Test auto-execution in AUTO mode
-- Run `pytest backend/tests/test_flow_modes.py --cov=backend/app/services/flow_action_engine`
-- Ensure test coverage ≥90%
-
-**Best Practices**:
-- Build on existing action engine patterns
-- Use database transactions for suggestion execution
-- Add proper logging for suggestion generation
-- Implement confidence scoring algorithms
-- Follow existing API patterns for consistency
+**Expected Result**: 
+- Tab navigation working with counts
+- Smooth switching between buckets
+- Visual feedback for active bucket
 
 ---
 
-### Prompt 4: Create FlowMail Dashboard UI
+#### Prompt 2.3: Create Flow Email List Component
+**Goal**: Display emails in flow bucket format.
 
-**Goal**: Build the main FlowMail dashboard with bucket navigation, email display, and flow mode controls.
+**Atomic Change**:
+1. Create `frontend/src/components/flow/flow-email-list.tsx` component
+2. Display emails with attention scores prominently
+3. Add flow-specific email card layout
+4. Include pagination for large email sets
 
-**Context**:
-- Backend APIs are implemented from previous prompts
-- Need to create flow-focused UI components
-- Should integrate with existing Email Agent frontend
+**UI Component**:
+```tsx
+<FlowEmailList 
+  emails={bucketEmails}
+  bucketType="now"
+  onEmailClick={handleEmailClick}
+/>
+```
 
-**Tasks**:
-1. Create `frontend/src/components/flow/` directory with flow components
-2. Build `FlowBucketTabs` component for NOW/LATER/REFERENCE navigation
-3. Build `FlowEmailCard` component with attention score display
-4. Build `FlowModeToggle` component for Manual/Assist/Auto modes
-5. Create `frontend/src/app/flow/page.tsx` main dashboard
-6. Implement bucket switching and email loading
-7. Add flow mode switching with API integration
-8. Write component tests and integration tests
-9. Ensure responsive design works on mobile
+**Testing Instructions**:
+```bash
+# Test email list component
+npm run test -- --testPathPattern=flow-email-list
 
-**UI Requirements**:
-- Clean, modern interface with attention-focused design
-- Bucket tabs showing counts and active state
-- Email cards showing attention score, sender, subject, age
-- Flow mode toggle with clear visual indicators
-- Mobile-responsive design
+# Test UI manually
+# Verify emails display correctly in each bucket
+```
+
+**Expected Result**: 
+- Emails display with attention scores
+- Flow-optimized layout
+- Pagination works correctly
+
+---
+
+#### Prompt 2.4: Create Flow Dashboard Page
+**Goal**: Combine bucket navigation and email list into complete dashboard.
+
+**Atomic Change**:
+1. Create `frontend/src/app/flow/page.tsx` main dashboard
+2. Integrate bucket tabs and email list
+3. Add loading states and error handling
+4. Implement bucket switching logic
+
+**Testing Instructions**:
+```bash
+# Test flow dashboard
+npm run test -- --testPathPattern=flow-dashboard
+
+# Test UI manually
+# Navigate to /flow and test complete bucket experience
+```
+
+**Expected Result**: 
+- Complete flow dashboard working
+- Can switch between buckets
 - Loading states and error handling
-
-**Verification**:
-- Test all components render correctly
-- Verify bucket switching loads correct emails
-- Test flow mode changes update UI appropriately
-- Run `npm run test -- --testPathPattern=flow`
-- Test mobile responsiveness
-- Ensure accessibility compliance
-
-**Best Practices**:
-- Use existing Email Agent UI patterns and components
-- Follow React best practices with hooks and context
-- Use TypeScript for type safety
-- Implement proper error boundaries
-- Add loading states and optimistic updates
+- Responsive design
 
 ---
 
-### Prompt 5: Implement Suggestion Toast and Action Modal
+### Increment 3: "Smart Suggestions" - Action Recommendations
+**User Value**: Users get intelligent suggestions for bulk actions on low-priority emails.
 
-**Goal**: Create UI components for displaying and interacting with action suggestions.
+#### Prompt 3.1: Add Flow Mode to User Model
+**Goal**: Track user's flow mode preference.
 
-**Context**:
-- Flow dashboard is implemented from Prompt 4
-- Suggestion API is available from Prompt 3
-- Need to create suggestion display and interaction UI
+**Atomic Change**:
+1. Create Alembic migration to add `flow_mode` VARCHAR(10) to users table (default 'MANUAL')
+2. Update User model to include flow_mode field
+3. Add simple enum for flow modes: MANUAL, ASSIST, AUTO
 
-**Tasks**:
-1. Create `SuggestionToast` component for displaying suggestions
-2. Create `SuggestionModal` component for detailed suggestion review
-3. Implement suggestion polling in Assist/Auto modes
-4. Add accept/reject functionality for suggestions
-5. Create undo capability for executed suggestions
-6. Add suggestion confidence indicators
-7. Write tests for suggestion components
-8. Implement proper error handling and user feedback
+**Testing Instructions**:
+```bash
+# Run migration
+cd backend && alembic upgrade head
 
-**UI Requirements**:
-- Toast notifications for new suggestions
-- Modal for reviewing suggestion details
-- Email list preview in suggestion modal
-- Accept/reject buttons with confirmation
-- Undo button for recent actions
-- Confidence score display
-- Progress indicators for action execution
+# Verify column exists
+docker exec postgres_db psql -U postgres -d email_agent_db -c "\d users"
 
-**Verification**:
-- Test suggestion polling works correctly
-- Verify accept/reject actions update backend
-- Test undo functionality restores emails
-- Run component tests for suggestion UI
-- Test error handling for failed actions
+# Run user model tests
+pytest backend/tests/test_user.py -v
+```
 
-**Best Practices**:
-- Use existing toast notification system
-- Implement proper loading states
-- Add confirmation dialogs for destructive actions
-- Use optimistic updates for better UX
-- Follow existing modal patterns
+**Expected Result**: 
+- New `flow_mode` column in users table
+- User model supports flow mode
+- All existing tests pass
 
 ---
 
-### Prompt 6: Add Activity Timeline and Undo System
+#### Prompt 3.2: Create Basic Suggestion Engine
+**Goal**: Implement simple rule-based suggestion generation.
 
-**Goal**: Create activity logging and undo capability for all flow actions.
+**Atomic Change**:
+1. Create `backend/app/services/suggestion_engine.py` with basic rules
+2. Implement SWEEP suggestion (bulk delete low-attention emails)
+3. Add suggestion model and database table
 
-**Context**:
-- Suggestion system is implemented from Prompt 5
-- Need to track all actions and enable undo
-- Should integrate with existing email operations
+**Suggestion Logic** (Simple Rule):
+```python
+def generate_sweep_suggestion(emails):
+    low_attention_emails = [e for e in emails if e.attention_score < 20]
+    if len(low_attention_emails) >= 10:
+        return Suggestion(type="SWEEP", emails=low_attention_emails, confidence=0.7)
+    return None
+```
 
-**Tasks**:
-1. Extend email_operations table with flow tracking fields
-2. Create `backend/app/services/undo_service.py` service
-3. Implement activity logging for all flow actions
-4. Create undo API endpoints
-5. Build `ActivityTimeline` component for frontend
-6. Implement undo functionality with Gmail sync
-7. Add activity timeline to dashboard
-8. Write comprehensive tests for undo system
+**Testing Instructions**:
+```bash
+# Run suggestion engine tests
+pytest backend/tests/test_suggestion_engine.py -v
 
-**Activity Tracking**:
-- Log all suggestion executions and rejections
-- Track flow mode changes
-- Record undo operations
-- Store confidence scores and user decisions
+# Test suggestion generation manually
+# Create test emails and verify suggestions are generated
+```
+
+**Expected Result**: 
+- Basic suggestion engine working
+- SWEEP suggestions generated for low-attention emails
+- Suggestions stored in database
+
+---
+
+#### Prompt 3.3: Add Suggestion API Endpoints
+**Goal**: Expose suggestions via API.
+
+**Atomic Change**:
+1. Create `backend/app/routers/suggestions.py` with suggestion endpoints
+2. Add GET suggestions and POST execute/reject endpoints
+3. Add suggestion API tests
+
+**API Endpoints**:
+```
+GET /suggestions
+POST /suggestions/{id}/execute
+POST /suggestions/{id}/reject
+```
+
+**Testing Instructions**:
+```bash
+# Run suggestion API tests
+pytest backend/tests/test_suggestions.py -v
+
+# Test endpoints manually
+curl -X GET "http://localhost:8000/suggestions" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+**Expected Result**: 
+- Suggestion API endpoints working
+- Can execute and reject suggestions
+- All tests passing
+
+---
+
+#### Prompt 3.4: Create Suggestion Toast Component
+**Goal**: Display suggestions as toast notifications.
+
+**Atomic Change**:
+1. Create `frontend/src/components/ui/suggestion-toast.tsx` component
+2. Display suggestion details in toast format
+3. Add accept/reject buttons
+4. Show confidence score and email count
+
+**UI Component**:
+```tsx
+<SuggestionToast 
+  suggestion={suggestion}
+  onAccept={handleAccept}
+  onReject={handleReject}
+/>
+```
+
+**Testing Instructions**:
+```bash
+# Test suggestion toast
+npm run test -- --testPathPattern=suggestion-toast
+
+# Test UI manually
+# Verify toast appears with suggestion details
+```
+
+**Expected Result**: 
+- Suggestion toasts display correctly
+- Accept/reject buttons work
+- Confidence scores and counts shown
+
+---
+
+#### Prompt 3.5: Create Flow Mode Toggle Component
+**Goal**: Allow users to switch between flow modes.
+
+**Atomic Change**:
+1. Create `frontend/src/components/flow/flow-mode-toggle.tsx` component
+2. Add toggle between Manual/Assist/Auto modes
+3. Update dashboard to show current mode
+4. Add mode-specific UI indicators
+
+**UI Component**:
+```tsx
+<FlowModeToggle 
+  currentMode={user.flow_mode}
+  onModeChange={handleModeChange}
+/>
+```
+
+**Testing Instructions**:
+```bash
+# Test flow mode toggle
+npm run test -- --testPathPattern=flow-mode-toggle
+
+# Test manually
+# Toggle between modes and verify state changes
+```
+
+**Expected Result**: 
+- Flow mode toggle working
+- Mode changes persist to backend
+- UI updates based on current mode
+
+---
+
+### Increment 4: "Smart Automation" - AI-Enhanced Features
+**User Value**: Users get AI-powered insights and smarter automation with GenAI explanations.
+
+#### Prompt 4.1: Create ML Provider Interface
+**Goal**: Define interface for ML model integration.
+
+**Atomic Change**:
+1. Create `backend/app/core/interfaces/ml_provider.py` with abstract base class
+2. Define basic ML provider interface
+3. Add configuration structure for ML providers
+
+**Interface Definition**:
+```python
+class MLProvider(ABC):
+    @abstractmethod
+    async def predict_attention_score(self, email_data: Dict) -> float
+    @abstractmethod
+    def get_provider_info(self) -> Dict
+```
+
+**Testing Instructions**:
+```bash
+# Run interface tests
+pytest backend/tests/test_ml_provider_interface.py -v
+
+# Verify interface can be implemented
+# Create mock provider and test interface compliance
+```
+
+**Expected Result**: 
+- ML provider interface defined
+- Interface tests passing
+- No functional changes to existing code
+
+---
+
+#### Prompt 4.2: Implement Mock ML Provider
+**Goal**: Create a mock ML provider for testing.
+
+**Atomic Change**:
+1. Create `backend/app/ml/providers/mock_provider.py`
+2. Implement mock provider that returns random scores
+3. Add provider registry for easy switching
+
+**Mock Provider Logic**:
+```python
+class MockMLProvider(MLProvider):
+    async def predict_attention_score(self, email_data: Dict) -> float:
+        return random.uniform(0.0, 100.0)
+```
+
+**Testing Instructions**:
+```bash
+# Test mock provider
+pytest backend/tests/test_mock_ml_provider.py -v
+
+# Test provider registry
+# Verify mock provider can be registered and used
+```
+
+**Expected Result**: 
+- Mock ML provider working
+- Provider registry functional
+- Can switch between heuristic and mock ML scoring
+
+---
+
+#### Prompt 4.3: Add GenAI Provider Interface
+**Goal**: Define interface for GenAI service integration.
+
+**Atomic Change**:
+1. Create `backend/app/core/interfaces/genai_provider.py` with abstract base class
+2. Define GenAI provider interface for content analysis
+3. Add configuration structure for GenAI providers
+
+**Interface Definition**:
+```python
+class GenAIProvider(ABC):
+    @abstractmethod
+    async def analyze_email_content(self, email_content: str) -> Dict
+    @abstractmethod
+    async def generate_suggestion_reason(self, suggestion: Suggestion) -> str
+```
+
+**Testing Instructions**:
+```bash
+# Run GenAI interface tests
+pytest backend/tests/test_genai_provider_interface.py -v
+
+# Verify interface can be implemented
+# Create mock GenAI provider and test interface compliance
+```
+
+**Expected Result**: 
+- GenAI provider interface defined
+- Interface tests passing
+- No functional changes to existing code
+
+---
+
+#### Prompt 4.4: Enhance Suggestion Engine with GenAI
+**Goal**: Use GenAI to improve suggestion reasoning.
+
+**Atomic Change**:
+1. Update `suggestion_engine.py` to use GenAI for reasoning
+2. Add GenAI-powered suggestion explanations
+3. Maintain fallback to simple rules
+
+**Testing Instructions**:
+```bash
+# Test enhanced suggestion engine
+pytest backend/tests/test_suggestion_engine_genai.py -v
+
+# Test suggestion explanations
+# Verify suggestions now include GenAI-generated reasons
+```
+
+**Expected Result**: 
+- Suggestions include GenAI-generated explanations
+- Fallback to simple rules if GenAI unavailable
+- Suggestion quality improved
+
+---
+
+#### Prompt 4.5: Create AI Insights Component
+**Goal**: Display AI-powered insights in the UI.
+
+**Atomic Change**:
+1. Create `frontend/src/components/ai/ai-insights-panel.tsx` component
+2. Display GenAI-generated email summaries
+3. Show AI confidence scores
+4. Add insights to email cards
+
+**UI Component**:
+```tsx
+<AIInsightsPanel 
+  email={email}
+  insights={aiInsights}
+  confidence={confidence}
+/>
+```
+
+**Testing Instructions**:
+```bash
+# Test AI insights component
+npm run test -- --testPathPattern=ai-insights
+
+# Test UI manually
+# Verify AI insights display correctly
+```
+
+**Expected Result**: 
+- AI insights display in email cards
+- GenAI summaries shown
+- Confidence scores visible
+
+---
+
+### Increment 5: "Safe Actions" - Undo System & Activity Timeline
+**User Value**: Users can safely execute actions knowing they can be undone, with full visibility into their email management history.
+
+#### Prompt 5.1: Add Undo System Backend
+**Goal**: Implement undo capability for executed suggestions.
+
+**Atomic Change**:
+1. Create `backend/app/services/undo_service.py`
+2. Track executed suggestions in database
+3. Implement undo API endpoints
 
 **Undo Logic**:
-- Create inverse operations for executed actions
+- Store original email state before action
+- Create inverse operation for executed action
 - Sync changes back to Gmail
-- Update local database state
-- Provide 7-day undo window
 
-**Verification**:
-- Test activity logging captures all actions
-- Verify undo operations restore correct state
-- Test Gmail sync after undo operations
-- Run tests for undo service and timeline
-- Ensure activity timeline displays correctly
+**Testing Instructions**:
+```bash
+# Test undo system
+pytest backend/tests/test_undo_service.py -v
 
-**Best Practices**:
-- Use database transactions for undo operations
-- Implement proper Gmail API error handling
-- Add comprehensive logging for debugging
-- Follow existing operation patterns
-- Ensure data consistency across operations
+# Test undo manually
+# Execute suggestion, then undo and verify state restored
+```
+
+**Expected Result**: 
+- Can undo executed suggestions
+- Email state properly restored
+- Gmail sync works after undo
 
 ---
 
-### Prompt 7: Mobile Optimization and PWA Features
+#### Prompt 5.2: Create Undo Button Component
+**Goal**: Add undo functionality to the UI.
 
-**Goal**: Optimize FlowMail for mobile devices and add Progressive Web App capabilities.
+**Atomic Change**:
+1. Create `frontend/src/components/ui/undo-button.tsx` component
+2. Add undo button to suggestion toasts
+3. Show undo availability status
+4. Add confirmation for undo actions
 
-**Context**:
-- Core FlowMail functionality is implemented
-- Need to ensure excellent mobile experience
-- Should add PWA features for offline capability
+**UI Component**:
+```tsx
+<UndoButton 
+  canUndo={hasRecentAction}
+  onUndo={handleUndo}
+  lastAction={lastAction}
+/>
+```
 
-**Tasks**:
-1. Implement responsive design for all flow components
-2. Add touch-friendly interactions and gestures
-3. Optimize performance for mobile devices
-4. Create service worker for offline caching
-5. Add PWA manifest and icons
-6. Implement offline email viewing capability
-7. Add mobile-specific navigation patterns
-8. Write mobile-specific tests
+**Testing Instructions**:
+```bash
+# Test undo button
+npm run test -- --testPathPattern=undo-button
 
-**Mobile Requirements**:
-- Responsive breakpoints: sm <640px, md <768px, lg <1024px
-- Touch-friendly tap targets (minimum 44px)
-- Swipe gestures for email actions
-- Optimized loading times
-- Offline capability for viewed emails
+# Test UI manually
+# Execute action and verify undo button appears
+```
 
-**PWA Features**:
-- Service worker for caching
-- App manifest for installability
-- Offline fallback pages
-- Push notifications for suggestions
-
-**Verification**:
-- Test responsive design on various screen sizes
-- Verify touch interactions work correctly
-- Test offline functionality
-- Run Lighthouse PWA audit (target ≥90)
-- Test performance on mobile devices
-
-**Best Practices**:
-- Use CSS Grid and Flexbox for responsive layouts
-- Implement proper touch event handling
-- Optimize images and assets for mobile
-- Use lazy loading for better performance
-- Follow PWA best practices
+**Expected Result**: 
+- Undo button appears after actions
+- Undo functionality works correctly
+- Confirmation prevents accidental undos
 
 ---
 
-### Prompt 8: Performance Optimization and Testing
+#### Prompt 5.3: Create Activity Timeline Backend
+**Goal**: Track all user actions for timeline display.
 
-**Goal**: Optimize FlowMail performance and ensure comprehensive test coverage.
+**Atomic Change**:
+1. Create activity tracking in database
+2. Log all suggestion executions and rejections
+3. Track flow mode changes
+4. Add activity API endpoints
 
-**Context**:
-- All FlowMail features are implemented
-- Need to optimize performance and add comprehensive testing
-- Should ensure production readiness
+**Testing Instructions**:
+```bash
+# Test activity tracking
+pytest backend/tests/test_activity_timeline.py -v
 
-**Tasks**:
+# Test activity logging
+# Perform actions and verify they're logged
+```
+
+**Expected Result**: 
+- All actions tracked in database
+- Activity API returns timeline data
+- No performance impact on main operations
+
+---
+
+#### Prompt 5.4: Create Activity Timeline Component
+**Goal**: Display activity history in UI.
+
+**Atomic Change**:
+1. Create `frontend/src/components/activity/activity-timeline.tsx` component
+2. Display executed suggestions and undo operations
+3. Add timeline to flow dashboard
+4. Show action details and timestamps
+
+**UI Component**:
+```tsx
+<ActivityTimeline 
+  activities={userActivities}
+  onActivityClick={handleActivityClick}
+/>
+```
+
+**Testing Instructions**:
+```bash
+# Test activity timeline
+npm run test -- --testPathPattern=activity-timeline
+
+# Test timeline display
+# Execute suggestions and verify they appear in timeline
+```
+
+**Expected Result**: 
+- Activity timeline displays in UI
+- Shows executed suggestions and undo operations
+- Timeline updates in real-time
+
+---
+
+#### Prompt 5.5: Create Safety Confirmation Modal
+**Goal**: Add safety confirmations for destructive actions.
+
+**Atomic Change**:
+1. Create `frontend/src/components/ui/safety-confirmation-modal.tsx` component
+2. Add confirmation for bulk delete actions
+3. Show affected email count and details
+4. Add safety warnings and explanations
+
+**UI Component**:
+```tsx
+<SafetyConfirmationModal 
+  action={suggestion}
+  onConfirm={handleConfirm}
+  onCancel={handleCancel}
+/>
+```
+
+**Testing Instructions**:
+```bash
+# Test safety modal
+npm run test -- --testPathPattern=safety-confirmation
+
+# Test UI manually
+# Try to execute destructive action and verify confirmation
+```
+
+**Expected Result**: 
+- Safety confirmations for destructive actions
+- Clear warnings about what will happen
+- Users can cancel before execution
+
+---
+
+### Increment 6: "Mobile Experience" - Responsive Design & PWA
+**User Value**: Users can manage emails effectively on mobile devices with a native app-like experience.
+
+#### Prompt 6.1: Add Responsive Design to Flow Components
+**Goal**: Make flow dashboard work well on mobile.
+
+**Atomic Change**:
+1. Add responsive breakpoints to flow components
+2. Implement mobile-friendly navigation
+3. Optimize email cards for touch interaction
+4. Add mobile-specific styling
+
+**Testing Instructions**:
+```bash
+# Test responsive design
+npm run test -- --testPathPattern=responsive
+
+# Test on mobile device
+# Open flow dashboard on mobile and verify usability
+```
+
+**Expected Result**: 
+- Flow dashboard works well on mobile
+- Touch interactions are smooth
+- UI adapts to different screen sizes
+
+---
+
+#### Prompt 6.2: Add Touch Gestures
+**Goal**: Implement swipe gestures for email actions.
+
+**Atomic Change**:
+1. Create `frontend/src/components/ui/touch-gestures.tsx` component
+2. Add swipe left/right for email actions
+3. Implement gesture recognition
+4. Add haptic feedback for mobile
+
+**Testing Instructions**:
+```bash
+# Test touch gestures
+npm run test -- --testPathPattern=touch-gestures
+
+# Test on mobile device
+# Verify swipe gestures work correctly
+```
+
+**Expected Result**: 
+- Swipe gestures work on mobile
+- Haptic feedback provides confirmation
+- Gestures are intuitive and responsive
+
+---
+
+#### Prompt 6.3: Create PWA Manifest
+**Goal**: Make FlowMail installable as a PWA.
+
+**Atomic Change**:
+1. Create `frontend/public/manifest.json` for PWA
+2. Add app icons and splash screens
+3. Configure PWA settings
+4. Add service worker for offline capability
+
+**Testing Instructions**:
+```bash
+# Test PWA installation
+# Install FlowMail as PWA and verify functionality
+
+# Run Lighthouse PWA audit
+npx lighthouse --only-categories=pwa
+```
+
+**Expected Result**: 
+- FlowMail can be installed as PWA
+- App icons and splash screens work
+- Offline capability functional
+
+---
+
+#### Prompt 6.4: Add Offline Email Viewing
+**Goal**: Allow users to view emails when offline.
+
+**Atomic Change**:
+1. Implement service worker for email caching
+2. Add offline email viewing capability
+3. Cache recently viewed emails
+4. Add offline status indicators
+
+**Testing Instructions**:
+```bash
+# Test offline functionality
+# Disconnect internet and verify offline viewing works
+
+# Test service worker
+# Verify emails are cached and accessible offline
+```
+
+**Expected Result**: 
+- Can view cached emails offline
+- Offline status clearly indicated
+- Smooth transition between online/offline
+
+---
+
+#### Prompt 6.5: Optimize Mobile Performance
+**Goal**: Ensure fast performance on mobile devices.
+
+**Atomic Change**:
 1. Implement virtual scrolling for large email lists
-2. Add API response caching and optimization
-3. Optimize database queries for flow buckets
-4. Add comprehensive integration tests
-5. Implement performance monitoring
-6. Add accessibility testing and fixes
-7. Create end-to-end tests for complete user flows
-8. Optimize bundle size and loading performance
+2. Optimize images and assets for mobile
+3. Add lazy loading for email content
+4. Optimize bundle size for mobile
 
-**Performance Targets**:
-- API response time <200ms median
-- Page load time <2 seconds
-- Smooth scrolling with 1000+ emails
-- Mobile performance score ≥90
+**Testing Instructions**:
+```bash
+# Test mobile performance
+# Run performance tests on mobile device
 
-**Testing Requirements**:
-- Unit test coverage ≥90% for all new code
-- Integration tests for all API endpoints
-- End-to-end tests for complete user flows
-- Accessibility tests (WCAG 2.1 AA compliance)
-- Performance tests for load testing
+# Test virtual scrolling
+# Verify smooth scrolling with 1000+ emails
+```
 
-**Verification**:
-- Run all test suites and ensure 100% pass
-- Verify performance targets are met
-- Test accessibility compliance
-- Run load tests with realistic data
-- Verify mobile performance targets
-
-**Best Practices**:
-- Use React.memo and useMemo for performance
-- Implement proper error boundaries
-- Add comprehensive logging and monitoring
-- Follow testing best practices
-- Use performance profiling tools
-
----
-
-### Prompt 9: Documentation and Deployment
-
-**Goal**: Create comprehensive documentation and prepare FlowMail for production deployment.
-
-**Context**:
-- FlowMail is fully implemented and tested
-- Need to create documentation and deployment procedures
-- Should prepare for user onboarding
-
-**Tasks**:
-1. Create user documentation and onboarding flow
-2. Write API documentation for new endpoints
-3. Create deployment guide and procedures
-4. Add monitoring and alerting setup
-5. Create user feedback collection system
-6. Prepare marketing materials and feature descriptions
-7. Set up analytics and user tracking
-8. Create rollback procedures
-
-**Documentation Requirements**:
-- User guide for FlowMail features
-- API documentation for developers
-- Deployment and operations guide
-- Troubleshooting and FAQ
-- Feature comparison with existing Email Agent
-
-**Deployment Requirements**:
-- Production deployment procedures
-- Database migration scripts
-- Monitoring and alerting setup
-- Backup and recovery procedures
-- Rollback procedures for each component
-
-**Verification**:
-- Test deployment procedures in staging
-- Verify all documentation is accurate
-- Test monitoring and alerting
-- Verify backup and recovery procedures
-- Test rollback procedures
-
-**Best Practices**:
-- Use clear, concise documentation
-- Include code examples where helpful
-- Add troubleshooting sections
-- Follow deployment best practices
-- Implement proper monitoring and alerting
+**Expected Result**: 
+- Fast loading on mobile devices
+- Smooth scrolling performance
+- Optimized bundle size
 
 ---
 
@@ -450,14 +935,16 @@
 ### Technical Metrics
 - API latency <200ms median
 - Test coverage ≥90% for new components
-- Lighthouse PWA score ≥90
-- WCAG 2.1 AA accessibility compliance
+- Each increment can be completed and tested independently
+- No regressions in existing functionality
+- Mobile performance score ≥90
 
 ### User Experience Metrics
 - Undo rate ≤5% of automated actions
 - Suggestion acceptance ≥70% for high-confidence suggestions
 - Flow mode adoption: 30% Manual → 50% Assist → 20% Auto
 - User retention ≥80% weekly active users
+- Mobile usage ≥40% of total usage
 
 ### Business Metrics
 - Time to value <5 minutes from first login
@@ -481,35 +968,74 @@
 - Add flow_mode to User model
 - Extend email_operations with flow tracking
 - Create flow-specific UI components
+- Add ML/GenAI provider interfaces
 
 ### Backward Compatibility
 - All existing Email Agent features remain functional
 - Users can switch between traditional and flow views
 - Existing categories and rules continue to work
 - Gradual migration path for existing users
+- ML/GenAI features are opt-in
 
 ---
 
 ## ✅ Definition of Done
 
-### Phase Completion Criteria
-1. **Attention Scoring**: All emails have attention_score, API endpoints working
-2. **Flow Buckets**: NOW/LATER/REFERENCE buckets functional with counts
-3. **Flow Modes**: Manual/Assist/Auto modes working with suggestions
-4. **UI Dashboard**: Complete flow interface with mobile support
-5. **Activity Timeline**: Full undo capability with Gmail sync
-6. **Production Ready**: All tests passing, performance optimized
+### Increment Completion Criteria
+1. **Increment 1**: Users can see attention scores on all emails
+2. **Increment 2**: Users can organize emails into NOW/LATER/REFERENCE buckets
+3. **Increment 3**: Users get intelligent action suggestions
+4. **Increment 4**: Users get AI-powered insights and explanations
+5. **Increment 5**: Users can safely execute actions with undo capability
+6. **Increment 6**: Users have excellent mobile experience with PWA
 
 ### End-to-End Success Criteria
-- ✅ User can OAuth and see flow buckets immediately
-- ✅ Attention scoring provides meaningful email prioritization
-- ✅ Suggestions appear in Assist mode and can be accepted/rejected
-- ✅ Auto mode executes high-confidence actions safely
-- ✅ All actions can be undone within 7 days
-- ✅ Mobile experience is smooth and responsive
+- ✅ User can OAuth and immediately see email priorities
+- ✅ User can organize emails into NOW/LATER/REFERENCE buckets
+- ✅ User gets intelligent suggestions for bulk actions
+- ✅ User gets AI-powered insights and explanations
+- ✅ User can safely execute actions with full undo capability
+- ✅ User has excellent experience on mobile devices
 - ✅ Performance meets all KPI targets
 
 ---
 
-*Each prompt is designed to be executed independently in a new chat session. The coding agent should read the memory bank files to understand the current Email Agent infrastructure before implementing each phase.*
+## 🧪 Testing Strategy
+
+### For Each Increment
+1. **Backend Tests**: Unit and integration tests for new functionality
+2. **Frontend Tests**: Component and integration tests for UI
+3. **Manual Testing**: Complete user journey testing
+4. **Regression Tests**: Ensure no existing functionality breaks
+5. **Performance Tests**: Verify performance targets are met
+
+### Test Commands
+```bash
+# Run all backend tests
+pytest backend/tests/ -v
+
+# Run all frontend tests
+npm run test
+
+# Run specific test suites
+pytest backend/tests/test_attention_scoring.py -v
+npm run test -- --testPathPattern=flow
+
+# Run with coverage
+pytest backend/tests/ --cov=backend/app --cov-report=html
+npm run test -- --coverage
+```
+
+### Manual Testing Checklist
+For each increment, manually test:
+- [ ] Complete user journey from start to finish
+- [ ] All UI interactions work as expected
+- [ ] Error states are handled gracefully
+- [ ] Performance is acceptable
+- [ ] Mobile experience is good (if applicable)
+- [ ] No regressions in existing functionality
+
+---
+
+*Each increment is designed to be completed independently and provides immediate user value. The coding agent should read the memory bank files to understand the current Email Agent infrastructure before implementing each increment. Each increment should be thoroughly tested and approved before moving to the next one.*
 
