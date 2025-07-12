@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, JSON, ForeignKey, Index, Integer
+from sqlalchemy import Column, String, DateTime, Boolean, JSON, ForeignKey, Index, Integer, Float
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,6 +22,7 @@ class Email(Base):
         is_read: Whether email has been read
         is_processed: Whether email has been processed by our system
         importance_score: Calculated importance (0-100)
+        attention_score: Calculated attention urgency (0.0-100.0)
         category: Classified category (promotional, social, primary, etc.)
         raw_data: Complete email data for future processing
         is_dirty: Flag indicating if the email needs to be reprocessed
@@ -41,6 +42,7 @@ class Email(Base):
     is_read = Column(Boolean, default=False)
     is_processed = Column(Boolean, default=False)
     importance_score = Column(Integer)
+    attention_score = Column(Float, default=0.0, nullable=False)
     category = Column(String)
     raw_data = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -59,4 +61,5 @@ class Email(Base):
         Index('ix_emails_user_id_received_at', user_id, received_at.desc()),
         Index('ix_emails_gmail_id', gmail_id),
         Index('ix_emails_category', category),
+        Index('ix_emails_attention_score', attention_score),
     ) 
