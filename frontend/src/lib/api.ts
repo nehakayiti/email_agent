@@ -13,6 +13,7 @@ export interface Email {
     is_read: boolean;
     is_processed: boolean;
     importance_score: number;
+    attention_score: number;
     category: string;
     raw_data?: any;
     created_at: string;
@@ -39,6 +40,58 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 if (!API_URL) {
     throw new Error('NEXT_PUBLIC_API_URL environment variable is not set');
 }
+
+// Test mode mock data
+const createMockEmails = (): Email[] => [
+    {
+        id: 'test-email-1',
+        gmail_id: 'mock_gmail_1',
+        thread_id: 'mock_thread_1',
+        subject: 'Test Email with High Attention',
+        from_email: 'important@example.com',
+        received_at: new Date().toISOString(),
+        snippet: 'This is a test email with high attention score...',
+        labels: ['IMPORTANT', 'UNREAD'],
+        is_read: false,
+        is_processed: true,
+        importance_score: 85,
+        attention_score: 95, // High attention score for testing
+        category: 'Important',
+        created_at: new Date().toISOString(),
+    },
+    {
+        id: 'test-email-2',
+        gmail_id: 'mock_gmail_2',
+        thread_id: 'mock_thread_2',
+        subject: 'Test Email with Medium Attention',
+        from_email: 'medium@example.com',
+        received_at: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+        snippet: 'This is a test email with medium attention score...',
+        labels: ['STARRED'],
+        is_read: true,
+        is_processed: true,
+        importance_score: 60,
+        attention_score: 70, // Medium attention score for testing
+        category: 'Work',
+        created_at: new Date(Date.now() - 86400000).toISOString(),
+    },
+    {
+        id: 'test-email-3',
+        gmail_id: 'mock_gmail_3',
+        thread_id: 'mock_thread_3',
+        subject: 'Test Email with Low Attention',
+        from_email: 'low@example.com',
+        received_at: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+        snippet: 'This is a test email with low attention score...',
+        labels: [],
+        is_read: true,
+        is_processed: true,
+        importance_score: 30,
+        attention_score: 50, // Low attention score for testing
+        category: 'Newsletter',
+        created_at: new Date(Date.now() - 172800000).toISOString(),
+    },
+];
 
 function isEmailArray(data: unknown): data is Email[] {
     return Array.isArray(data) && data.every(item => 
@@ -87,6 +140,50 @@ const checkAuthToken = () => {
 };
 
 export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = {}): Promise<T | null> {
+    // Debug: Log the test mode environment variable
+    console.log('Test mode check:', {
+        NEXT_PUBLIC_TEST_MODE: process.env.NEXT_PUBLIC_TEST_MODE,
+        isTestMode: process.env.NEXT_PUBLIC_TEST_MODE === 'true'
+    });
+    
+    // In test mode, return mock data for certain endpoints
+    if (process.env.NEXT_PUBLIC_TEST_MODE === 'true') {
+        console.log(`Test mode: Mocking API request to ${endpoint}`);
+        
+        // Mock emails endpoint
+        if (endpoint.startsWith('/emails')) {
+            const mockEmails = createMockEmails();
+            const mockResponse: EmailsResponse = {
+                emails: mockEmails,
+                pagination: {
+                    total: mockEmails.length,
+                    limit: 20,
+                    current_page: 1,
+                    total_pages: 1,
+                    has_next: false,
+                    has_previous: false,
+                    next_page: null,
+                    previous_page: null,
+                }
+            };
+            return mockResponse as T;
+        }
+        
+        // Mock categories endpoint
+        if (endpoint.startsWith('/categories')) {
+            return {
+                data: [
+                    { id: 1, name: 'Important', display_name: 'Important', description: 'Important emails', priority: 1, is_system: true, keyword_count: 5, sender_rule_count: 3 },
+                    { id: 2, name: 'Work', display_name: 'Work', description: 'Work-related emails', priority: 2, is_system: true, keyword_count: 3, sender_rule_count: 2 },
+                    { id: 3, name: 'Newsletter', display_name: 'Newsletter', description: 'Newsletter emails', priority: 3, is_system: true, keyword_count: 2, sender_rule_count: 1 },
+                ]
+            } as T;
+        }
+        
+        // For other endpoints, return a generic success response
+        return { status: 'success', message: 'Test mode response' } as T;
+    }
+    
     const token = getToken();
     
     if (!token) {

@@ -7,6 +7,7 @@ import { IframeEmailViewer } from '@/components/ui/iframe-email-viewer';
 import { showSuccessToast, showErrorToast, showLoadingToast, dismissAllToasts } from '@/utils/toast-config';
 import { mapLabelsToComponents } from '@/components/ui/email-label';
 import { useCategoryContext } from '@/lib/category-context';
+import { AttentionScoreBadge } from '@/components/ui/attention-score-badge';
 
 function decodeBase64Url(str: string): string {
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -197,9 +198,19 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
   }, [email.labels]);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6">
+    <div className="bg-white rounded-lg shadow-md p-6" data-testid="email-detail">
       <h1 className="text-xl font-bold mb-2">{email.subject}</h1>
       <p className="mb-2 text-gray-700">From: {email.from_email}</p>
+      
+      {/* Attention Score Display */}
+      <div className="mb-4" data-testid="attention-score-detail">
+        <span className="font-semibold mr-2">Attention Score:</span>
+        <AttentionScoreBadge 
+          score={email.attention_score || 0} 
+          size="md" 
+          className="inline-flex"
+        />
+      </div>
 
       {email.labels.includes('TRASH') && (
         <div className="my-3 px-4 py-3 bg-red-50 border-l-4 border-red-500 text-red-700">

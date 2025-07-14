@@ -6,6 +6,7 @@ import { EmailLabel, mapLabelsToComponents } from '@/components/ui/email-label';
 import { toast } from 'react-hot-toast';
 import { showSuccessToast, showErrorToast, showLoadingToast, dismissAllToasts } from '@/utils/toast-config';
 import { useCategoryContext } from '@/lib/category-context';
+import { AttentionScoreBadge } from '@/components/ui/attention-score-badge';
 
 // Filter out system labels and get the primary category label for display
 function getPrimaryDisplayLabel(labels: string[]): string | null {
@@ -423,6 +424,13 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
           
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {/* Attention score badge */}
+              <AttentionScoreBadge 
+                score={email.attention_score || 0} 
+                size="sm" 
+                className="flex-shrink-0"
+              />
+              
               {/* Category badge */}
               <div className="relative">
                 <div 
@@ -595,13 +603,19 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
   
   // If there's a click handler, don't wrap with Link
   if (onClick) {
-    return emailContent;
+    return (
+      <div data-testid="email-card">
+        {emailContent}
+      </div>
+    );
   }
   
   // Otherwise, wrap with Link for navigation
   return (
     <Link href={`/emails/${email.id}`} className="block">
-      {emailContent}
+      <div data-testid="email-card">
+        {emailContent}
+      </div>
     </Link>
   );
 } 

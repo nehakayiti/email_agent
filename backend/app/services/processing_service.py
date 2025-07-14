@@ -13,6 +13,7 @@ from sqlalchemy import and_
 from ..models.email import Email
 from ..models.user import User
 from ..models.email_sync import EmailSync
+from ..services.attention_scoring import calculate_attention_score
 from uuid import UUID
 import uuid
 
@@ -131,6 +132,11 @@ def process_and_store_emails(
                 existing_email.raw_data = email_data.get('raw_data')
                 existing_email.is_processed = True
                 
+                # Calculate attention score for updated email
+                attention_score = calculate_attention_score(existing_email)
+                existing_email.attention_score = attention_score
+                logger.debug(f"[PROCESSOR] Updated existing email: {gmail_id} with attention score: {attention_score}")
+                
                 processed_emails.append(existing_email)
                 updated_emails_count += 1
                 logger.debug(f"[PROCESSOR] Updated existing email: {gmail_id}")
@@ -152,6 +158,11 @@ def process_and_store_emails(
                     category=email_data.get('category'),  # Will be set by categorization service
                     raw_data=email_data.get('raw_data')
                 )
+                
+                # Calculate attention score for new email
+                attention_score = calculate_attention_score(new_email)
+                new_email.attention_score = attention_score
+                logger.debug(f"[PROCESSOR] Created new email: {gmail_id} with attention score: {attention_score}")
                 
                 db.add(new_email)
                 processed_emails.append(new_email)
@@ -292,11 +303,17 @@ def process_label_changes(db: Session, user: User, label_changes: Dict[str, Dict
                 
         if changed:
             email.labels = list(current_labels)
+            
+            # Recalculate attention score when labels change
+            attention_score = calculate_attention_score(email)
+            email.attention_score = attention_score
+            logger.debug(f"[PROCESSOR] Updated email {gmail_id} attention score to {attention_score} due to label changes")
+            
             updated_count += 1
             
     if updated_count > 0:
         db.commit()
-        logger.info(f"[PROCESSOR] Updated {updated_count} emails due to label changes")
+        logger.info(f"[PROCESSOR] Updated {updated_count} emails due to label changes (with attention score recalculation)")
         
     return updated_count
 

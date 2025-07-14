@@ -1,4 +1,13 @@
 export const initiateGoogleLogin = () => {
+    // In test mode, bypass OAuth and create a mock token
+    if (process.env.NEXT_PUBLIC_TEST_MODE === 'true') {
+        const mockToken = 'test_token_' + Date.now();
+        setToken(mockToken);
+        // Redirect to emails page instead of OAuth
+        window.location.href = '/emails';
+        return;
+    }
+    
     window.location.href = `${process.env.NEXT_PUBLIC_API_URL}/auth/login`;
 };
 
@@ -48,19 +57,24 @@ export const isAuthenticated = (): boolean => {
 
 export const logout = async () => {
     try {
-        // Call the backend logout endpoint
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${getToken()}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (!response.ok) {
-            console.error('Logout failed:', response.statusText);
+        // In test mode, skip backend logout call
+        if (process.env.NEXT_PUBLIC_TEST_MODE === 'true') {
+            console.log('Test mode: skipping backend logout');
         } else {
-            console.log('Logged out successfully');
+            // Call the backend logout endpoint
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/logout`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${getToken()}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                console.error('Logout failed:', response.statusText);
+            } else {
+                console.log('Logged out successfully');
+            }
         }
     } catch (error) {
         console.error('Logout error:', error);
