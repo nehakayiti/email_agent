@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import LoginButton from '@/components/login-button';
+import LoginButton from '@/components/common/login-button';
 import { isAuthenticated, handleAuthError } from '@/lib/auth';
 
 export default function Home() {
