@@ -170,13 +170,71 @@ export async function fetchWithAuth<T>(endpoint: string, options: RequestInit = 
         }
         
         // Mock categories endpoint
-        if (endpoint.startsWith('/categories')) {
+        if (endpoint.startsWith('/email-management/categories')) {
+            return [
+                { id: 1, name: 'Important', display_name: 'Important', description: 'Important emails', priority: 1, is_system: true, keyword_count: 5, sender_rule_count: 3 },
+                { id: 2, name: 'Work', display_name: 'Work', description: 'Work-related emails', priority: 2, is_system: true, keyword_count: 3, sender_rule_count: 2 },
+                { id: 3, name: 'Newsletter', display_name: 'Newsletter', description: 'Newsletter emails', priority: 3, is_system: true, keyword_count: 2, sender_rule_count: 1 },
+            ] as T;
+        }
+        
+        // Mock action rules endpoint
+        if (endpoint.startsWith('/action-management/action-rules')) {
+            return [] as T;
+        }
+        
+        // Mock action rule for specific category
+        if (endpoint.includes('/action-management/categories/') && endpoint.includes('/action-rule')) {
+            return null as T; // No action rule for this category
+        }
+        
+        // Mock classifier status endpoint
+        if (endpoint.startsWith('/email-management/classifier/status')) {
             return {
-                data: [
-                    { id: 1, name: 'Important', display_name: 'Important', description: 'Important emails', priority: 1, is_system: true, keyword_count: 5, sender_rule_count: 3 },
-                    { id: 2, name: 'Work', display_name: 'Work', description: 'Work-related emails', priority: 2, is_system: true, keyword_count: 3, sender_rule_count: 2 },
-                    { id: 3, name: 'Newsletter', display_name: 'Newsletter', description: 'Newsletter emails', priority: 3, is_system: true, keyword_count: 2, sender_rule_count: 1 },
-                ]
+                is_model_available: true,
+                training_data_count: 100,
+                last_trained: new Date().toISOString()
+            } as T;
+        }
+        
+        // Mock category keywords endpoint
+        if (endpoint.includes('/email-management/categories/') && endpoint.includes('/keywords')) {
+            return [] as T;
+        }
+        
+        // Mock category sender rules endpoint
+        if (endpoint.includes('/email-management/categories/') && endpoint.includes('/sender-rules')) {
+            return [] as T;
+        }
+        
+        // Mock sync history endpoint
+        if (endpoint.startsWith('/sync-history')) {
+            return [
+                {
+                    sync_completed_at: new Date().toISOString(),
+                    direction: 'inbound',
+                    status: 'success',
+                    emails_synced: 0,
+                    changes_applied: 0
+                }
+            ] as T;
+        }
+        
+        // Mock sync details endpoint
+        if (endpoint.startsWith('/sync-details')) {
+            return {
+                sync_completed_at: new Date().toISOString(),
+                direction: 'inbound',
+                duration_sec: 5,
+                emails_synced: 0,
+                changes_detected: 0,
+                changes_applied: 0,
+                pending_ea_changes: [],
+                sync_type: 'manual',
+                account_email: 'test@example.com',
+                backend_version: '1.0.0',
+                data_freshness_sec: 0,
+                status: 'success'
             } as T;
         }
         
