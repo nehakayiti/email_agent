@@ -98,6 +98,7 @@ function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
           onChange={(e) => setName(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
           className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
           placeholder="e.g. work_emails"
+          data-testid="category-name-input"
           required
         />
       </div>
@@ -112,6 +113,7 @@ function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
           onChange={(e) => setDisplayName(e.target.value)}
           className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
           placeholder="e.g. Work Emails"
+          data-testid="category-display-name-input"
           required
         />
       </div>
@@ -126,6 +128,7 @@ function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
           className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
           placeholder="Optional description"
           rows={3}
+          data-testid="category-description-input"
         />
       </div>
       
@@ -147,6 +150,7 @@ function NewCategoryForm({ onAddSuccess }: { onAddSuccess: () => void }) {
         type="submit"
         disabled={isSubmitting || !name || !displayName}
         className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded disabled:opacity-50"
+        data-testid="save-category-btn"
       >
         {isSubmitting ? 'Creating...' : 'Create Category'}
       </button>
@@ -353,7 +357,7 @@ function CategoriesImprovedPageContent() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-8" data-testid="categories-page">
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold mb-2">Email Categories</h1>
@@ -391,6 +395,7 @@ function CategoriesImprovedPageContent() {
               <button
                 onClick={() => setShowNewCategoryForm(!showNewCategoryForm)}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1 px-3 rounded text-sm"
+                data-testid="add-category-btn"
               >
                 {showNewCategoryForm ? 'Cancel' : 'Add New'}
               </button>

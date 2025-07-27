@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
+import uuid
 
 from ..db import get_db
 from ..models.user import User
@@ -26,6 +27,60 @@ class UserProfile(BaseModel):
     name: str
     created_at: datetime
     last_sign_in: Optional[datetime] = None
+
+class TestUserCreate(BaseModel):
+    """Test user creation model for frontend testing"""
+    email: EmailStr
+    name: str
+    credentials: Dict[str, Any]
+
+@router.post("/", response_model=UserProfile)
+async def create_test_user(
+    user_data: TestUserCreate,
+    db: Session = Depends(get_db)
+):
+    """
+    Create a test user for frontend testing purposes.
+    This endpoint is only available in test mode.
+    """
+    # Check if we're in test mode
+    import os
+    if os.getenv('TEST_MODE') != 'true':
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Endpoint not found"
+        )
+    
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.email == user_data.email).first()
+    if existing_user:
+        return {
+            "email": existing_user.email,
+            "name": existing_user.name,
+            "created_at": existing_user.created_at,
+            "last_sign_in": existing_user.last_sign_in
+        }
+    
+    # Create new test user
+    test_user = User(
+        id=uuid.uuid4(),
+        email=user_data.email,
+        name=user_data.name,
+        credentials=user_data.credentials
+    )
+    
+    db.add(test_user)
+    db.commit()
+    db.refresh(test_user)
+    
+    logger.info(f"Created test user: {test_user.email}")
+    
+    return {
+        "email": test_user.email,
+        "name": test_user.name,
+        "created_at": test_user.created_at,
+        "last_sign_in": test_user.last_sign_in
+    }
 
 @router.get("/me", response_model=UserProfile)
 async def get_current_user_profile(

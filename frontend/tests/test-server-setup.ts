@@ -29,6 +29,7 @@ export class BackendTestServer {
       PORT: this.config.port.toString(),
       CORS_ORIGINS: 'http://localhost:3000,http://localhost:3001',
       ENVIRONMENT: 'test',
+      TEST_MODE: 'true',
     };
 
     // Start the backend server using uvicorn
