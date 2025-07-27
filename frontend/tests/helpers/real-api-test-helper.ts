@@ -123,39 +123,42 @@ export class RealApiTestHelper {
   }
 
   /**
-   * Clean up test data
+   * Clean up test data after tests
    */
   async cleanupTestData(): Promise<void> {
-    if (!this.testUser) return;
-
-    // Clean up test categories
-    const categoriesResponse = await fetch(`${this.baseUrl}/email-management/categories`, {
-      headers: {
-        'Authorization': `Bearer ${this.testUser.token}`
-      }
-    });
-
-    if (categoriesResponse.ok) {
-      const categories = await categoriesResponse.json();
-      for (const category of categories.data || []) {
-        if (category.name.startsWith('test_')) {
-          await fetch(`${this.baseUrl}/email-management/categories/${category.name}`, {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${this.testUser.token}`
-            }
-          });
-        }
-      }
+    if (!this.testUser) {
+      return;
     }
 
-    // Clean up test user
-    await fetch(`${this.baseUrl}/users/${this.testUser.id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${this.testUser.token}`
+    try {
+      // Clean up test categories
+      const categoriesResponse = await fetch(`${this.baseUrl}/email-management/categories`, {
+        headers: {
+          'Authorization': `Bearer ${this.testUser.token}`
+        }
+      });
+
+      if (categoriesResponse.ok) {
+        const categories = await categoriesResponse.json();
+        // Delete any test categories created during the test
+        for (const category of categories.data || []) {
+          if (category.name.startsWith('test_')) {
+            await fetch(`${this.baseUrl}/email-management/categories/${category.name}`, {
+              method: 'DELETE',
+              headers: {
+                'Authorization': `Bearer ${this.testUser.token}`
+              }
+            });
+          }
+        }
       }
-    });
+    } catch (error) {
+      // Silently ignore cleanup errors - backend might not be running
+      console.log('Cleanup warning: Backend not available for cleanup');
+    }
+
+    // Reset test user
+    this.testUser = null;
   }
 
   /**
