@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "e2e": "npx playwright test",
+    "e2e": "npx playwright test --config=playwright.config.test-server.ts",
     "test:real-api": "npx playwright test --config=playwright.config.test-server.ts",
     "test:real-api:headed": "npx playwright test --config=playwright.config.test-server.ts --headed",
     "test:real-api:debug": "npx playwright test --config=playwright.config.test-server.ts --debug"
