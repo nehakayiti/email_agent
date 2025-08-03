@@ -7,11 +7,18 @@ export interface TestUser {
 }
 
 export class RealApiTestHelper {
-  private baseUrl: string;
-  private testUser: TestUser | null = null;
+  private static instance: RealApiTestHelper;
+  private baseUrl: string = 'http://localhost:5001'; // Add baseUrl property
+  private testUser: any = null;
+  private authToken: string = '';
 
-  constructor(baseUrl: string = 'http://localhost:8001') {
-    this.baseUrl = baseUrl;
+  private constructor() {}
+
+  static getInstance(): RealApiTestHelper {
+    if (!RealApiTestHelper.instance) {
+      RealApiTestHelper.instance = new RealApiTestHelper();
+    }
+    return RealApiTestHelper.instance;
   }
 
   /**
@@ -30,31 +37,37 @@ export class RealApiTestHelper {
       token
     };
 
+    // Set the auth token in localStorage for the current session
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('auth_token', token);
+    }
+
     return this.testUser;
   }
 
   /**
    * Setup page for testing with real API
    */
-  async setupPage(page: Page, user?: TestUser): Promise<TestUser> {
+  async setupPage(page: Page, user?: TestUser): Promise<void> {
     const testUser = user || this.testUser || await this.createTestUser();
-
-    // Configure environment variables
-    await page.addInitScript(() => {
+    
+    // Set the API URL to point to the test backend server
+    await page.addInitScript((token: string) => {
+      // Override the API URL to use the test server
+      window.localStorage.setItem('api_url', 'http://localhost:5001');
+      window.localStorage.setItem('test_mode', 'true');
+      
+      // Set test mode environment variable
       (window as any).process = { 
         env: { 
-          NEXT_PUBLIC_API_URL: 'http://localhost:8001',
-          NEXT_PUBLIC_TEST_MODE: 'false'
+          NEXT_PUBLIC_API_URL: 'http://localhost:5001',
+          NEXT_PUBLIC_TEST_MODE: 'true'
         } 
       };
-    });
-
-    // Set auth token
-    await page.addInitScript((token) => {
-      localStorage.setItem('auth_token', token);
+      
+      // Set the auth token for testing
+      window.localStorage.setItem('auth_token', token);
     }, testUser.token);
-
-    return testUser;
   }
 
   /**
@@ -170,4 +183,4 @@ export class RealApiTestHelper {
 }
 
 // Export a singleton instance
-export const realApiHelper = new RealApiTestHelper(); 
+export const realApiHelper = RealApiTestHelper.getInstance(); 

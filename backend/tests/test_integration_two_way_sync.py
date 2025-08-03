@@ -55,7 +55,7 @@ class TestTwoWaySyncIntegration:
         """
         # Skip if no real credentials
         if not test_user.credentials.get('refresh_token') or test_user.credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         # Clear any existing emails for this user
         db.query(Email).filter(Email.user_id == test_user.id).delete()
@@ -113,7 +113,7 @@ class TestTwoWaySyncIntegration:
         """
         # Skip if no real credentials
         if not test_user.credentials.get('refresh_token') or test_user.credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         # Clear any existing emails and operations for this user
         db.query(EmailOperation).filter(EmailOperation.user_id == test_user.id).delete()
@@ -224,7 +224,7 @@ class TestTwoWaySyncIntegration:
         """
         # Skip if no real credentials
         if not test_user.credentials.get('refresh_token') or test_user.credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         # Clear any existing operations for this user
         db.query(EmailOperation).filter(EmailOperation.user_id == test_user.id).delete()
@@ -287,7 +287,7 @@ class TestTwoWaySyncIntegration:
         """
         # Skip if no real credentials
         if not test_user.credentials.get('refresh_token') or test_user.credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         # Clear any existing operations for this user
         db.query(EmailOperation).filter(EmailOperation.user_id == test_user.id).delete()
@@ -352,7 +352,7 @@ class TestTwoWaySyncIntegration:
         """
         # Skip if no real credentials
         if not test_user.credentials.get('refresh_token') or test_user.credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         # Clear any existing operations for this user
         db.query(EmailOperation).filter(EmailOperation.user_id == test_user.id).delete()

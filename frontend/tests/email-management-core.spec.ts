@@ -3,8 +3,8 @@ import { realApiHelper } from './helpers/real-api-test-helper';
 
 test.describe('Email Management Core Features', () => {
   test.beforeEach(async ({ page }) => {
-    await realApiHelper.setupPage(page);
-    await realApiHelper.createTestUser();
+    const testUser = await realApiHelper.createTestUser();
+    await realApiHelper.setupPage(page, testUser);
   });
 
   test.afterEach(async () => {
@@ -126,4 +126,4 @@ test.describe('Email Management Core Features', () => {
       }
     });
   });
-}); 
+});

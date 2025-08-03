@@ -47,13 +47,20 @@ def generate_test_credentials(email=None, password=None):
     """
     # Strategy 1: Environment tokens (real API access)
     if os.getenv('GOOGLE_REFRESH_TOKEN'):
-        return {
+        credentials = {
             'client_id': os.getenv('GOOGLE_CLIENT_ID'),
             'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
             'refresh_token': os.getenv('GOOGLE_REFRESH_TOKEN'),
             'token': os.getenv('GOOGLE_ACCESS_TOKEN', ''),  # Always provide token key
             'token_uri': 'https://oauth2.googleapis.com/token',
         }
+        
+        # Test credentials validity
+        if not _test_credentials_validity(credentials):
+            print_credential_refresh_instructions()
+            return generate_mock_credentials()
+        
+        return credentials
     
     # Strategy 2: Service account (enterprise)
     if os.getenv('GOOGLE_SERVICE_ACCOUNT_KEY'):
@@ -104,6 +111,125 @@ def generate_mock_credentials():
         'token': 'mock_access_token',
         'token_uri': 'https://oauth2.googleapis.com/token',
     }
+
+def _test_credentials_validity(credentials):
+    """Test if credentials are valid by attempting to refresh the token."""
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        
+        # Create credentials object
+        creds = Credentials(
+            token=credentials.get('token'),
+            refresh_token=credentials.get('refresh_token'),
+            token_uri=credentials.get('token_uri'),
+            client_id=credentials.get('client_id'),
+            client_secret=credentials.get('client_secret')
+        )
+        
+        # Try to refresh the token
+        creds.refresh(Request())
+        return True
+        
+    except Exception as e:
+        error_str = str(e).lower()
+        if 'invalid_grant' in error_str:
+            print(f"\n❌ CREDENTIAL ERROR: Refresh token has expired or been revoked")
+            return False
+        elif 'client_id' in error_str or 'client_secret' in error_str:
+            print(f"\n❌ CREDENTIAL ERROR: Invalid client credentials")
+            return False
+        else:
+            print(f"\n❌ CREDENTIAL ERROR: {e}")
+            return False
+
+def print_credential_refresh_instructions():
+    """Print clear instructions for refreshing Gmail test credentials."""
+    client_id = os.getenv('GOOGLE_CLIENT_ID', 'YOUR_CLIENT_ID')
+    client_secret = os.getenv('GOOGLE_CLIENT_SECRET', 'YOUR_CLIENT_SECRET')
+    redirect_uri = os.getenv('GOOGLE_REDIRECT_URI', 'http://localhost:5001/auth/callback')
+    
+    print("\n" + "="*80)
+    print("🔑 GMAIL TEST CREDENTIALS NEED REFRESH")
+    print("="*80)
+    print()
+    print("Your Gmail API refresh token has expired. To fix this:")
+    print()
+    print("1️⃣  Get authorization URL - visit in browser:")
+    print(f"   https://accounts.google.com/o/oauth2/auth?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&scope=https://www.googleapis.com/auth/gmail.readonly%20https://www.googleapis.com/auth/gmail.modify&access_type=offline&prompt=consent")
+    print()
+    print("2️⃣  Sign in with:")
+    print(f"   📧 Email: {os.getenv('TEST_GMAIL_EMAIL', 'emailagenttester@gmail.com')}")
+    print()
+    print("3️⃣  Copy authorization code from redirect URL (ignore connection error)")
+    print()
+    print("4️⃣  Exchange code for token:")
+    print('   curl -X POST https://oauth2.googleapis.com/token \\')
+    print('     -H "Content-Type: application/x-www-form-urlencoded" \\')
+    print(f'     -d "client_id={client_id}" \\')
+    print(f'     -d "client_secret={client_secret}" \\')
+    print('     -d "code=YOUR_AUTHORIZATION_CODE" \\')
+    print('     -d "grant_type=authorization_code" \\')
+    print(f'     -d "redirect_uri={redirect_uri}"')
+    print()
+    print("5️⃣  Update GOOGLE_REFRESH_TOKEN in .env.test with refresh_token from response")
+    print()
+    print("6️⃣  Re-run your tests:")
+    print("   pytest tests/test_gmail_integration.py -v")
+    print("   make refresh-gmail-credentials  # (if available)")
+    print()
+    print("💡 Refresh tokens expire after 7 days of inactivity or if revoked")
+    print("="*80)
+    print()
+
+def _should_validate_gmail_credentials():
+    """Check if we should validate Gmail credentials based on test selection."""
+    import sys
+    
+    # Check command line arguments for Gmail-related tests
+    args = ' '.join(sys.argv)
+    gmail_indicators = [
+        'gmail',
+        'test_gmail_integration.py',
+        'test_integration_two_way_sync.py',
+        'TestGmailAPIIntegration',
+        'TestEmailSyncIntegration',
+        'TestTwoWaySyncIntegration'
+    ]
+    
+    return any(indicator in args for indicator in gmail_indicators)
+
+@pytest.fixture(scope="session", autouse=True)
+def validate_gmail_credentials_early():
+    """
+    Session-scoped fixture that validates Gmail credentials before any tests run.
+    If credentials are invalid, it will cause pytest to exit immediately with clear instructions.
+    """
+    # Only validate if we're running Gmail integration tests
+    if not _should_validate_gmail_credentials():
+        return  # Skip validation for non-Gmail tests
+    
+    print("\n🔍 Validating Gmail credentials before running tests...")
+    
+    # Check if we have environment credentials
+    if not os.getenv('GOOGLE_REFRESH_TOKEN'):
+        print("⚠️  No Gmail credentials found - tests will use mock credentials")
+        return
+    
+    # Test credential validity
+    credentials = {
+        'client_id': os.getenv('GOOGLE_CLIENT_ID'),
+        'client_secret': os.getenv('GOOGLE_CLIENT_SECRET'),
+        'refresh_token': os.getenv('GOOGLE_REFRESH_TOKEN'),
+        'token': os.getenv('GOOGLE_ACCESS_TOKEN', ''),
+        'token_uri': 'https://oauth2.googleapis.com/token',
+    }
+    
+    if not _test_credentials_validity(credentials):
+        print_credential_refresh_instructions()
+        print("❌ TESTS ABORTED: Fix credentials first, then re-run tests")
+        print("="*80)
+        pytest.exit("Gmail credentials are invalid. Please refresh them and try again.", returncode=1)
 
 def run_alembic_migrations():
     """Run Alembic migrations on the test database"""

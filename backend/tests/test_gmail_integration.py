@@ -54,7 +54,7 @@ class TestGmailAPIIntegration:
         """
         # Skip this test if we don't have real credentials
         if not test_credentials.get('refresh_token') or test_credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         try:
             # Test 1: Create Gmail service
@@ -151,7 +151,7 @@ class TestEmailSyncIntegration:
         """
         # Skip if no real credentials
         if not test_user.credentials.get('refresh_token') or test_user.credentials['refresh_token'] == 'mock_refresh_token':
-            pytest.skip("No real Gmail test credentials available")
+            pytest.skip("No real Gmail test credentials available - run 'python refresh_test_credentials.py' to set up")
         
         # Clear any existing emails for this user
         db.query(Email).filter(Email.user_id == test_user.id).delete()

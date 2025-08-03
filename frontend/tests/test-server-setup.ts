@@ -32,15 +32,23 @@ export class BackendTestServer {
       TEST_MODE: 'true',
     };
 
-    // Start the backend server using uvicorn
-    this.process = spawn('uvicorn', [
+    // Start the backend server using uvicorn with virtual environment
+    const backendPath = path.join(process.cwd(), '../backend');
+    const venvPath = path.join(process.cwd(), '../venv');
+    
+    // Use the virtual environment's Python and uvicorn
+    const pythonPath = path.join(venvPath, 'bin', 'python');
+    const uvicornPath = path.join(venvPath, 'bin', 'uvicorn');
+    
+    this.process = spawn(pythonPath, [
+      uvicornPath,
       'app.main:app',
       '--host', '0.0.0.0',
       '--port', this.config.port.toString(),
       '--reload',
       '--env-file', '.env.test'
     ], {
-      cwd: path.join(process.cwd(), '../backend'),
+      cwd: backendPath,
       env,
       stdio: 'pipe'
     });
@@ -67,17 +75,19 @@ export class BackendTestServer {
   }
 
   private async waitForServer(): Promise<void> {
-    const maxAttempts = 30;
+    const maxAttempts = 60; // Increased from 30 to 60
     const delay = 1000;
 
     for (let i = 0; i < maxAttempts; i++) {
       try {
+        console.log(`Attempting to connect to ${this.config.baseUrl}/health (attempt ${i + 1}/${maxAttempts})`);
         const response = await fetch(`${this.config.baseUrl}/health`);
         if (response.ok) {
+          console.log('✅ Health check successful');
           return;
         }
       } catch (error) {
-        // Server not ready yet
+        console.log(`❌ Health check failed (attempt ${i + 1}/${maxAttempts}):`, error);
       }
       
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -91,11 +101,11 @@ export class BackendTestServer {
   }
 }
 
-// Default test server configuration
+// Default test server configuration - updated to match .env.test
 export const defaultTestConfig: TestServerConfig = {
-  port: 8001, // Use a different port than the main server
+  port: 5001, // Changed from 8001 to 5001 to match .env.test
   databaseUrl: 'postgresql://postgres:postgres@localhost:5432/email_agent_test_db',
-  baseUrl: 'http://localhost:8001'
+  baseUrl: 'http://localhost:5001'
 };
 
 // Global test server instance
