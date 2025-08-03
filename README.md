@@ -6,7 +6,7 @@ An intelligent email management system that helps users organize, prioritize, an
 
 ## 🎯 Project Overview
 
-Email Agent is a modern web application that integrates with Gmail to provide smart email management features. It uses machine learning to categorize emails, assign importance scores, and help users focus on what matters most.
+Email Agent is a modern web application that integrates with Gmail to provide smart email management features. It uses AI/ML to categorize emails, assign importance scores, and help users focus on what matters most.
 
 ### Key Features
 
@@ -24,7 +24,7 @@ The project consists of two main components:
 ### Backend (FastAPI)
 - RESTful API service
 - Gmail API integration
-- Machine learning models for email analysis
+- Machine learning models & LLMs for email analysis
 - PostgreSQL database for email storage
 - JWT authentication
 
