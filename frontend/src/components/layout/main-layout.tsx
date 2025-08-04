@@ -285,15 +285,15 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     return () => window.removeEventListener(EMAIL_SYNC_COMPLETED_EVENT, handler);
   }, []);
 
-  const handleSync = async () => {
+  const handleSync = async (forceFullSync: boolean = false) => {
     if (isSyncing || !isAuthenticated()) return;
     
     try {
       setIsSyncing(true);
-      setSyncMessage('Syncing emails...');
+      setSyncMessage(forceFullSync ? 'Performing full sync of all emails...' : 'Syncing emails...');
       setSyncStatus(null);
       
-      const response = await triggerEmailSync();
+      const response = await triggerEmailSync(forceFullSync);
       
       // Check for success based on the response structure
       if (response.success || response.status === 'success') {
@@ -668,6 +668,17 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
                 onLogin={handleAuthError}
                 details={details}
               />
+              {/* Temporary Full Sync Button */}
+              {isAuthenticated() && (
+                <button
+                  onClick={() => handleSync(true)}
+                  disabled={isSyncing}
+                  className="px-3 py-1 text-xs bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50 mr-2"
+                  title="Force full sync of all emails from Gmail"
+                >
+                  {isSyncing ? 'Syncing...' : 'Full Sync'}
+                </button>
+              )}
               {isAuthenticated() ? (
                 <LogoutButton handleLogout={handleLogout} isLoggingOut={isLoggingOut} />
               ) : (

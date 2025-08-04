@@ -565,12 +565,17 @@ export interface SyncResponse {
   new_email_count?: number;
 }
 
-export async function triggerEmailSync() {
+export async function triggerEmailSync(forceFullSync: boolean = false) {
     const token = checkAuthToken();
     if (!token) return null;
 
     try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/emails/sync`, {
+        const url = new URL(`${process.env.NEXT_PUBLIC_API_URL}/emails/sync`);
+        if (forceFullSync) {
+            url.searchParams.set('force_full_sync', 'true');
+        }
+        
+        const response = await fetch(url.toString(), {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,

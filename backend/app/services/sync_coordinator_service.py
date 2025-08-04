@@ -142,9 +142,12 @@ async def sync_emails_since_last_fetch(
     history_id = email_sync.last_history_id
     logger.info(f"Using history ID: {history_id}")
     
-    # If no history ID is available, perform a full sync
-    if not history_id:
-        logger.info(f"No history ID available, performing full sync")
+    # If no history ID is available or force_full_sync is True, perform a full sync
+    if not history_id or force_full_sync:
+        if force_full_sync:
+            logger.info(f"Force full sync requested, performing full sync")
+        else:
+            logger.info(f"No history ID available, performing full sync")
         return await perform_full_sync(db, user)
     
     # Fetch changes from Gmail
@@ -317,7 +320,7 @@ async def perform_full_sync(db: Session, user: User) -> Dict[str, Any]:
         logger.info(f"[SYNC] Fetching emails from Gmail...")
         emails_data = await gmail_service.fetch_emails_from_gmail(
             credentials, 
-            max_results=100,  # Limit for full sync
+            max_results=1000,  # Increased limit for full sync to capture historical emails
             on_credentials_refresh=on_credentials_refresh
         )
         
