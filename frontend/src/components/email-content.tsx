@@ -7,7 +7,7 @@ import { IframeEmailViewer } from '@/components/ui/iframe-email-viewer';
 import { showSuccessToast, showErrorToast, showLoadingToast, dismissAllToasts } from '@/utils/toast-config';
 import { mapLabelsToComponents } from '@/components/ui/email-label';
 import { useCategoryContext } from '@/lib/category-context';
-import { AttentionScoreBadge } from '@/components/ui/attention-score-badge';
+import { AttentionScoreDetails } from '@/components/ui/attention-score-details';
 
 function decodeBase64Url(str: string): string {
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -205,8 +205,10 @@ export function EmailContent({ email, onLabelsUpdated }: EmailContentProps) {
       {/* Attention Score Display */}
       <div className="mb-4" data-testid="attention-score-detail">
         <span className="font-semibold mr-2">Attention Score:</span>
-        <AttentionScoreBadge 
-          score={email.attention_score || 0} 
+        <AttentionScoreDetails 
+          score={email.attention_score || 0}
+          isRead={email.is_read}
+          labels={email.labels || []}
           size="md" 
           className="inline-flex"
         />

@@ -1,0 +1,66 @@
+name: Feature
+description: Propose or implement a feature/increment with clear scope and tests
+title: "feat: <short title>"
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: Describe the change at a high level. Keep it small and shippable.
+      placeholder: e.g., Add Flow Buckets API (NOW/LATER/REFERENCE) with counts
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: User value, problem statement, and constraints.
+      placeholder: e.g., Users need urgency-based organization to triage faster
+    validations:
+      required: true
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: Convert the goal into verifiable outcomes.
+      options:
+        - label: API/UX covers the defined scope only
+        - label: Tests added and passing (unit/integration/e2e as applicable)
+        - label: No regressions in CI (lint, build, tests)
+        - label: Edge cases documented and handled
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution Outline
+      description: Brief design; list files/modules you will touch.
+      placeholder: "backend/app/services/..., backend/app/routers/..., frontend/src/components/..."
+  - type: textarea
+    id: tests_to_build
+    attributes:
+      label: Tests To Build
+      description: New tests to add (unit/integration/e2e) with rough cases.
+      placeholder: e.g., test_flow_buckets_service.py — NOW/LATER/REFERENCE boundaries
+  - type: textarea
+    id: tests_to_validate
+    attributes:
+      label: Tests To Validate
+      description: Existing tests impacted; manual checks or smoke tests.
+      placeholder: e.g., Frontend build, basic navigation, API docs reachable
+  - type: textarea
+    id: edge_cases
+    attributes:
+      label: Edge Cases
+      description: List tricky scenarios to consider.
+      placeholder: Empty results, pagination bounds, stale data, auth failures
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies/Blocking
+      description: Linked issues, migrations, secrets, feature flags.
+  - type: textarea
+    id: rollout
+    attributes:
+      label: Rollout/Backout Plan
+      description: Deploy steps, toggles, and how to revert safely.
+

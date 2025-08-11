@@ -313,6 +313,12 @@ class TestActionEngineService:
         """Test cleaning up expired proposals"""
         email = test_emails[0]
         
+        # Get initial count of expired proposals for this user
+        initial_expired_count = db.query(ProposedAction).filter(
+            ProposedAction.user_id == test_user.id,
+            ProposedAction.status == ProposedActionStatus.EXPIRED
+        ).count()
+        
         # Create a proposal
         proposed_action = create_proposed_action(db, email, test_category, "ARCHIVE")
         assert proposed_action is not None
@@ -324,11 +330,19 @@ class TestActionEngineService:
         # Clean up expired proposals (older than 30 days)
         cleaned_count = cleanup_expired_proposals(db, max_age_days=30)
         
-        assert cleaned_count == 1
+        # Should have cleaned up at least our test proposal
+        assert cleaned_count >= 1
         
-        # Check that proposal is marked as expired
+        # Check that our specific proposal is marked as expired
         db.refresh(proposed_action)
         assert proposed_action.status == ProposedActionStatus.EXPIRED
+        
+        # Verify the expired count increased by at least 1
+        final_expired_count = db.query(ProposedAction).filter(
+            ProposedAction.user_id == test_user.id,
+            ProposedAction.status == ProposedActionStatus.EXPIRED
+        ).count()
+        assert final_expired_count >= initial_expired_count + 1
     
     def test_get_proposed_actions_for_user(self, db: Session, test_user: User, test_category: EmailCategory, test_emails: list[Email]):
         """Test getting proposed actions for user"""

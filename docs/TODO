@@ -44,10 +44,10 @@
 
 ## 🛠 User Value Increments
 
-### Increment 1: "See Your Email Priority" - Basic Attention Scoring
+### Increment 1: "See Your Email Priority" - Basic Attention Scoring [COMPLETED]
 **User Value**: Users can immediately see which emails need their attention based on smart scoring.
 
-#### Prompt 1.1: Add Attention Score Database Field
+#### Prompt 1.1: Add Attention Score Database Field [DONE]
 **Goal**: Add database foundation for attention scoring.
 
 **Atomic Change**:
@@ -74,7 +74,7 @@ pytest backend/tests/ -v
 
 ---
 
-#### Prompt 1.2: Create Basic Attention Scoring Service
+#### Prompt 1.2: Create Basic Attention Scoring Service [DONE]
 **Goal**: Implement simple heuristic-based attention scoring.
 
 **Atomic Change**:
@@ -115,7 +115,7 @@ from backend.app.models.email import Email
 
 ---
 
-#### Prompt 1.3: Integrate Attention Scoring into Email Sync
+#### Prompt 1.3: Integrate Attention Scoring into Email Sync [DONE]
 **Goal**: Calculate attention scores for new emails during sync.
 
 **Atomic Change**:
@@ -139,7 +139,7 @@ pytest backend/tests/test_email_sync_service.py -v
 
 ---
 
-#### Prompt 1.4: Add Attention Score to Email API Response
+#### Prompt 1.4: Add Attention Score to Email API Response [DONE]
 **Goal**: Expose attention scores via existing email API.
 
 **Atomic Change**:
@@ -164,7 +164,7 @@ curl -X GET "http://localhost:8000/emails" \
 
 ---
 
-#### Prompt 1.5: Create Attention Score Display Component
+#### Prompt 1.5: Create Attention Score Display Component [DONE]
 **Goal**: Show attention scores in existing email UI.
 
 **Atomic Change**:
@@ -195,6 +195,24 @@ npm run test -- --testPathPattern=attention-score
 ---
 
 ### Increment 2: "Organize by Urgency" - Flow Buckets
+Small, production-safe steps to deliver value and keep CI green.
+
+#### Prompt 2.0: Bucket Classification Service (no endpoints)
+**Goal**: Isolate and test bucket rules before wiring APIs.
+
+**Atomic Change**:
+1. Create `backend/app/services/flow_buckets.py` with pure functions:
+   - `classify_bucket(email) -> Literal["now","later","reference"]`
+   - `query_bucket(session, bucket, limit, offset)` (no HTTP)
+2. Unit tests for classification and query composition in `backend/tests/test_flow_buckets_service.py`.
+
+**Testing Instructions**:
+```bash
+cd backend && ./run_tests.sh -f test_flow_buckets_service.py -v
+```
+
+**Expected Result**:
+- Deterministic bucket rules covered by tests; no API surface yet.
 **User Value**: Users can organize emails into NOW/LATER/REFERENCE buckets based on attention scores.
 
 #### Prompt 2.1: Create Flow Buckets API
@@ -202,8 +220,8 @@ npm run test -- --testPathPattern=attention-score
 
 **Atomic Change**:
 1. Create `backend/app/routers/flow_buckets.py` router
-2. Implement bucket logic: NOW (attention≥70 & unread), LATER (attention≥30 OR high attention & read), REFERENCE (attention<30 & not trash)
-3. Add bucket counts endpoint
+2. Use service from 2.0 (no logic in router)
+3. Implement endpoints; defer pagination to query params `limit`/`offset`
 
 **API Endpoints**:
 ```
@@ -215,12 +233,8 @@ GET /flow/bucket-counts
 
 **Testing Instructions**:
 ```bash
-# Test bucket endpoints
 pytest backend/tests/test_flow_buckets.py -v
-
-# Test endpoints manually
-curl -X GET "http://localhost:8000/flow/bucket-counts" \
-  -H "Authorization: Bearer YOUR_TOKEN"
+curl -sS http://localhost:8000/flow/bucket-counts
 ```
 
 **Expected Result**: 
@@ -299,6 +313,19 @@ npm run test -- --testPathPattern=flow-email-list
 ---
 
 #### Prompt 2.4: Create Flow Dashboard Page
+
+---
+
+### CI Note for Increment 2 (Minimal)
+**Goal**: Keep CI fast and relevant to this increment.
+
+**Atomic Change**:
+1. Tag new backend tests with `@pytest.mark.flow` as needed.
+2. Ensure CI runs `pytest -k "not gmail and not integration"` (already configured) and includes new tests.
+3. Optionally add a path filter so backend job runs on `backend/**` changes.
+
+**Expected Result**:
+- Flow buckets tests run in CI without flakiness or external dependencies.
 **Goal**: Combine bucket navigation and email list into complete dashboard.
 
 **Atomic Change**:
@@ -1038,4 +1065,3 @@ For each increment, manually test:
 ---
 
 *Each increment is designed to be completed independently and provides immediate user value. The coding agent should read the memory bank files to understand the current Email Agent infrastructure before implementing each increment. Each increment should be thoroughly tested and approved before moving to the next one.*
-

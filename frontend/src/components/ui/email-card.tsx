@@ -6,7 +6,7 @@ import { EmailLabel, mapLabelsToComponents } from '@/components/ui/email-label';
 import { toast } from 'react-hot-toast';
 import { showSuccessToast, showErrorToast, showLoadingToast, dismissAllToasts } from '@/utils/toast-config';
 import { useCategoryContext } from '@/lib/category-context';
-import { AttentionScoreBadge } from '@/components/ui/attention-score-badge';
+import { AttentionScoreDetails } from '@/components/ui/attention-score-details';
 
 // Filter out system labels and get the primary category label for display
 function getPrimaryDisplayLabel(labels: string[]): string | null {
@@ -424,9 +424,11 @@ export function EmailCard({ email, onClick, isDeleted = false, onLabelsUpdated }
           
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {/* Attention score badge */}
-              <AttentionScoreBadge 
-                score={email.attention_score || 0} 
+              {/* Attention score badge with details */}
+              <AttentionScoreDetails 
+                score={email.attention_score || 0}
+                isRead={email.is_read}
+                labels={email.labels || []}
                 size="sm" 
                 className="flex-shrink-0"
               />

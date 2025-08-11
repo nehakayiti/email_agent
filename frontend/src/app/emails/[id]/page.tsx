@@ -1,15 +1,14 @@
 import EmailDetail from '@/components/email-detail';
 
 interface EmailPageProps {
-    params: {
+    params: Promise<{
         id: string;
-    };
+    }>;
 }
 
 export default async function EmailPage({ params }: EmailPageProps) {
-    // We need to use Promise.resolve to properly handle params in Next.js App Router
-    // This fixes the "params should be awaited" error
-    const resolvedParams = await Promise.resolve(params);
+    // In Next.js 15, params is a Promise that needs to be awaited
+    const resolvedParams = await params;
     const id = resolvedParams.id;
     
     return <EmailDetail emailId={id} />;

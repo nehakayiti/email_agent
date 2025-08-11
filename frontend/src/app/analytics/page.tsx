@@ -1,6 +1,5 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import SentimentChart from '@/components/analytics/sentiment-chart';
 import ResponseTimeChart from '@/components/analytics/response-time-chart';
 import VolumeChart from '@/components/analytics/volume-chart';
