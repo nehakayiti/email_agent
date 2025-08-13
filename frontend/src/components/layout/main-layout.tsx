@@ -19,7 +19,8 @@ import {
   NewspaperIcon,
   ChatBubbleLeftRightIcon,
   ArrowRightOnRectangleIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  RectangleStackIcon
 } from '@heroicons/react/24/outline';
 import { isAuthenticated, handleAuthError, logout, initiateGoogleLogin } from '@/lib/auth';
 import { triggerEmailSync, Category, getLatestSyncDetails, getSyncHistory } from '@/lib/api';
@@ -42,6 +43,7 @@ const baseNavigation: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: HomeIcon, type: 'link', section: 'main' },
   { name: 'Inbox', href: '/emails?view=inbox', icon: InboxIcon, type: 'link', section: 'main' },
   { name: 'All Mail', href: '/emails', icon: EnvelopeIcon, type: 'link', section: 'main' },
+  { name: 'FlowMail', href: '/flow', icon: RectangleStackIcon, type: 'link', section: 'main' },
   
   // Email Status
   { name: 'Unread', href: '/emails?status=unread', icon: EnvelopeIcon, type: 'link', section: 'filters' },

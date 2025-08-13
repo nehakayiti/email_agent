@@ -1265,4 +1265,132 @@ export async function getProposedActionsStats(): Promise<{
   }>('/proposed-actions/stats');
   if (!response) throw new Error('Failed to get proposed actions stats');
   return response;
+}
+
+// Flow Buckets Types and Interfaces
+export type BucketType = 'now' | 'later' | 'reference';
+
+export interface BucketCounts {
+  now: number;
+  later: number;
+  reference: number;
+}
+
+export interface BucketSummary {
+  buckets: BucketCounts;
+  percentages: { now: number; later: number; reference: number };
+  total_emails: number;
+  classification_rules: {
+    now: string;
+    later: string;
+    reference: string;
+  };
+}
+
+export interface FlowEmail {
+  id: string;
+  gmail_id: string;
+  subject: string | null;
+  from_email: string | null;
+  received_at: string | null;
+  snippet: string | null;
+  labels: string[] | null;
+  is_read: boolean;
+  attention_score: number;
+  category: string | null;
+}
+
+// Flow Buckets API Functions
+export async function getBucketCounts(): Promise<BucketCounts> {
+  // In test mode, return mock data
+  if (process.env.NEXT_PUBLIC_TEST_MODE === 'true') {
+    console.log('Test mode: Mocking bucket counts');
+    return {
+      now: 5,
+      later: 12,
+      reference: 45
+    };
+  }
+
+  const response = await fetchWithAuth<BucketCounts>('/flow/bucket-counts');
+  if (!response) throw new Error('Failed to get bucket counts');
+  return response;
+}
+
+export async function getBucketSummary(): Promise<BucketSummary> {
+  // In test mode, return mock data
+  if (process.env.NEXT_PUBLIC_TEST_MODE === 'true') {
+    console.log('Test mode: Mocking bucket summary');
+    return {
+      buckets: { now: 10, later: 20, reference: 70 },
+      percentages: { now: 10.0, later: 20.0, reference: 70.0 },
+      total_emails: 100,
+      classification_rules: {
+        now: "attention_score >= 60 (High priority)",
+        later: "30 <= attention_score < 60 (Medium priority)",
+        reference: "attention_score < 30 (Low priority)"
+      }
+    };
+  }
+
+  const response = await fetchWithAuth<BucketSummary>('/flow/bucket-summary');
+  if (!response) throw new Error('Failed to get bucket summary');
+  return response;
+}
+
+export async function getBucketEmails(
+  bucket: BucketType,
+  limit: number = 50,
+  offset: number = 0,
+  orderBy: string = 'attention_score'
+): Promise<FlowEmail[]> {
+  // In test mode, return mock data based on bucket
+  if (process.env.NEXT_PUBLIC_TEST_MODE === 'true') {
+    console.log(`Test mode: Mocking ${bucket} bucket emails`);
+    
+    const createMockFlowEmails = (bucketType: BucketType): FlowEmail[] => {
+      const baseEmails = createMockEmails();
+      return baseEmails.map((email, index) => {
+        let score: number;
+        switch (bucketType) {
+          case 'now':
+            score = 75 + Math.random() * 25; // 75-100
+            break;
+          case 'later':
+            score = 30 + Math.random() * 30; // 30-60
+            break;
+          case 'reference':
+            score = Math.random() * 30; // 0-30
+            break;
+        }
+        
+        return {
+          id: email.id,
+          gmail_id: email.gmail_id,
+          subject: email.subject,
+          from_email: email.from_email,
+          received_at: email.received_at,
+          snippet: email.snippet,
+          labels: email.labels,
+          is_read: email.is_read,
+          attention_score: Math.round(score * 10) / 10,
+          category: email.category,
+        };
+      }).slice(0, limit);
+    };
+    
+    return createMockFlowEmails(bucket);
+  }
+
+  const queryParams = new URLSearchParams();
+  queryParams.append('limit', limit.toString());
+  queryParams.append('offset', offset.toString());
+  queryParams.append('order_by', orderBy);
+
+  const queryString = queryParams.toString();
+  const endpoint = `/flow/buckets/${bucket}?${queryString}`;
+  
+  const response = await fetchWithAuth<FlowEmail[]>(endpoint);
+  if (!response) throw new Error(`Failed to get ${bucket} bucket emails`);
+  return response;
 } 

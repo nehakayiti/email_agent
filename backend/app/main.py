@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings, get_settings
 # Import routers from __init__.py
-from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router, ml_router, action_management_router, proposed_actions_router, impersonate, sync_details
+from .routers import auth_router, users_router, emails_router, analytics_router, email_management_router, ml_router, action_management_router, proposed_actions_router, flow_buckets_router, impersonate, sync_details
 from .db import engine, Base
 # Import models to ensure they're registered with SQLAlchemy
 from .models.user import User
@@ -123,6 +123,9 @@ app.include_router(
 # Add Action Engine routes
 app.include_router(action_management_router)
 app.include_router(proposed_actions_router)
+
+# Add Flow Buckets routes
+app.include_router(flow_buckets_router)
 
 @app.get("/health")
 async def health_check():
