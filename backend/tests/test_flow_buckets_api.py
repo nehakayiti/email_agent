@@ -44,7 +44,7 @@ class TestFlowBucketsAPI:
         # Mock email data
         mock_emails = [
             Mock(
-                id="email-1",
+                id="550e8400-e29b-41d4-a716-446655440001",  # Valid UUID
                 gmail_id="gmail-1",
                 subject="Urgent: Meeting Today",
                 from_email="boss@company.com",
@@ -56,7 +56,7 @@ class TestFlowBucketsAPI:
                 category="Important"
             ),
             Mock(
-                id="email-2", 
+                id="550e8400-e29b-41d4-a716-446655440002",  # Valid UUID 
                 gmail_id="gmail-2",
                 subject="High Priority Task",
                 from_email="project@company.com",
@@ -92,7 +92,7 @@ class TestFlowBucketsAPI:
         """Test getting LATER bucket emails."""
         mock_emails = [
             Mock(
-                id="email-3",
+                id="550e8400-e29b-41d4-a716-446655440003",  # Valid UUID
                 gmail_id="gmail-3", 
                 subject="Newsletter Update",
                 from_email="news@example.com",
@@ -256,7 +256,7 @@ class TestEmailResponseModel:
         
         # Create a mock email that behaves like an ORM model
         mock_email = Mock()
-        mock_email.id = "test-email-id"
+        mock_email.id = "550e8400-e29b-41d4-a716-446655440000"  # Valid UUID
         mock_email.gmail_id = "gmail-123"
         mock_email.subject = "Test Subject"
         mock_email.from_email = "test@example.com"
@@ -282,7 +282,7 @@ class TestEmailResponseModel:
             category=mock_email.category
         )
         
-        assert response.id == "test-email-id"
+        assert str(response.id) == "550e8400-e29b-41d4-a716-446655440000"
         assert response.attention_score == 75.5
         assert response.labels == ["INBOX", "UNREAD"]
         assert response.is_read is False

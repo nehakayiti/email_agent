@@ -4,12 +4,20 @@ Flow Buckets Service
 This module provides pure functions for classifying emails into flow buckets
 and querying emails by bucket type. These functions operate on email data
 and attention scores to organize emails by urgency.
+
+ENHANCED: Now uses the new enhanced attention scoring system for better
+email prioritization and more accurate bucket classification.
 """
 
+import logging
+from datetime import datetime
 from typing import Literal, List, Dict, Any, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc, and_
 from app.models.email import Email
+from app.services.enhanced_attention_scoring import calculate_enhanced_attention_score, calculate_scores_batch
+
+logger = logging.getLogger(__name__)
 
 BucketType = Literal["now", "later", "reference"]
 
@@ -71,6 +79,11 @@ def query_bucket_emails(
     """
     Query emails in a specific bucket for a user.
     
+    IMPORTANT: This function now prioritizes consistency between bucket counts
+    and email retrieval by using stored attention scores for bucket filtering.
+    Fresh scores are calculated for display purposes only but don't affect
+    which bucket an email is shown in.
+    
     Args:
         session: SQLAlchemy database session
         user_id: ID of the user to query emails for
@@ -84,36 +97,85 @@ def query_bucket_emails(
         
     Example:
         >>> emails = query_bucket_emails(session, user_id=1, bucket="now", limit=10)
-        >>> len(emails)  # Up to 10 high-priority emails
+        >>> len(emails)  # Up to 10 high-priority emails based on stored scores
     """
-    # Define score ranges for each bucket
+    logger.debug(f"[FLOW_BUCKETS] Querying {bucket} bucket for user {user_id}, limit={limit}, offset={offset}")
+    
     bucket_filters = {
         "now": Email.attention_score >= 60.0,
         "later": and_(Email.attention_score >= 30.0, Email.attention_score < 60.0),
         "reference": Email.attention_score < 30.0
     }
     
-    # Base query for user's emails in the bucket
-    query = session.query(Email).filter(
+    # Base query for user's emails in the bucket (using stored scores for consistency)
+    base_query = session.query(Email).filter(
         Email.user_id == user_id,
         bucket_filters[bucket]
     )
     
-    # Add ordering
+    # Apply ordering
     if order_by == "attention_score":
-        query = query.order_by(desc(Email.attention_score))
+        base_query = base_query.order_by(desc(Email.attention_score))
     elif order_by == "date":
-        query = query.order_by(desc(Email.received_at))
+        base_query = base_query.order_by(desc(Email.received_at))
     elif order_by == "subject":
-        query = query.order_by(asc(Email.subject))
-    else:
-        # Default to attention score if invalid order_by
-        query = query.order_by(desc(Email.attention_score))
+        base_query = base_query.order_by(asc(Email.subject))
     
     # Apply pagination
-    query = query.offset(offset).limit(limit)
+    base_query = base_query.offset(offset).limit(limit)
+    emails = base_query.all()
     
-    return query.all()
+    if not emails:
+        logger.debug(f"[FLOW_BUCKETS] No emails found for {bucket} bucket")
+        return []
+    
+    # Calculate fresh scores for display purposes (but don't filter by them)
+    try:
+        logger.debug(f"[FLOW_BUCKETS] Calculating fresh scores for {len(emails)} emails (display only)")
+        fresh_scores = calculate_scores_batch(emails)
+        
+        # Update email objects with fresh scores for display (temporary, not persisted)
+        for email in emails:
+            email_id = str(email.id)
+            if email_id in fresh_scores:
+                fresh_score = fresh_scores[email_id]
+                # Store fresh score for display purposes
+                email._current_attention_score = fresh_score
+                logger.debug(f"[FLOW_BUCKETS] Email {email_id}: stored={email.attention_score:.1f}, fresh={fresh_score:.1f}")
+        
+        # Re-sort by fresh scores if attention_score ordering was requested
+        if order_by == "attention_score":
+            emails.sort(key=lambda e: getattr(e, '_current_attention_score', e.attention_score), reverse=True)
+        
+        logger.info(f"[FLOW_BUCKETS] Returning {len(emails)} emails for {bucket} bucket with fresh scores")
+        return emails
+        
+    except Exception as e:
+        logger.error(f"[FLOW_BUCKETS] Error calculating fresh scores, using stored scores: {e}")
+        # Fallback to stored scores only
+        logger.info(f"[FLOW_BUCKETS] Returning {len(emails)} emails for {bucket} bucket (stored scores only)")
+        return emails
+
+
+def _email_belongs_in_bucket(score: float, bucket: BucketType) -> bool:
+    """
+    Check if an email with the given score belongs in the specified bucket.
+    
+    Args:
+        score: Attention score (0-100)
+        bucket: Bucket type to check
+        
+    Returns:
+        True if email belongs in bucket, False otherwise
+    """
+    if bucket == "now":
+        return score >= 60.0
+    elif bucket == "later":
+        return 30.0 <= score < 60.0
+    elif bucket == "reference":
+        return score < 30.0
+    else:
+        return False
 
 
 def get_bucket_counts(session: Session, user_id: int) -> Dict[BucketType, int]:
