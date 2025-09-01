@@ -172,6 +172,13 @@ async def sync_emails_since_last_fetch(
         
         emails_checked = len(new_emails_raw)  # Track all emails fetched from Gmail
         
+        # Check for potential history gap issue: if we have a significant time gap 
+        # since last sync but got no new emails, this might indicate history retention issues
+        sync_gap_hours = (datetime.now(timezone.utc) - email_sync.last_fetched_at).total_seconds() / 3600
+        if sync_gap_hours > 24 and len(new_emails_raw) == 0 and new_history_id != email_sync.last_history_id:
+            logger.warning(f"[SYNC] Large sync gap ({sync_gap_hours:.1f} hours) with no new emails detected. "
+                         f"This may indicate history retention issues. Consider manual full sync if recent emails are missing.")
+        
         # If we got a valid history ID back, process the results
         if new_history_id and new_history_id != email_sync.last_history_id:
             logger.info(f"History ID changed: {email_sync.last_history_id} → {new_history_id}")
@@ -267,6 +274,13 @@ async def sync_emails_since_last_fetch(
             }
     
     except Exception as e:
+        error_msg = str(e)
+        
+        # Check if the error is due to expired/invalid history ID
+        if "Invalid startHistoryId" in error_msg or "History ID too old" in error_msg:
+            logger.warning(f"[SYNC] History ID expired/invalid, falling back to full sync: {error_msg}")
+            return await perform_full_sync(db, user)
+        
         logger.error(f"[SYNC] Error during incremental sync: {str(e)}", exc_info=True)
         return {
             "status": "error",

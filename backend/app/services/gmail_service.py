@@ -186,11 +186,16 @@ async def fetch_history_changes(service, history_id: str, max_pages: int = 5) ->
             
             for entry in history_entries:
                 # Process message additions
-                for added in entry.get('messagesAdded', []):
+                messages_added = entry.get('messagesAdded', [])
+                if messages_added:
+                    logger.info(f"[GMAIL] Found {len(messages_added)} messagesAdded in this history entry")
+                
+                for added in messages_added:
                     message = added.get('message', {})
                     gmail_id = message.get('id')
                     
                     if gmail_id:
+                        logger.info(f"[GMAIL] Processing new message {gmail_id}")
                         # Fetch the full message
                         try:
                             message_data = service.users().messages().get(
@@ -202,7 +207,7 @@ async def fetch_history_changes(service, history_id: str, max_pages: int = 5) ->
                             # Process the message data
                             email_data = process_message_data(message_data)
                             new_emails.append(email_data)
-                            logger.debug(f"[GMAIL] Added new email: {gmail_id}")
+                            logger.info(f"[GMAIL] Added new email: {gmail_id} - Subject: {email_data.get('subject', 'No Subject')[:50]}")
                         except Exception as e:
                             logger.error(f"[GMAIL] Error fetching added message {gmail_id}: {str(e)}")
                 
